@@ -25,6 +25,7 @@
 - Treat the Mac desktop raw-data folder as immutable input. Never edit, delete, upload, or commit its contents.
 - Write analysis outputs only to the authorized OneDrive `実験本番_本解析` folder. Do not silently fall back to another output directory.
 - Use only the authorized Google Drive `実験本解析_Codex共有用` folder, primarily for reference. Do not modify its files unless the user explicitly changes this rule.
+- The copied Google Drive spreadsheets have been de-identified and may be inspected without routine approval. Use participant IDs internally only as needed for matching and analysis; do not disclose or persist them unnecessarily.
 - Use and edit only the Notion subtree `研究ワークスペース / SandBox案件_ロート2`.
 - Do not put raw data, personal information, or unnecessary participant identifiers in Git, project documentation, Notion, or user-facing summaries.
 
@@ -39,3 +40,5 @@
 
 - For every day on which analysis work is performed, update the Notion page `解析の記録` with purpose, data scope, methods, results, interpretation, output location, issues, and next steps.
 - Keep observations, interpretations, and hypotheses clearly separated.
+- When a standing operating rule, analysis decision, or project-wide assumption is established, update the relevant checked-in document and the corresponding Notion page during the same task without waiting for a separate request.
+- After any repository documentation or script change, complete validation, commit, push, and remote verification before reporting completion.
