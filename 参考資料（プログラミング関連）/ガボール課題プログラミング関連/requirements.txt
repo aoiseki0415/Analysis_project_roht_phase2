@@ -1,0 +1,8 @@
+# c_gaball_exp1 依存パッケージ
+# インストール: pip install -r requirements.txt
+#
+# 本アプリは EEG を取得しない（Emotiv Cortex API 不使用）ため、
+# websocket-client / python-dispatch / matplotlib への依存は無い。
+
+PyQt5>=5.15.10,<5.16
+numpy>=1.26,<3

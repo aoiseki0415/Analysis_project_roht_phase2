@@ -1,0 +1,53 @@
+{
+  "app_version": "2.0.0",
+  "participant_id": "998",
+  "drop_condition": "control",
+  "date": "20260802",
+  "start_unixtime_ms": 1785638853191,
+  "start_sys_unixtime_ms": 1785638853191,
+  "start_local_time": "2026-08-02 11:47:33.191",
+  "timezone": {
+    "name": "東京 (標準時)",
+    "utc_offset_s": 32400,
+    "utc_offset": "UTC+09:00"
+  },
+  "max_tilt_angle": 10,
+  "trials_per_block": 320,
+  "num_blocks": 6,
+  "practice": {
+    "min_trials": 30,
+    "threshold_ms": 1500,
+    "window": 5
+  },
+  "breaks": {
+    "short_s": 120,
+    "long_s": 300
+  },
+  "clock": {
+    "baseline_offset_ms": 0,
+    "check_interval_s": 60.0,
+    "drift_warn_ms": 100
+  },
+  "eeg": {
+    "software": "EmotivPro (manual export)",
+    "sync_method": "system-clock timestamp matching",
+    "expected_export_basename": "998_control_20260802_114733_eeg",
+    "note": "本アプリは EEG を取得しない。突合には *Sys(ms) 列（OS 壁時計）を使う。"
+  },
+  "calibration": {
+    "monitor_width_px": null,
+    "monitor_width_mm": null,
+    "viewing_distance_mm": 570,
+    "patch_size_deg": 0.68,
+    "spatial_freq_cpd": 4.41,
+    "circle_diameter_mm": 210,
+    "revolution_period_s": 20.0,
+    "geometry": {
+      "calibrated": false,
+      "patch_diameter_px": 40,
+      "cycles_per_patch": 2.5,
+      "radius_px": null,
+      "deg_per_frame": 0.306
+    }
+  }
+}

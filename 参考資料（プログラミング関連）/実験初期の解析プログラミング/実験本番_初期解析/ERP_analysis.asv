@@ -1,0 +1,27 @@
+
+
+folderPath = "/Users/aoiseki/Library/CloudStorage/OneDrive-個人用/デスクトップ/SandBoxプロジェクト/ロート製薬フェーズ2 2026.5/実験リハ解析/rht-mvp01/data/test-001/20260805/behave";
+folderPath2 = '/Users/aoiseki/Library/CloudStorage/OneDrive-個人用/デスクトップ/SandBoxプロジェクト/ロート製薬フェーズ2 2026.5/実験リハ解析/rht-mvp01/EEG Data';
+
+resultPath = '/Users/aoiseki/Library/CloudStorage/OneDrive-個人用/ドキュメント/MATLAB/sandboxロート案件2/練習会解析/結果/';
+
+% フォルダ内のCSV一覧を取得
+files = dir(fullfile(folderPath, "*.csv"));
+
+behav_block1 = readtable(fullfile(files(1).folder, files(1).name));
+behav_block2 = readtable(fullfile(files(1).folder, files(2).name));
+
+
+% フォルダ内のCSV一覧を取得
+files2 = dir(fullfile(folderPath2, "*.csv"));
+EEG = readtable(fullfile(files2(1).folder, files2(1).name));
+
+% behaviorのデータのtimestampは、tiltonset_msとkeypress
+
+%% 
+
+% 一旦、
+
+EEG_time = EEG.Timestamp;
+EEG_time_new = EEG_time * 1000;
+
