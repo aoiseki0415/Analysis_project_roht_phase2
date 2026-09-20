@@ -31,7 +31,7 @@
 
 ## Git completion
 
-- Repository edits and operational-document updates must be completed through commit and push without asking for routine approval.
+- Do not ask the user for routine approval for any in-scope Git operation needed to complete the task, including inspection, status, diff, add, commit, fetch, pull, push, log, and remote verification.
 - Stage explicit paths only. Never include unrelated changes such as the existing `.DS_Store` modification.
 - Run appropriate checks plus `git diff --cached --check` before committing.
 - Report the change to the user only after push succeeds and the remote state has been verified.
