@@ -47,4 +47,7 @@
 
 - Implement the new analysis pipeline in Python, not MATLAB.
 - Treat the existing MATLAB scripts as methodological references only.
-- Do not use Apple's Command Line Tools Python as the project runtime. Use a project-specific Python version and virtual environment once the version is selected and installed.
+- Do not use Apple's Command Line Tools Python as the project runtime.
+- Read `docs/Python環境.md` before changing or running Python code.
+- Use the locked project environment: Python 3.14.7 in `.venv`, managed by the repository-local `.tools/uv/uv`.
+- Keep active analysis scripts in `解析プログラム/`, run checks before commit, and never commit `.venv/` or `.tools/`.

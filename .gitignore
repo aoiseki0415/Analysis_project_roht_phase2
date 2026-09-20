@@ -2,12 +2,15 @@
 .DS_Store
 
 # Python
+.tools/
 .venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
 .ipynb_checkpoints/
+.python-version.local
+*.ses
 
 # Local editor settings
 .vscode/
