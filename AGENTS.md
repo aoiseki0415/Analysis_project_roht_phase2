@@ -42,3 +42,9 @@
 - Keep observations, interpretations, and hypotheses clearly separated.
 - When a standing operating rule, analysis decision, or project-wide assumption is established, update the relevant checked-in document and the corresponding Notion page during the same task without waiting for a separate request.
 - After any repository documentation or script change, complete validation, commit, push, and remote verification before reporting completion.
+
+## Implementation environment
+
+- Implement the new analysis pipeline in Python, not MATLAB.
+- Treat the existing MATLAB scripts as methodological references only.
+- Do not use Apple's Command Line Tools Python as the project runtime. Use a project-specific Python version and virtual environment once the version is selected and installed.
