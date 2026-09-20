@@ -13,7 +13,7 @@
 1. Gitのルートが `/Users/aoiseki/GitHub/Analysis_project_roht_phase2` であること
 2. `origin` が `https://github.com/aoiseki0415/Analysis_project_roht_phase2.git` であること
 3. 操作対象が、このREADMEで許可されたフォルダまたは外部サービス内に限定されていること
-4. 生データ、個人情報、被験者IDをGit・README・Notion・回答へ保存しないこと
+4. 生データと個人情報をGit・README・Notion・回答へ保存しないこと。匿名の被験者IDはGit・README・回答へ記載せず、解析に必要な対応表に限って許可されたNotion内で管理すること
 5. 解析結果の出力先が、指定されたOneDriveフォルダであること
 
 上記を満たせない場合は作業を進めず、現在の状態を利用者へ報告します。
@@ -66,6 +66,7 @@
 - [運用ルール](docs/運用ルール.md)：ツール、フォルダ、機密情報、Git、解析記録に関する恒常ルール
 - [解析方針](docs/解析方針.md)：研究目的、実験設計、比較単位、行動・瞬き・脳活動の大方針
 - [Python環境](docs/Python環境.md)：Python、数値解析ライブラリ、MNE・ICA・ICLabel環境の再現方法と実行方法
+- [入力データ構造](docs/入力データ構造.md)：行動・EEGファイルの一般構造、同期方法、例外処理の原則
 - [MacBook AirへのVS Code導入引き継ぎ](docs/引き継ぎ_VSCode導入_MacBookAir.md)：別デバイスでVS Codeだけを導入するための限定手順
 - 個別解析の仕様書：解析方針が確定した段階で `docs/` 配下へ追加し、このREADMEからリンクする
 
