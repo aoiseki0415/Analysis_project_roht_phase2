@@ -445,12 +445,30 @@ def save_detrend_figure(
     x = np.linspace(0, duration, before_lo.shape[1], endpoint=False)
     fig, axes = plt.subplots(3, 2, figsize=(16, 9), sharex=True)
     for row, ch in enumerate(DISPLAY_CHANNELS):
-        axes[row, 0].fill_between(x, before_lo[row], before_hi[row], linewidth=0, alpha=0.8)
-        axes[row, 1].fill_between(x, after_lo[row], after_hi[row], linewidth=0, alpha=0.8)
-        axes[row, 0].set_ylabel(f"{ch} (µV)")
-        axes[row, 1].set_ylabel(f"{ch} (µV)")
-    axes[0, 0].set_title("49–51 Hz band-stop + 1–100 Hz band-pass")
-    axes[0, 1].set_title("+ linear detrend")
+        axes[row, 0].fill_between(
+            x,
+            before_lo[row],
+            before_hi[row],
+            color="#4472c4",
+            linewidth=0,
+            alpha=0.8,
+            label="Filtered signal: min–max envelope",
+        )
+        axes[row, 1].fill_between(
+            x,
+            after_lo[row],
+            after_hi[row],
+            color="#2e8b57",
+            linewidth=0,
+            alpha=0.8,
+            label="Filtered + detrended signal: min–max envelope",
+        )
+        axes[row, 0].set_ylabel(f"{ch} amplitude (µV)")
+        axes[row, 1].set_ylabel(f"{ch} amplitude (µV)")
+        axes[row, 0].legend(loc="upper right", fontsize=7)
+        axes[row, 1].legend(loc="upper right", fontsize=7)
+    axes[0, 0].set_title("Before detrend: 49–51 Hz band-stop + 1–100 Hz band-pass")
+    axes[0, 1].set_title("After linear detrend")
     axes[-1, 0].set_xlabel("Time from recording start (s)")
     axes[-1, 1].set_xlabel("Time from recording start (s)")
     fig.suptitle(f"ID{participant_id} Part{part_number}: detrend QC")
@@ -578,6 +596,74 @@ def detect_bad_channels(
     return list(unique.values())
 
 
+def select_notification_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Limit user interruptions to clear record-wide channel problems.
+
+    The official-derived 4-SD line-noise and 0.80/50% RANSAC criteria remain
+    exploratory detectors.  Notification is deliberately more conservative:
+    a >=30 s exact flatline, very strong line noise (>=6 robust SD), RANSAC
+    failure over >=80% of the record, or agreement of at least two detectors.
+    """
+    reasons_by_channel: dict[str, set[str]] = {}
+    for item in candidates:
+        reasons_by_channel.setdefault(str(item["channel"]), set()).add(str(item["reason"]))
+    output = []
+    for item in candidates:
+        reason = str(item["reason"])
+        clear_problem = (
+            reason == "continuous_zero_or_exact_flatline"
+            or (reason == "line_noise_above_4sd" and float(item.get("z_score", 0.0)) >= 6.0)
+            or (
+                reason == "ransac_correlation_below_0.80_for_over_50pct"
+                and float(item.get("recording_fraction", 0.0)) >= 0.80
+            )
+            or len(reasons_by_channel[str(item["channel"])]) >= 2
+        )
+        if clear_problem:
+            output.append(item)
+    return output
+
+
+def resolve_bad_channel_decisions(
+    candidates: list[dict[str, Any]],
+    approved_bad_channels: list[str],
+    retained_bad_channels: list[str],
+) -> dict[str, Any]:
+    """Resolve each notified channel without blocking the preprocessing run."""
+    overlap = sorted(set(approved_bad_channels) & set(retained_bad_channels))
+    if overlap:
+        raise ValueError(f"同じチャンネルへ除去と保持の両方が指定されています: {overlap}")
+    candidate_channels = {str(item["channel"]) for item in candidates}
+    invalid_approvals = sorted(set(approved_bad_channels) - candidate_channels)
+    if invalid_approvals:
+        raise ValueError(
+            "保守的通知基準に該当しないチャンネルは除去できません: "
+            f"{invalid_approvals}"
+        )
+    automatically_retained = sorted(
+        candidate_channels - set(approved_bad_channels) - set(retained_bad_channels)
+    )
+    effective_retained = sorted(set(retained_bad_channels) | set(automatically_retained))
+    per_channel = {
+        channel: (
+            "removed_with_user_approval"
+            if channel in approved_bad_channels
+            else (
+                "retained_after_user_review"
+                if channel in retained_bad_channels
+                else "retained_without_removal_approval"
+            )
+        )
+        for channel in sorted(candidate_channels)
+    }
+    return {
+        "candidate_channels": candidate_channels,
+        "automatically_retained": automatically_retained,
+        "effective_retained": effective_retained,
+        "per_channel": per_channel,
+    }
+
+
 def save_bad_channel_figures(
     qc_dir: Path,
     participant_id: str,
@@ -592,17 +678,26 @@ def save_bad_channel_figures(
             range(1, len(parts) + 1) if candidate["part"] == "all" else [candidate["part"]]
         )
         for part_number in part_numbers:
-            raw_uv = parts[part_number - 1].data_uv[channel_index]
             filtered_uv = filtered_parts_v[part_number - 1][channel_index] * 1e6
-            raw_lo, raw_hi = _minmax_envelope(raw_uv)
             filtered_lo, filtered_hi = _minmax_envelope(filtered_uv)
-            time = np.linspace(0, len(raw_uv) / SFREQ, len(raw_lo), endpoint=False)
-            fig, axes = plt.subplots(2, 1, figsize=(15, 6), sharex=True)
-            axes[0].fill_between(time, raw_lo, raw_hi, linewidth=0)
-            axes[0].set_ylabel("Raw (µV)")
-            axes[1].fill_between(time, filtered_lo, filtered_hi, linewidth=0)
-            axes[1].set_ylabel("Filtered + detrended (µV)")
-            axes[1].set_xlabel("Time from Part start (s)")
+            time = np.linspace(0, len(filtered_uv) / SFREQ, len(filtered_lo), endpoint=False)
+            robust_limit = float(np.quantile(np.abs(filtered_uv), 0.999)) * 1.15
+            limit = max(1.0, robust_limit)
+            fig, axis = plt.subplots(1, 1, figsize=(15, 4.5))
+            axis.fill_between(
+                time,
+                filtered_lo,
+                filtered_hi,
+                color="#4472c4",
+                linewidth=0,
+                alpha=0.85,
+                label="Filtered + detrended signal: min–max envelope",
+            )
+            axis.axhline(0.0, color="#222222", linewidth=0.8, label="0 µV reference")
+            axis.set_ylim(-limit, limit)
+            axis.set_ylabel(f"{channel} amplitude (µV)")
+            axis.set_xlabel("Time from Part start (s)")
+            axis.legend(loc="upper right")
             fig.suptitle(f"ID{participant_id} Part{part_number} {channel}: {candidate['reason']}")
             fig.tight_layout()
             fig.savefig(
@@ -933,10 +1028,15 @@ def save_iclabel_outputs(
     probability_frame.index.name = "component"
     probability_frame.to_csv(qc_dir / f"ID{participant_id}_ICLabel_probabilities.csv")
     if eye_components:
-        figures = ica.plot_components(picks=eye_components, show=False)
+        figures = ica.plot_components(picks=eye_components, colorbar=True, show=False)
         if not isinstance(figures, list):
             figures = [figures]
         for index, figure in enumerate(figures, start=1):
+            figure.suptitle(
+                f"ID{participant_id}: ICLabel eye blink components\n"
+                "Scalp color = ICA spatial weight [a.u.]",
+                fontsize=11,
+            )
             figure.savefig(qc_dir / f"ID{participant_id}_eye_IC_topomap_{index}.png", dpi=160)
             plt.close(figure)
         sources = ica.get_sources(training_raw).get_data(picks=eye_components)
@@ -945,12 +1045,33 @@ def save_iclabel_outputs(
         for row, component in enumerate(eye_components):
             trace = sources[row]
             stride = max(1, len(trace) // 10000)
-            axes[row, 0].plot(np.arange(0, len(trace), stride) / SFREQ, trace[::stride], lw=0.5)
+            axes[row, 0].plot(
+                np.arange(0, len(trace), stride) / SFREQ,
+                trace[::stride],
+                color="#4472c4",
+                lw=0.5,
+                label=f"IC{component} activation",
+            )
             axes[row, 0].set_title(f"IC{component}: time series")
+            axes[row, 0].set_xlabel("Time in ICA training data (s)")
+            axes[row, 0].set_ylabel("ICA activation [a.u.]")
+            axes[row, 0].legend(loc="upper right", fontsize=8)
             frequencies, psd = signal.welch(trace, fs=SFREQ, nperseg=2048)
             keep = (frequencies >= 1) & (frequencies <= 100)
-            axes[row, 1].semilogy(frequencies[keep], psd[keep])
+            axes[row, 1].semilogy(
+                frequencies[keep],
+                psd[keep],
+                color="#d1495b",
+                label=f"IC{component} power spectrum",
+            )
             axes[row, 1].set_title(f"IC{component}: PSD")
+            axes[row, 1].set_xlabel("Frequency (Hz)")
+            axes[row, 1].set_ylabel("Power spectral density [a.u.^2/Hz]")
+            axes[row, 1].legend(loc="upper right", fontsize=8)
+        fig.suptitle(
+            f"ID{participant_id}: removed eye-component diagnostics",
+            fontsize=12,
+        )
         fig.tight_layout()
         fig.savefig(qc_dir / f"ID{participant_id}_eye_IC_timeseries_PSD.png", dpi=160)
         plt.close(fig)
@@ -982,27 +1103,35 @@ def save_interactive_html(
         "before": [_encoded_float32(before_v[pick] * 1e6) for pick in picks],
         "after": [_encoded_float32(after_v[pick] * 1e6) for pick in picks],
     }
-    html = """<!doctype html><html lang=\"ja\"><meta charset=\"utf-8\">
-<title>ICA before/after</title><style>body{font-family:sans-serif;margin:16px}canvas{border:1px solid #aaa;width:100%;height:620px}.row{display:flex;gap:18px;flex-wrap:wrap}.hint{color:#555}</style>
-<h1>__TITLE__</h1><div class=\"row\" id=\"checks\"></div>
-<p class=\"hint\">マウスホイール: x軸拡大/縮小、ドラッグ: 移動、ダブルクリック: 全体表示。カーソル位置の時刻と振幅は下部に表示。</p>
-<canvas id=\"plot\" width=\"1600\" height=\"620\"></canvas><pre id=\"readout\"></pre>
-<script>const P=__PAYLOAD__;
-function decode(s){let b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}
-P.before=P.before.map(decode);P.after=P.after.map(decode);const colors=['#1261a0','#d1495b','#2a9d55'];
-let active=P.channels.map(()=>true),start=0,end=P.n,drag=null;const cv=document.getElementById('plot'),ctx=cv.getContext('2d');
-P.channels.forEach((c,i)=>{let l=document.createElement('label');l.innerHTML=`<input type=checkbox checked data-i=${i}> ${c}`;document.getElementById('checks').append(l)});
-document.getElementById('checks').onchange=e=>{active[+e.target.dataset.i]=e.target.checked;draw()};
-function draw(){ctx.clearRect(0,0,cv.width,cv.height);let span=end-start,rows=3,rh=cv.height/rows;ctx.font='16px sans-serif';
- for(let ch=0;ch<3;ch++){if(!active[ch])continue;let vals=[P.before[ch],P.after[ch]],y0=(ch+.5)*rh,max=1;
-  let step=Math.max(1,Math.floor(span/cv.width));for(let x=start;x<end;x+=step){max=Math.max(max,Math.abs(vals[0][x]),Math.abs(vals[1][x]))}max*=1.08;
-  ctx.fillStyle='#111';ctx.fillText(P.channels[ch]+` ±${max.toFixed(1)} µV`,8,ch*rh+20);ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(0,y0);ctx.lineTo(cv.width,y0);ctx.stroke();
-  vals.forEach((v,k)=>{ctx.strokeStyle=k?'#d1495b':'#1261a0';ctx.globalAlpha=k?0.85:0.65;ctx.beginPath();
-   for(let px=0;px<cv.width;px++){let a=Math.floor(start+px*span/cv.width),b=Math.max(a+1,Math.floor(start+(px+1)*span/cv.width)),lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n);j++){lo=Math.min(lo,v[j]);hi=Math.max(hi,v[j])}let yl=y0-lo/max*(rh*.42),yh=y0-hi/max*(rh*.42);ctx.moveTo(px,yl);ctx.lineTo(px,yh)}ctx.stroke()});ctx.globalAlpha=1}
- ctx.fillStyle='#1261a0';ctx.fillText('Before ICA',cv.width-210,20);ctx.fillStyle='#d1495b';ctx.fillText('After ICA',cv.width-100,20)}
-cv.onwheel=e=>{e.preventDefault();let x=start+(e.offsetX/cv.clientWidth)*(end-start),factor=e.deltaY>0?1.5:.67,span=Math.max(256,Math.min(P.n,(end-start)*factor));start=Math.max(0,Math.round(x-span*(e.offsetX/cv.clientWidth)));end=Math.min(P.n,Math.round(start+span));start=Math.max(0,end-span);draw()};
-cv.onmousedown=e=>drag={x:e.clientX,s:start,span:end-start};window.onmouseup=()=>drag=null;window.onmousemove=e=>{if(!drag)return;let delta=(e.clientX-drag.x)/cv.clientWidth*drag.span;start=Math.max(0,Math.min(P.n-drag.span,Math.round(drag.s-delta)));end=start+drag.span;draw()};
-cv.ondblclick=()=>{start=0;end=P.n;draw()};cv.onmousemove=e=>{if(drag)return;let i=Math.min(P.n-1,Math.floor(start+e.offsetX/cv.clientWidth*(end-start)));document.getElementById('readout').textContent=`t=${(i/P.sfreq).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before[j][i].toFixed(2)} µV, after ${P.after[j][i].toFixed(2)} µV`).join(' | ')};draw();</script></html>"""
+    html = """<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">
+<title>ICA before/after</title><style>
+body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channels{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}button{padding:5px 12px}canvas{border:1px solid #777;width:100%;height:660px;touch-action:none;cursor:grab}.hint{color:#555}.legend{display:flex;gap:18px}.swatch{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:5px}#readout{white-space:pre-wrap}</style></head><body>
+<h1>__TITLE__</h1><div class=\"channels\" id=\"checks\"></div>
+<div class=\"toolbar\"><button id=\"zoomIn\">x軸 拡大</button><button id=\"zoomOut\">x軸 縮小</button><button id=\"reset\">全体表示</button><span id=\"window\"></span></div>
+<div class=\"legend\"><span><i class=\"swatch\" style=\"background:#1261a0\"></i>Before ICA</span><span><i class=\"swatch\" style=\"background:#d1495b\"></i>After ICA</span></div>
+<p class=\"hint\">ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグ: 時間移動／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。</p>
+<canvas id=\"plot\" width=\"1600\" height=\"660\"></canvas><pre id=\"readout\"></pre>
+<script>"use strict";const P=__PAYLOAD__;
+function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}
+P.before=P.before.map(decode);P.after=P.after.map(decode);
+let active=P.channels.map(()=>true),start=0,end=P.n,drag=null;
+const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),left=78,right=18,top=28,bottom=48;
+P.channels.forEach((c,i)=>{const l=document.createElement('label');l.innerHTML=`<input type=\"checkbox\" checked data-i=\"${i}\"> ${c}`;document.getElementById('checks').append(l)});
+document.getElementById('checks').addEventListener('change',e=>{active[Number(e.target.dataset.i)]=e.target.checked;draw()});
+function clampWindow(s,e){const minSpan=Math.min(P.n,Math.round(P.sfreq*2));let span=Math.max(minSpan,Math.min(P.n,Math.round(e-s)));s=Math.max(0,Math.min(P.n-span,Math.round(s)));return[s,s+span]}
+function zoom(factor,ratio=.5){const anchor=start+ratio*(end-start),span=(end-start)*factor;[start,end]=clampWindow(anchor-ratio*span,anchor+(1-ratio)*span);draw()}
+function draw(){ctx.clearRect(0,0,cv.width,cv.height);const span=end-start,plotW=cv.width-left-right,plotH=cv.height-top-bottom,rows=P.channels.length,rh=plotH/rows;ctx.font='14px sans-serif';
+ ctx.strokeStyle='#222';ctx.lineWidth=1;ctx.strokeRect(left,top,plotW,plotH);ctx.fillStyle='#111';ctx.textAlign='center';ctx.fillText('Time from Part start (s)',left+plotW/2,cv.height-8);ctx.save();ctx.translate(18,top+plotH/2);ctx.rotate(-Math.PI/2);ctx.fillText('EEG amplitude (µV)',0,0);ctx.restore();
+ for(let tick=0;tick<=5;tick++){const px=left+plotW*tick/5,t=(start+(end-start)*tick/5)/P.sfreq;ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,top+plotH);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(t.toFixed(1),px,top+plotH+20)}
+ for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh;ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#111';ctx.fillText(P.channels[ch],left+5,top+ch*rh+17);if(!active[ch])continue;const vals=[P.before[ch],P.after[ch]];let max=1,step=Math.max(1,Math.floor(span/plotW));for(let i=start;i<end;i+=step)max=Math.max(max,Math.abs(vals[0][i]),Math.abs(vals[1][i]));max*=1.08;ctx.fillText(`±${max.toFixed(1)} µV`,left+55,top+ch*rh+17);
+  vals.forEach((v,k)=>{ctx.strokeStyle=k?'#d1495b':'#1261a0';ctx.globalAlpha=k?.85:.70;ctx.beginPath();for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n);j++){lo=Math.min(lo,v[j]);hi=Math.max(hi,v[j])}const yl=y0-lo/max*(rh*.40),yh=y0-hi/max*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}ctx.stroke()});ctx.globalAlpha=1}
+ document.getElementById('window').textContent=`表示範囲 ${(start/P.sfreq).toFixed(1)}–${(end/P.sfreq).toFixed(1)} s`;}
+document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));document.getElementById('zoomOut').addEventListener('click',()=>zoom(2));document.getElementById('reset').addEventListener('click',()=>{start=0;end=P.n;draw()});
+cv.addEventListener('wheel',e=>{e.preventDefault();const rect=cv.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));zoom(e.deltaY>0?1.5:.67,ratio)},{passive:false});
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,s:start,span:end-start};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);drag=null;cv.style.cursor='grab'});cv.addEventListener('pointercancel',()=>{drag=null;cv.style.cursor='grab'});
+cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n-1,Math.max(0,Math.floor(start+ratio*(end-start))));document.getElementById('readout').textContent=`Cursor: t=${(i/P.sfreq).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before[j][i].toFixed(2)} µV, after ${P.after[j][i].toFixed(2)} µV`).join(' | ')});
+cv.addEventListener('dblclick',()=>{start=0;end=P.n;draw()});draw();
+</script></body></html>"""
     html = html.replace("__TITLE__", f"ID{participant_id} Part{part_number}: ICA before/after")
     html = html.replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1012,34 +1141,57 @@ cv.ondblclick=()=>{start=0;end=P.n;draw()};cv.onmousemove=e=>{if(drag)return;let
 def save_ten_second_figure(
     path: Path,
     participant_id: str,
-    part_number: int,
+    boundary: SetBoundary,
+    selection_number: int,
     before_v: np.ndarray,
     after_v: np.ndarray,
     blink_v: np.ndarray,
     channel_names: list[str],
 ) -> None:
     fp1 = channel_names.index("Fp1")
-    center = (
-        int(np.argmax(np.abs(blink_v[fp1])))
-        if np.any(blink_v[fp1])
-        else int(np.argmax(np.abs(before_v[fp1])))
-    )
     half = int(5 * SFREQ)
-    start = max(0, min(before_v.shape[1] - int(10 * SFREQ), center - half))
-    end = min(before_v.shape[1], start + int(10 * SFREQ))
+    window = int(10 * SFREQ)
+    search_start = boundary.start_sample + half
+    search_end = boundary.end_sample - half
+    if search_end <= search_start:
+        center = (boundary.start_sample + boundary.end_sample) // 2
+    else:
+        segment = np.abs(blink_v[fp1, search_start:search_end])
+        if not np.any(segment):
+            segment = np.abs(before_v[fp1, search_start:search_end])
+        center = search_start + int(np.argmax(segment))
+    start = max(boundary.start_sample, min(boundary.end_sample - window, center - half))
+    end = min(boundary.end_sample, start + window)
     time = np.arange(end - start) / SFREQ
     picks = [channel_names.index(ch) for ch in DISPLAY_CHANNELS]
     values = np.concatenate([before_v[picks, start:end], after_v[picks, start:end]], axis=0) * 1e6
     limit = max(1.0, float(np.max(np.abs(values))) * 1.05)
     fig, axes = plt.subplots(3, 1, figsize=(14, 8), sharex=True)
     for axis, ch, pick in zip(axes, DISPLAY_CHANNELS, picks, strict=True):
-        axis.plot(time, before_v[pick, start:end] * 1e6, label="Before ICA", alpha=0.75)
-        axis.plot(time, after_v[pick, start:end] * 1e6, label="After ICA", alpha=0.85)
-        axis.set_ylabel(f"{ch} (µV)")
+        axis.plot(
+            time,
+            before_v[pick, start:end] * 1e6,
+            color="#1261a0",
+            label="Before ICA",
+            alpha=0.75,
+        )
+        axis.plot(
+            time,
+            after_v[pick, start:end] * 1e6,
+            color="#d1495b",
+            label="After ICA",
+            alpha=0.85,
+        )
+        axis.set_ylabel(f"{ch} amplitude (µV)")
         axis.set_ylim(-limit, limit)
-    axes[0].legend()
+        axis.legend(loc="upper right")
     axes[-1].set_xlabel("Time in 10-second window (s)")
-    fig.suptitle(f"ID{participant_id} Part{part_number}: ICA before/after, full 256 Hz")
+    set_offset = (start - boundary.start_sample) / SFREQ
+    fig.suptitle(
+        f"ID{participant_id} Set{boundary.set_number} selection {selection_number}: "
+        f"ICA before/after at set time {set_offset:.1f}–{set_offset + len(time) / SFREQ:.1f} s "
+        "(full 256 Hz)"
+    )
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=180)
@@ -1092,12 +1244,10 @@ def preprocess_participant(
     qc_dir.mkdir(parents=True, exist_ok=True)
     local_dir.mkdir(parents=True, exist_ok=True)
 
-    filtered_parts: list[np.ndarray] = []
     detrended_parts: list[np.ndarray] = []
     line_quality_parts: list[np.ndarray] = []
     for part in parts:
         filtered, detrended = filter_and_detrend(part)
-        filtered_parts.append(filtered)
         detrended_parts.append(detrended)
         line_quality_parts.append(channel_quality_signal(part))
         save_detrend_figure(
@@ -1109,23 +1259,23 @@ def preprocess_participant(
         )
         del filtered
 
-    bad_candidates = detect_bad_channels(
+    exploratory_bad_candidates = detect_bad_channels(
         [part.data_uv for part in parts], detrended_parts, line_quality_parts
     )
+    bad_candidates = select_notification_candidates(exploratory_bad_candidates)
     del line_quality_parts
-    decided_channels = set(approved_bad_channels) | set(retained_bad_channels)
-    unapproved = [item for item in bad_candidates if item["channel"] not in decided_channels]
+    channel_decisions = resolve_bad_channel_decisions(
+        bad_candidates, approved_bad_channels, retained_bad_channels
+    )
+    write_json(
+        qc_dir / f"ID{participant_id}_bad_channel_exploratory_detections.json",
+        exploratory_bad_candidates,
+    )
     write_json(qc_dir / f"ID{participant_id}_bad_channel_candidates.json", bad_candidates)
-    if unapproved:
-        save_bad_channel_figures(qc_dir, participant_id, parts, detrended_parts, unapproved)
-        report = {
-            "status": "channel_confirmation_required",
-            "participant_id": participant_id,
-            "candidates": unapproved,
-            "message": "利用者の明示許可がないため、チャンネル除去前に停止しました。",
-        }
-        write_json(qc_dir / f"ID{participant_id}_STOP_channel_confirmation_required.json", report)
-        return report
+    if bad_candidates:
+        save_bad_channel_figures(qc_dir, participant_id, parts, detrended_parts, bad_candidates)
+    automatically_retained = channel_decisions["automatically_retained"]
+    effective_retained_channels = channel_decisions["effective_retained"]
 
     stop_marker = qc_dir / f"ID{participant_id}_STOP_channel_confirmation_required.json"
     stop_marker.unlink(missing_ok=True)
@@ -1135,6 +1285,12 @@ def preprocess_participant(
             "participant_id": participant_id,
             "removed_with_user_approval": approved_bad_channels,
             "retained_after_user_review": retained_bad_channels,
+            "retained_without_removal_approval": automatically_retained,
+            "policy": (
+                "候補figureを保存したうえで処理を継続し、明示的な除去承認がない"
+                "チャンネルは保持する"
+            ),
+            "per_channel": channel_decisions["per_channel"],
             "decision_date": date.today().isoformat(),
         },
     )
@@ -1186,29 +1342,48 @@ def preprocess_participant(
     save_iclabel_outputs(qc_dir, participant_id, ica, training_raw, probabilities, eye_components)
     ica.save(local_dir / f"ID{participant_id}_ica.fif", overwrite=True)
 
+    expected_qc_parts = sorted({b.part for b in boundaries if b.usable})
     cleaned_parts: list[np.ndarray] = []
     blink_parts: list[np.ndarray] = []
     for part, data_v in zip(parts, detrended_parts, strict=True):
         cleaned_v, blink_v = apply_ica(ica, data_v, eye_components, keep_channels)
         cleaned_parts.append(cleaned_v)
         blink_parts.append(blink_v)
-        save_interactive_html(
-            qc_dir / f"ID{participant_id}_Part{part.part}_ICA_before_after.html",
-            participant_id,
-            part.part,
-            data_v,
-            cleaned_v,
-            keep_channels,
+        if part.part in expected_qc_parts:
+            save_interactive_html(
+                qc_dir / f"ID{participant_id}_Part{part.part}_ICA_before_after.html",
+                participant_id,
+                part.part,
+                data_v,
+                cleaned_v,
+                keep_channels,
+            )
+
+    usable_boundaries = [boundary for boundary in boundaries if boundary.usable]
+    if len(usable_boundaries) < 5:
+        raise RuntimeError(
+            f"ID{participant_id}: 10秒確認figure用の有効セットが5未満です: "
+            f"{[boundary.set_number for boundary in usable_boundaries]}"
+        )
+    selected_indices = np.rint(np.linspace(0, len(usable_boundaries) - 1, 5)).astype(int)
+    selected_boundaries = [usable_boundaries[index] for index in selected_indices]
+    ten_second_files = []
+    for selection_number, boundary in enumerate(selected_boundaries, start=1):
+        path = qc_dir / (
+            f"ID{participant_id}_Set{boundary.set_number}_Selection{selection_number:02d}_"
+            "ICA_before_after_10s.png"
         )
         save_ten_second_figure(
-            qc_dir / f"ID{participant_id}_Part{part.part}_ICA_before_after_10s.png",
+            path,
             participant_id,
-            part.part,
-            data_v,
-            cleaned_v,
-            blink_v,
+            boundary,
+            selection_number,
+            detrended_parts[boundary.part - 1],
+            cleaned_parts[boundary.part - 1],
+            blink_parts[boundary.part - 1],
             keep_channels,
         )
+        ten_second_files.append(path)
 
     validations = []
     generated_sets = []
@@ -1259,18 +1434,24 @@ def preprocess_participant(
         generated_sets.append(boundary.set_number)
 
     expected_sets = [b.set_number for b in boundaries if b.usable]
-    expected_qc_parts = sorted({b.part for b in boundaries if b.usable})
     qc_files = [str(path) for path in sorted(qc_dir.iterdir())]
     converged = bool(ica_diagnostics["converged"])
+    before_all = np.concatenate(detrended_parts, axis=1)
+    after_all = np.concatenate(cleaned_parts, axis=1)
+    before_p99 = float(np.quantile(np.abs(before_all), 0.99) * 1e6)
+    after_p99 = float(np.quantile(np.abs(after_all), 0.99) * 1e6)
+    before_rms = float(np.sqrt(np.mean(np.square(before_all))) * 1e6)
+    after_rms = float(np.sqrt(np.mean(np.square(after_all))) * 1e6)
     complete = (
         generated_sets == expected_sets
         and all(v["ok"] for v in validations)
         and converged
         and all(
             (qc_dir / f"ID{participant_id}_Part{part}_ICA_before_after.html").exists()
-            and (qc_dir / f"ID{participant_id}_Part{part}_ICA_before_after_10s.png").exists()
             for part in expected_qc_parts
         )
+        and len(ten_second_files) == 5
+        and all(path.exists() for path in ten_second_files)
     )
     summary = {
         "status": "complete" if complete else "needs_review",
@@ -1280,6 +1461,8 @@ def preprocess_participant(
         "source_parts": expected_qc_parts,
         "approved_removed_channels": approved_bad_channels,
         "reviewed_retained_candidate_channels": retained_bad_channels,
+        "automatically_retained_candidate_channels": automatically_retained,
+        "effective_retained_candidate_channels": effective_retained_channels,
         "ica_training_excluded_intervals": [
             {k: v for k, v in item.items() if k not in {"start_sample", "end_sample"}}
             for item in intervals
@@ -1302,6 +1485,13 @@ def preprocess_participant(
             str(index): float(probabilities[index, ICLABEL_CLASSES.index("eye blink")])
             for index in eye_components
         },
+        "ica_before_after_overall_uv": {
+            "absolute_amplitude_p99_before": before_p99,
+            "absolute_amplitude_p99_after": after_p99,
+            "rms_before": before_rms,
+            "rms_after": after_rms,
+        },
+        "ten_second_qc_sets": [boundary.set_number for boundary in selected_boundaries],
         "iclabel_average_reference_deviation": (
             "ICLabel推奨の共通平均参照は、旧MATLAB実装との一貫性を優先して未実施"
         ),
@@ -1320,6 +1510,9 @@ def preprocess_participant(
                 "status": summary["status"],
                 "generated_sets": ",".join(map(str, generated_sets)),
                 "removed_channels": ",".join(approved_bad_channels) or "none",
+                "retained_candidate_channels": (
+                    ",".join(effective_retained_channels) or "none"
+                ),
                 "ica_training_excluded_interval_count": len(intervals),
                 "ica_converged": converged,
                 "ica_n_iter": int(ica.n_iter_),

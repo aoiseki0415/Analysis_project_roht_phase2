@@ -16,7 +16,10 @@ from phase1_pipeline import (  # noqa: E402
     derive_boundaries,
     detect_flatlines,
     infomax_convergence_diagnostics,
+    resolve_bad_channel_decisions,
+    save_interactive_html,
     save_set_hdf5,
+    select_notification_candidates,
     validate_hdf5,
 )
 
@@ -55,6 +58,63 @@ def test_flatline_requires_thirty_seconds() -> None:
     data[1, : 31 * 256] = 0
     candidates = detect_flatlines(data)
     assert [candidate["channel"] for candidate in candidates] == [CHANNELS[1]]
+
+
+def test_channel_notification_is_more_conservative_than_exploratory_detection() -> None:
+    exploratory = [
+        {
+            "channel": "PO9",
+            "reason": "ransac_correlation_below_0.80_for_over_50pct",
+            "recording_fraction": 0.55,
+        },
+        {
+            "channel": "O2",
+            "reason": "line_noise_above_4sd",
+            "z_score": 4.5,
+        },
+        {
+            "channel": "F7",
+            "reason": "ransac_correlation_below_0.80_for_over_50pct",
+            "recording_fraction": 0.85,
+        },
+    ]
+    notified = select_notification_candidates(exploratory)
+    assert [item["channel"] for item in notified] == ["F7"]
+
+
+def test_unapproved_channel_candidate_is_retained_without_stopping() -> None:
+    decisions = resolve_bad_channel_decisions(
+        [{"channel": "PO9", "reason": "clear_record_wide_problem"}], [], []
+    )
+    assert decisions["automatically_retained"] == ["PO9"]
+    assert decisions["effective_retained"] == ["PO9"]
+    assert decisions["per_channel"] == {"PO9": "retained_without_removal_approval"}
+
+
+def test_bad_channel_decisions_are_independent_per_channel() -> None:
+    candidates = [
+        {"channel": "PO9", "reason": "clear_record_wide_problem"},
+        {"channel": "O2", "reason": "clear_record_wide_problem"},
+    ]
+    decisions = resolve_bad_channel_decisions(candidates, ["O2"], ["PO9"])
+    assert decisions["automatically_retained"] == []
+    assert decisions["per_channel"] == {
+        "O2": "removed_with_user_approval",
+        "PO9": "retained_after_user_review",
+    }
+
+
+def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -> None:
+    output = tmp_path / "qc.html"
+    data = np.zeros((32, 512), dtype=float)
+    save_interactive_html(output, "101", 1, data, data, CHANNELS)
+    html = output.read_text(encoding="utf-8")
+    assert 'id="zoomIn"' in html
+    assert 'id="zoomOut"' in html
+    assert 'id="reset"' in html
+    assert "addEventListener('wheel'" in html
+    assert "addEventListener('pointermove'" in html
+    assert html.endswith("</body></html>")
 
 
 def test_hdf5_contains_signal_times_and_behavior(tmp_path: Path) -> None:

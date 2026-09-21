@@ -22,13 +22,19 @@ def parse_args() -> argparse.Namespace:
         "--approved-bad-channel",
         action="append",
         default=[],
-        help="利用者が明示的に除去を許可したチャンネル。通常は指定しない。",
+        help=(
+            "利用者が明示的に除去を許可した候補チャンネル。候補ごとに繰り返し指定する。"
+            "指定がない候補は保持したまま処理を続ける。"
+        ),
     )
     parser.add_argument(
         "--retained-bad-channel",
         action="append",
         default=[],
-        help="候補を確認したうえで、利用者が保持すると決定したチャンネル。",
+        help=(
+            "候補figureを確認したうえで、利用者が保持すると決定したチャンネル。"
+            "候補ごとに繰り返し指定する。"
+        ),
     )
     return parser.parse_args()
 
