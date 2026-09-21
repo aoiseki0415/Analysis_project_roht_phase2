@@ -33,7 +33,6 @@ import pandas as pd
 import scipy
 from autoreject import Ransac
 from matplotlib import pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 from mne.preprocessing import ICA
 from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
@@ -42,7 +41,6 @@ SFREQ = 256.0
 ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 500.0
 ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS = 1.0
 HTML_ENVELOPE_BIN_SAMPLES = 64
-PDF_WINDOW_SECONDS = 600
 EEG_PREFIX = "EEG."
 CHANNELS = [
     "Cz",
@@ -1133,6 +1131,98 @@ def _fixed_bin_minmax_envelope(
     return np.nanmin(bins, axis=1), np.nanmax(bins, axis=1)
 
 
+def _static_svg_overview(
+    participant_id: str,
+    part_number: int,
+    before_envelopes: list[tuple[np.ndarray, np.ndarray]],
+    after_envelopes: list[tuple[np.ndarray, np.ndarray]],
+    duration_s: float,
+) -> str:
+    """Build a visible overview for viewers that do not execute JavaScript."""
+    width, height = 1600, 660
+    left, right, top, bottom = 78, 18, 28, 48
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+    row_height = plot_height / len(DISPLAY_CHANNELS)
+
+    def reduce_envelope(low: np.ndarray, high: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        group = max(1, math.ceil(low.size / int(plot_width)))
+        padding = (-low.size) % group
+        if padding:
+            low = np.pad(low, (0, padding), constant_values=np.nan)
+            high = np.pad(high, (0, padding), constant_values=np.nan)
+        return (
+            np.nanmin(low.reshape(-1, group), axis=1),
+            np.nanmax(high.reshape(-1, group), axis=1),
+        )
+
+    pieces = [
+        f'<svg role="img" aria-label="ID{participant_id} Part{part_number} ICA overview" '
+        f'viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
+        '<rect width="100%" height="100%" fill="white"/>',
+        '<style>text{font-family:system-ui,sans-serif;fill:#111}.axis{stroke:#222;stroke-width:1}'
+        '.grid{stroke:#ddd;stroke-width:1}.before{stroke:#1261a0;stroke-width:.8;opacity:.70}'
+        '.after{stroke:#d1495b;stroke-width:.8;opacity:.85}</style>',
+    ]
+    for tick in range(6):
+        x = left + plot_width * tick / 5
+        seconds = duration_s * tick / 5
+        pieces.append(
+            f'<line class="grid" x1="{x:.1f}" y1="{top}" x2="{x:.1f}" '
+            f'y2="{top + plot_height:.1f}"/><text x="{x:.1f}" '
+            f'y="{top + plot_height + 22:.1f}" text-anchor="middle" '
+            f'font-size="14">{seconds:.1f}</text>'
+        )
+    for channel_index, channel in enumerate(DISPLAY_CHANNELS):
+        y_center = top + (channel_index + 0.5) * row_height
+        before_low, before_high = reduce_envelope(*before_envelopes[channel_index])
+        after_low, after_high = reduce_envelope(*after_envelopes[channel_index])
+        scale = max(
+            1.0,
+            float(
+                np.nanmax(
+                    np.abs(np.concatenate([before_low, before_high, after_low, after_high]))
+                )
+            )
+            * 1.08,
+        )
+        pieces.append(
+            f'<line class="axis" x1="{left}" y1="{y_center:.1f}" '
+            f'x2="{left + plot_width}" y2="{y_center:.1f}"/>'
+            f'<text x="{left + 5}" y="{top + channel_index * row_height + 18:.1f}" '
+            f'font-size="14">{channel}</text><text x="{left + 55}" '
+            f'y="{top + channel_index * row_height + 18:.1f}" font-size="14">±{scale:.1f} µV</text>'
+        )
+        for css_class, low, high in (
+            ("before", before_low, before_high),
+            ("after", after_low, after_high),
+        ):
+            denominator = max(1, low.size - 1)
+            segments = []
+            for index, (low_value, high_value) in enumerate(zip(low, high, strict=True)):
+                x = left + plot_width * index / denominator
+                y_low = y_center - low_value / scale * row_height * 0.40
+                y_high = y_center - high_value / scale * row_height * 0.40
+                segments.append(f'M{x:.1f},{y_low:.1f}V{y_high:.1f}')
+            pieces.append(f'<path class="{css_class}" d="{"".join(segments)}"/>')
+    pieces.extend(
+        [
+            f'<rect class="axis" fill="none" x="{left}" y="{top}" '
+            f'width="{plot_width}" height="{plot_height}"/>',
+            f'<text x="{left + plot_width / 2:.1f}" y="{height - 8}" '
+            'text-anchor="middle" font-size="14">Time from Part start (s)</text>',
+            '<text x="18" y="330" text-anchor="middle" font-size="14" '
+            'transform="rotate(-90 18 330)">EEG amplitude (µV)</text>',
+            '<line class="before" x1="1180" y1="18" x2="1205" y2="18"/>'
+            '<text x="1212" y="23" font-size="14">Before ICA</text>',
+            '<line class="after" x1="1325" y1="18" x2="1350" y2="18"/>'
+            '<text x="1357" y="23" font-size="14">After ICA</text>',
+            '</svg>',
+        ]
+    )
+    return "".join(pieces)
+
+
 def save_interactive_html(
     path: Path,
     participant_id: str,
@@ -1149,6 +1239,13 @@ def save_interactive_html(
     after_envelopes = [
         _fixed_bin_minmax_envelope(after_v[pick] * 1e6, bin_samples) for pick in picks
     ]
+    static_svg = _static_svg_overview(
+        participant_id,
+        part_number,
+        before_envelopes,
+        after_envelopes,
+        before_v.shape[1] / SFREQ,
+    )
     payload = {
         "sfreq": SFREQ,
         "channels": list(DISPLAY_CHANNELS),
@@ -1162,12 +1259,13 @@ def save_interactive_html(
     }
     html = """<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">
 <title>ICA before/after</title><style>
-body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channels{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}button{padding:5px 12px}canvas{border:1px solid #777;width:100%;height:660px;touch-action:none;cursor:grab}.hint{color:#555}.legend{display:flex;gap:18px}.swatch{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:5px}#readout{white-space:pre-wrap}</style></head><body>
+body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channels{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}button{padding:5px 12px}canvas{border:1px solid #777;width:100%;height:660px;touch-action:none;cursor:grab;display:none}#staticFallback{border:1px solid #777;width:100%;overflow:auto}#staticFallback svg{display:block;width:100%;height:auto;min-width:900px}.hint{color:#555}.legend{display:flex;gap:18px}.swatch{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:5px}#readout{white-space:pre-wrap}</style></head><body>
 <h1>__TITLE__</h1><div class=\"channels\" id=\"checks\"></div>
 <div class=\"toolbar\"><button id=\"zoomIn\">x軸 拡大</button><button id=\"zoomOut\">x軸 縮小</button><button id=\"reset\">全体表示</button><span id=\"window\"></span></div>
 <div class=\"legend\"><span><i class=\"swatch\" style=\"background:#1261a0\"></i>Before ICA</span><span><i class=\"swatch\" style=\"background:#d1495b\"></i>After ICA</span></div>
 <p class=\"hint\">ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグ: 時間移動／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。</p>
-<p id=\"status\" class=\"hint\">波形データを読み込み中…</p>
+<p id=\"status\" class=\"hint\">JavaScriptが無効な表示環境でも、下の全体波形は表示されます。</p>
+<div id=\"staticFallback\">__STATIC_SVG__</div>
 <canvas id=\"plot\" width=\"1600\" height=\"660\"></canvas><pre id=\"readout\"></pre>
 <script>"use strict";const P=__PAYLOAD__;
 function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}
@@ -1189,108 +1287,13 @@ document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));documen
 cv.addEventListener('wheel',e=>{e.preventDefault();const rect=cv.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));zoom(e.deltaY>0?1.5:.67,ratio)},{passive:false});
 cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,s:start,span:end-start};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);drag=null;cv.style.cursor='grab'});cv.addEventListener('pointercancel',()=>{drag=null;cv.style.cursor='grab'});
 cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n_bins-1,Math.max(0,Math.floor(start+ratio*(end-start))));document.getElementById('readout').textContent=`Cursor: t=${binTime(i).toFixed(3)}–${binTime(i+1).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before_low[j][i].toFixed(2)}…${P.before_high[j][i].toFixed(2)} µV, after ${P.after_low[j][i].toFixed(2)}…${P.after_high[j][i].toFixed(2)} µV`).join(' | ')});
-cv.addEventListener('dblclick',()=>{start=0;end=P.n_bins;draw()});document.getElementById('status').textContent='表示準備完了（64サンプルごとの最小値・最大値を保持）';draw();
+cv.addEventListener('dblclick',()=>{start=0;end=P.n_bins;draw()});draw();document.getElementById('staticFallback').style.display='none';cv.style.display='block';document.getElementById('status').textContent='インタラクティブ表示準備完了（64サンプルごとの最小値・最大値を保持）';
 </script></body></html>"""
     html = html.replace("__TITLE__", f"ID{participant_id} Part{part_number}: ICA before/after")
+    html = html.replace("__STATIC_SVG__", static_svg)
     html = html.replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")
-
-
-def save_zoomable_pdf(
-    path: Path,
-    participant_id: str,
-    part_number: int,
-    before_v: np.ndarray,
-    after_v: np.ndarray,
-    channel_names: list[str],
-) -> None:
-    """Save a JavaScript-free, vector QC report that opens in macOS Preview."""
-    picks = [channel_names.index(ch) for ch in DISPLAY_CHANNELS]
-    bin_samples = HTML_ENVELOPE_BIN_SAMPLES
-    before_envelopes = [
-        _fixed_bin_minmax_envelope(before_v[pick] * 1e6, bin_samples) for pick in picks
-    ]
-    after_envelopes = [
-        _fixed_bin_minmax_envelope(after_v[pick] * 1e6, bin_samples) for pick in picks
-    ]
-    n_bins = before_envelopes[0][0].size
-    seconds_per_bin = bin_samples / SFREQ
-    bins_per_page = int(PDF_WINDOW_SECONDS / seconds_per_bin)
-    page_ranges = [(0, n_bins)]
-    page_ranges.extend(
-        (start, min(n_bins, start + bins_per_page))
-        for start in range(0, n_bins, bins_per_page)
-    )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with PdfPages(path) as pdf:
-        for page_number, (start, end) in enumerate(page_ranges):
-            overview = page_number == 0
-            time_s = np.arange(start, end) * seconds_per_bin
-            fig, axes = plt.subplots(3, 1, figsize=(16, 9), sharex=True)
-            for axis, channel, before, after in zip(
-                axes,
-                DISPLAY_CHANNELS,
-                before_envelopes,
-                after_envelopes,
-                strict=True,
-            ):
-                before_low, before_high = before
-                after_low, after_high = after
-                values = np.concatenate(
-                    [
-                        before_low[start:end],
-                        before_high[start:end],
-                        after_low[start:end],
-                        after_high[start:end],
-                    ]
-                )
-                limit = max(1.0, float(np.nanmax(np.abs(values))) * 1.05)
-                axis.fill_between(
-                    time_s,
-                    before_low[start:end],
-                    before_high[start:end],
-                    color="#1261a0",
-                    alpha=0.42,
-                    linewidth=0.25,
-                    label="Before ICA: 0.25-s min-max envelope",
-                )
-                axis.fill_between(
-                    time_s,
-                    after_low[start:end],
-                    after_high[start:end],
-                    color="#d1495b",
-                    alpha=0.42,
-                    linewidth=0.25,
-                    label="After ICA: 0.25-s min-max envelope",
-                )
-                axis.axhline(0, color="#555555", linewidth=0.6)
-                axis.set_ylim(-limit, limit)
-                axis.set_ylabel(f"{channel} amplitude (µV)")
-                axis.grid(axis="x", color="#dddddd", linewidth=0.5)
-                axis.legend(loc="upper right", fontsize=8)
-            axes[-1].set_xlabel("Time from Part start (s)")
-            if overview:
-                subtitle = "Entire Part overview"
-            else:
-                subtitle = f"Detail {page_number}: {time_s[0]:.1f} to {time_s[-1]:.1f} s"
-            fig.suptitle(
-                f"ID{participant_id} Part{part_number}: ICA before/after - {subtitle}\n"
-                "Blue = Before ICA; orange = After ICA; vector PDF supports zoom and pan",
-                fontsize=12,
-            )
-            fig.text(
-                0.99,
-                0.01,
-                f"Page {page_number + 1} of {len(page_ranges)}",
-                ha="right",
-                va="bottom",
-                fontsize=8,
-                color="#555555",
-            )
-            fig.tight_layout()
-            pdf.savefig(fig)
-            plt.close(fig)
 
 
 def select_ten_second_window(
@@ -1388,7 +1391,7 @@ def regenerate_interactive_html_outputs(
     *,
     logger: logging.Logger,
 ) -> dict[str, Any]:
-    """Rebuild QC viewing files from the saved ICA solution without refitting ICA."""
+    """Rebuild only the interactive QC HTML from the saved ICA solution."""
     local_dir = (
         paths.processed_root
         / "Phase1_脳波前処理"
@@ -1428,25 +1431,14 @@ def regenerate_interactive_html_outputs(
             cleaned_v,
             keep_channels,
         )
-        pdf_path = qc_dir / f"ID{participant_id}_Part{part.part}_ICA_before_after.pdf"
-        save_zoomable_pdf(
-            pdf_path,
-            participant_id,
-            part.part,
-            detrended_v,
-            cleaned_v,
-            keep_channels,
-        )
         outputs.append(
             {
                 "part": part.part,
-                "html_path": str(output_path),
-                "html_size_bytes": output_path.stat().st_size,
-                "pdf_path": str(pdf_path),
-                "pdf_size_bytes": pdf_path.stat().st_size,
+                "path": str(output_path),
+                "size_bytes": output_path.stat().st_size,
             }
         )
-    logger.info("ID%s: QC HTML/PDF regenerated without refitting ICA", participant_id)
+    logger.info("ID%s: interactive HTML regenerated without refitting ICA", participant_id)
     return {
         "participant_id": participant_id,
         "ica_refitted": False,
@@ -1608,14 +1600,6 @@ def preprocess_participant(
         if part.part in expected_qc_parts:
             save_interactive_html(
                 qc_dir / f"ID{participant_id}_Part{part.part}_ICA_before_after.html",
-                participant_id,
-                part.part,
-                data_v,
-                cleaned_v,
-                keep_channels,
-            )
-            save_zoomable_pdf(
-                qc_dir / f"ID{participant_id}_Part{part.part}_ICA_before_after.pdf",
                 participant_id,
                 part.part,
                 data_v,

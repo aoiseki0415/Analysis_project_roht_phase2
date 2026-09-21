@@ -22,10 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--regenerate-html-only",
         action="store_true",
-        help=(
-            "保存済みICAを再利用し、全時間帯の確認HTMLと"
-            "JavaScript不要のベクトルPDFだけを再生成する。"
-        ),
+        help="保存済みICAを再利用し、全時間帯の確認HTMLだけを再生成する。",
     )
     parser.add_argument(
         "--approved-bad-channel",

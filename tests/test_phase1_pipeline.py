@@ -114,6 +114,11 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert 'id="zoomIn"' in html
     assert 'id="zoomOut"' in html
     assert 'id="reset"' in html
+    assert 'id="staticFallback"' in html
+    assert '<svg role="img"' in html
+    assert 'Time from Part start (s)' in html
+    assert 'EEG amplitude (µV)' in html
+    assert "document.getElementById('staticFallback').style.display='none'" in html
     assert "addEventListener('wheel'" in html
     assert "addEventListener('pointermove'" in html
     assert '"bin_samples":64' in html
