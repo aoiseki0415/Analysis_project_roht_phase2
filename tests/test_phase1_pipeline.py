@@ -13,6 +13,7 @@ from phase1_pipeline import (  # noqa: E402
     CHANNELS,
     EegPart,
     SetBoundary,
+    absolute_amplitude_intervals,
     derive_boundaries,
     detect_flatlines,
     infomax_convergence_diagnostics,
@@ -20,6 +21,7 @@ from phase1_pipeline import (  # noqa: E402
     save_interactive_html,
     save_set_hdf5,
     select_notification_candidates,
+    select_ten_second_window,
     validate_hdf5,
 )
 
@@ -114,11 +116,37 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert 'id="reset"' in html
     assert "addEventListener('wheel'" in html
     assert "addEventListener('pointermove'" in html
-    assert '"bin_samples":8' in html
+    assert '"bin_samples":64' in html
     assert '"before_low"' in html
     assert '"before_high"' in html
     assert "表示準備完了" in html
     assert html.endswith("</body></html>")
+
+
+def test_absolute_amplitude_exclusion_adds_one_second_padding() -> None:
+    data = np.zeros((32, 10 * 256), dtype=float)
+    data[0, 5 * 256 : 5 * 256 + 2] = 0.001
+    intervals = absolute_amplitude_intervals(data)
+    assert intervals == [(4 * 256, 6 * 256 + 2, "AbsoluteAmplitude_500uV", 1)]
+
+
+def test_ten_second_qc_window_avoids_ica_exclusion() -> None:
+    n_samples = 40 * 256
+    boundary = SetBoundary(1, 0.0, 40_000.0, 1, 0, n_samples, True, "使用")
+    blink = np.zeros(n_samples)
+    before = np.zeros(n_samples)
+    blink[20 * 256] = 100.0
+    blink[30 * 256] = 10.0
+    intervals = [
+        {
+            "part": 1,
+            "start_sample": 19 * 256,
+            "end_sample": 21 * 256,
+        }
+    ]
+    start, end = select_ten_second_window(boundary, blink, before, intervals)
+    assert start == 25 * 256
+    assert end == 35 * 256
 
 
 def test_hdf5_contains_signal_times_and_behavior(tmp_path: Path) -> None:

@@ -38,6 +38,9 @@ from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
 
 SFREQ = 256.0
+ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 500.0
+ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS = 1.0
+HTML_ENVELOPE_BIN_SAMPLES = 64
 EEG_PREFIX = "EEG."
 CHANNELS = [
     "Cz",
@@ -714,6 +717,31 @@ def _robust_z(values: np.ndarray, axis: int = 0) -> np.ndarray:
     return (values - median) / np.maximum(mad, np.finfo(float).eps)
 
 
+def absolute_amplitude_intervals(data_v: np.ndarray) -> list[tuple[int, int, str, int]]:
+    """Find obviously excessive amplitudes for exclusion from ICA training only."""
+    threshold_v = ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV * 1e-6
+    exceeded = np.abs(data_v) >= threshold_v
+    flagged = np.any(exceeded, axis=0)
+    if not np.any(flagged):
+        return []
+    edges = np.diff(np.pad(flagged.astype(np.int8), (1, 1)))
+    starts = np.flatnonzero(edges == 1)
+    ends = np.flatnonzero(edges == -1)
+    padding = int(round(ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS * SFREQ))
+    intervals = []
+    for raw_start, raw_end in zip(starts, ends, strict=True):
+        affected = int(np.count_nonzero(np.any(exceeded[:, raw_start:raw_end], axis=1)))
+        intervals.append(
+            (
+                max(0, int(raw_start) - padding),
+                min(data_v.shape[1], int(raw_end) + padding),
+                f"AbsoluteAmplitude_{ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV:g}uV",
+                affected,
+            )
+        )
+    return intervals
+
+
 def detect_ica_bad_intervals(
     data_v: np.ndarray, part_number: int, original_timestamp: np.ndarray
 ) -> list[dict[str, Any]]:
@@ -767,7 +795,7 @@ def detect_ica_bad_intervals(
     window_bad_channels = (window_z < -3.5) | (window_z > 7.0)
     window_flags = np.mean(window_bad_channels, axis=1) > 0.25
 
-    intervals: list[tuple[int, int, str, int]] = []
+    intervals: list[tuple[int, int, str, int]] = absolute_amplitude_intervals(data_v)
     for flag, start, affected in zip(burst_flags, starts, burst_affected, strict=True):
         if flag:
             intervals.append((int(start), int(start + half), "ASR_BurstCriterion_20", affected))
@@ -1112,7 +1140,7 @@ def save_interactive_html(
     channel_names: list[str],
 ) -> None:
     picks = [channel_names.index(ch) for ch in DISPLAY_CHANNELS]
-    bin_samples = 8
+    bin_samples = HTML_ENVELOPE_BIN_SAMPLES
     before_envelopes = [
         _fixed_bin_minmax_envelope(before_v[pick] * 1e6, bin_samples) for pick in picks
     ]
@@ -1159,12 +1187,47 @@ document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));documen
 cv.addEventListener('wheel',e=>{e.preventDefault();const rect=cv.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));zoom(e.deltaY>0?1.5:.67,ratio)},{passive:false});
 cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,s:start,span:end-start};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);drag=null;cv.style.cursor='grab'});cv.addEventListener('pointercancel',()=>{drag=null;cv.style.cursor='grab'});
 cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n_bins-1,Math.max(0,Math.floor(start+ratio*(end-start))));document.getElementById('readout').textContent=`Cursor: t=${binTime(i).toFixed(3)}–${binTime(i+1).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before_low[j][i].toFixed(2)}…${P.before_high[j][i].toFixed(2)} µV, after ${P.after_low[j][i].toFixed(2)}…${P.after_high[j][i].toFixed(2)} µV`).join(' | ')});
-cv.addEventListener('dblclick',()=>{start=0;end=P.n_bins;draw()});document.getElementById('status').textContent='表示準備完了（8サンプルごとの最小値・最大値を保持）';draw();
+cv.addEventListener('dblclick',()=>{start=0;end=P.n_bins;draw()});document.getElementById('status').textContent='表示準備完了（64サンプルごとの最小値・最大値を保持）';draw();
 </script></body></html>"""
     html = html.replace("__TITLE__", f"ID{participant_id} Part{part_number}: ICA before/after")
     html = html.replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")
+
+
+def select_ten_second_window(
+    boundary: SetBoundary,
+    blink_fp1_v: np.ndarray,
+    before_fp1_v: np.ndarray,
+    excluded_intervals: list[dict[str, Any]],
+) -> tuple[int, int]:
+    """Select a ten-second Eye-QC window that does not overlap ICA exclusions."""
+    half = int(5 * SFREQ)
+    window = int(10 * SFREQ)
+    search_start = boundary.start_sample + half
+    search_end = boundary.end_sample - half
+    if search_end <= search_start:
+        raise RuntimeError(f"Set{boundary.set_number}: 10秒確認区間を確保できません")
+    valid_centers = np.ones(search_end - search_start, dtype=bool)
+    for interval in excluded_intervals:
+        if int(interval["part"]) != boundary.part:
+            continue
+        forbidden_start = max(search_start, int(interval["start_sample"]) - half)
+        forbidden_end = min(search_end, int(interval["end_sample"]) + half)
+        if forbidden_start < forbidden_end:
+            valid_centers[forbidden_start - search_start : forbidden_end - search_start] = False
+    if not np.any(valid_centers):
+        raise RuntimeError(
+            f"Set{boundary.set_number}: ICA学習除外区間と重ならない10秒確認区間がありません"
+        )
+    segment = np.abs(blink_fp1_v[search_start:search_end])
+    if not np.any(segment):
+        segment = np.abs(before_fp1_v[search_start:search_end])
+    scores = segment.copy()
+    scores[~valid_centers] = -np.inf
+    center = search_start + int(np.argmax(scores))
+    start = center - half
+    return start, start + window
 
 
 def save_ten_second_figure(
@@ -1176,21 +1239,15 @@ def save_ten_second_figure(
     after_v: np.ndarray,
     blink_v: np.ndarray,
     channel_names: list[str],
+    excluded_intervals: list[dict[str, Any]],
 ) -> None:
     fp1 = channel_names.index("Fp1")
-    half = int(5 * SFREQ)
-    window = int(10 * SFREQ)
-    search_start = boundary.start_sample + half
-    search_end = boundary.end_sample - half
-    if search_end <= search_start:
-        center = (boundary.start_sample + boundary.end_sample) // 2
-    else:
-        segment = np.abs(blink_v[fp1, search_start:search_end])
-        if not np.any(segment):
-            segment = np.abs(before_v[fp1, search_start:search_end])
-        center = search_start + int(np.argmax(segment))
-    start = max(boundary.start_sample, min(boundary.end_sample - window, center - half))
-    end = min(boundary.end_sample, start + window)
+    start, end = select_ten_second_window(
+        boundary,
+        blink_v[fp1],
+        before_v[fp1],
+        excluded_intervals,
+    )
     time = np.arange(end - start) / SFREQ
     picks = [channel_names.index(ch) for ch in DISPLAY_CHANNELS]
     values = np.concatenate([before_v[picks, start:end], after_v[picks, start:end]], axis=0) * 1e6
@@ -1472,6 +1529,7 @@ def preprocess_participant(
             cleaned_parts[boundary.part - 1],
             blink_parts[boundary.part - 1],
             keep_channels,
+            intervals,
         )
         ten_second_files.append(path)
 
