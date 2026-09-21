@@ -38,6 +38,7 @@ from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
 
 SFREQ = 256.0
+EYE_BLINK_PROBABILITY_THRESHOLD = 0.80
 ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 500.0
 ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS = 1.0
 HTML_ENVELOPE_BIN_SAMPLES = 64
@@ -913,7 +914,9 @@ def fit_ica_and_label(
     )
     probabilities = iclabel_label_components(raw, ica, inplace=True, backend="onnx")
     eye_column = ICLABEL_CLASSES.index("eye blink")
-    eye_components = np.flatnonzero(probabilities[:, eye_column] >= 0.90).astype(int).tolist()
+    eye_components = np.flatnonzero(
+        probabilities[:, eye_column] >= EYE_BLINK_PROBABILITY_THRESHOLD
+    ).astype(int).tolist()
     return ica, raw, probabilities, eye_components, diagnostics
 
 
@@ -959,6 +962,21 @@ def _interval_annotations_for_set(
     return output
 
 
+def _interval_mask_for_set(
+    intervals: list[dict[str, Any]], part_number: int, start: int, end: int
+) -> np.ndarray:
+    """Return a sample-aligned mask for intervals excluded from ICA training."""
+    mask = np.zeros(end - start, dtype=bool)
+    for item in intervals:
+        if item["part"] != part_number:
+            continue
+        overlap_start = max(start, item["start_sample"])
+        overlap_end = min(end, item["end_sample"])
+        if overlap_start < overlap_end:
+            mask[overlap_start - start : overlap_end - start] = True
+    return mask
+
+
 def save_set_hdf5(
     path: Path,
     *,
@@ -971,6 +989,8 @@ def save_set_hdf5(
     results_csv: str,
     results_rows: int,
     bad_intervals: list[dict[str, Any]],
+    original_channel_names: list[str],
+    removed_channels: list[str],
     data_kind: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -979,6 +999,9 @@ def save_set_hdf5(
     if len(original_timestamp) != n_samples:
         raise ValueError("signalとOriginalTimestampの行数が一致しません")
     annotations = _interval_annotations_for_set(
+        bad_intervals, boundary.part, boundary.start_sample, boundary.end_sample
+    )
+    exclusion_mask = _interval_mask_for_set(
         bad_intervals, boundary.part, boundary.start_sample, boundary.end_sample
     )
     utf8 = h5py.string_dtype("utf-8")
@@ -993,6 +1016,8 @@ def save_set_hdf5(
                 "source_part": boundary.part,
                 "source_file": source_file.name,
                 "timebase": "OriginalTimestamp",
+                "original_channel_names_json": json.dumps(original_channel_names),
+                "removed_channels_json": json.dumps(removed_channels),
             }
         )
         signal_group = handle.create_group("signal")
@@ -1012,6 +1037,13 @@ def save_set_hdf5(
         behavior.attrs["n_rows"] = results_rows
         qc = handle.create_group("qc")
         qc.create_dataset(
+            "ica_training_excluded_mask",
+            data=exclusion_mask,
+            compression="gzip",
+            compression_opts=4,
+            shuffle=True,
+        )
+        qc.create_dataset(
             "ica_training_exclusions_json",
             data=json.dumps(annotations, ensure_ascii=False),
             dtype=utf8,
@@ -1019,17 +1051,23 @@ def save_set_hdf5(
 
 
 def validate_hdf5(
-    path: Path, expected_channels: int, expected_behavior_rows: int
+    path: Path, expected_channel_names: list[str], expected_behavior_rows: int
 ) -> dict[str, Any]:
     with h5py.File(path, "r") as handle:
         signal_shape = tuple(handle["signal/data"].shape)
         relative_count = len(handle["time/relative_seconds"])
         timestamp_count = len(handle["time/OriginalTimestamp"])
-        channel_count = len(handle["signal/channel_names"])
+        exclusion_mask_count = len(handle["qc/ica_training_excluded_mask"])
+        saved_channel_names = [
+            value.decode("utf-8") if isinstance(value, bytes) else str(value)
+            for value in handle["signal/channel_names"][:]
+        ]
+        channel_count = len(saved_channel_names)
         behavior_rows = int(handle["behavior"].attrs["n_rows"])
         ok = (
-            signal_shape[0] == relative_count == timestamp_count
-            and signal_shape[1] == channel_count == expected_channels
+            signal_shape[0] == relative_count == timestamp_count == exclusion_mask_count
+            and signal_shape[1] == channel_count == len(expected_channel_names)
+            and saved_channel_names == expected_channel_names
             and behavior_rows == expected_behavior_rows
         )
         return {
@@ -1037,7 +1075,9 @@ def validate_hdf5(
             "signal_shape": signal_shape,
             "relative_seconds_rows": relative_count,
             "original_timestamp_rows": timestamp_count,
+            "ica_training_excluded_mask_rows": exclusion_mask_count,
             "channel_count": channel_count,
+            "channel_names_match": saved_channel_names == expected_channel_names,
             "behavior_rows": behavior_rows,
             "ok": bool(ok),
         }
@@ -1056,16 +1096,18 @@ def save_iclabel_outputs(
     probability_frame.index.name = "component"
     probability_frame.to_csv(qc_dir / f"ID{participant_id}_ICLabel_probabilities.csv")
     if eye_components:
-        figures = ica.plot_components(picks=eye_components, colorbar=True, show=False)
-        if not isinstance(figures, list):
-            figures = [figures]
-        for index, figure in enumerate(figures, start=1):
+        for component in eye_components:
+            figure = ica.plot_components(picks=[component], colorbar=True, show=False)
+            if isinstance(figure, list):
+                figure = figure[0]
             figure.suptitle(
-                f"ID{participant_id}: ICLabel eye blink components\n"
+                f"ID{participant_id}: removed eye component IC{component}\n"
                 "Scalp color = ICA spatial weight [a.u.]",
                 fontsize=11,
             )
-            figure.savefig(qc_dir / f"ID{participant_id}_eye_IC_topomap_{index}.png", dpi=160)
+            figure.savefig(
+                qc_dir / f"ID{participant_id}_eye_IC_topomap_IC{component}.png", dpi=160
+            )
             plt.close(figure)
         sources = ica.get_sources(training_raw).get_data(picks=eye_components)
         fig, axes = plt.subplots(len(eye_components), 2, figsize=(14, 3.2 * len(eye_components)))
@@ -1106,7 +1148,13 @@ def save_iclabel_outputs(
     else:
         fig, ax = plt.subplots(figsize=(8, 3))
         ax.axis("off")
-        ax.text(0.5, 0.5, "No IC reached eye blink probability ≥ 0.90", ha="center", va="center")
+        ax.text(
+            0.5,
+            0.5,
+            f"No IC reached eye blink probability ≥ {EYE_BLINK_PROBABILITY_THRESHOLD:.2f}",
+            ha="center",
+            va="center",
+        )
         fig.savefig(qc_dir / f"ID{participant_id}_eye_IC_none.png", dpi=160)
         plt.close(fig)
 
@@ -1164,6 +1212,22 @@ def _static_svg_overview(
         '.grid{stroke:#ddd;stroke-width:1}.before{stroke:#1261a0;stroke-width:.8;opacity:.70}'
         '.after{stroke:#d1495b;stroke-width:.8;opacity:.85}</style>',
     ]
+    reduced = []
+    for channel_index in range(len(DISPLAY_CHANNELS)):
+        reduced.append(
+            (
+                reduce_envelope(*before_envelopes[channel_index]),
+                reduce_envelope(*after_envelopes[channel_index]),
+            )
+        )
+    shared_scale = max(
+        1.0,
+        max(
+            float(np.nanmax(np.abs(np.concatenate([*before, *after]))))
+            for before, after in reduced
+        )
+        * 1.08,
+    )
     for tick in range(6):
         x = left + plot_width * tick / 5
         seconds = duration_s * tick / 5
@@ -1175,23 +1239,13 @@ def _static_svg_overview(
         )
     for channel_index, channel in enumerate(DISPLAY_CHANNELS):
         y_center = top + (channel_index + 0.5) * row_height
-        before_low, before_high = reduce_envelope(*before_envelopes[channel_index])
-        after_low, after_high = reduce_envelope(*after_envelopes[channel_index])
-        scale = max(
-            1.0,
-            float(
-                np.nanmax(
-                    np.abs(np.concatenate([before_low, before_high, after_low, after_high]))
-                )
-            )
-            * 1.08,
-        )
+        (before_low, before_high), (after_low, after_high) = reduced[channel_index]
         pieces.append(
             f'<line class="axis" x1="{left}" y1="{y_center:.1f}" '
             f'x2="{left + plot_width}" y2="{y_center:.1f}"/>'
             f'<text x="{left + 5}" y="{top + channel_index * row_height + 18:.1f}" '
             f'font-size="14">{channel}</text><text x="{left + 55}" '
-            f'y="{top + channel_index * row_height + 18:.1f}" font-size="14">±{scale:.1f} µV</text>'
+            f'y="{top + channel_index * row_height + 18:.1f}" font-size="14">±{shared_scale:.1f} µV</text>'
         )
         for css_class, low, high in (
             ("before", before_low, before_high),
@@ -1201,8 +1255,8 @@ def _static_svg_overview(
             segments = []
             for index, (low_value, high_value) in enumerate(zip(low, high, strict=True)):
                 x = left + plot_width * index / denominator
-                y_low = y_center - low_value / scale * row_height * 0.40
-                y_high = y_center - high_value / scale * row_height * 0.40
+                y_low = y_center - low_value / shared_scale * row_height * 0.40
+                y_high = y_center - high_value / shared_scale * row_height * 0.40
                 segments.append(f'M{x:.1f},{y_low:.1f}V{y_high:.1f}')
             pieces.append(f'<path class="{css_class}" d="{"".join(segments)}"/>')
     pieces.extend(
@@ -1275,11 +1329,11 @@ document.getElementById('checks').addEventListener('change',e=>{active[Number(e.
 function sampleTime(i){return i/P.sfreq}
 function clampWindow(s,e){const minSpan=Math.min(P.n_samples,Math.ceil(P.sfreq*2));let span=Math.max(minSpan,Math.min(P.n_samples,Math.round(e-s)));s=Math.max(0,Math.min(P.n_samples-span,Math.round(s)));return[s,s+span]}
 function zoom(factor,ratio=.5){const anchor=start+ratio*(end-start),span=(end-start)*factor;[start,end]=clampWindow(anchor-ratio*span,anchor+(1-ratio)*span);draw()}
-function draw(){ctx.clearRect(0,0,cv.width,cv.height);const span=end-start,plotW=cv.width-left-right,plotH=cv.height-top-bottom,rows=P.channels.length,rh=plotH/rows;ctx.font='14px sans-serif';
+function draw(){ctx.clearRect(0,0,cv.width,cv.height);const span=end-start,plotW=cv.width-left-right,plotH=cv.height-top-bottom,rows=P.channels.length,rh=plotH/rows;ctx.font='14px sans-serif';let sharedMax=1;for(let ch=0;ch<rows;ch++){if(!active[ch])continue;for(let i=start;i<end;i++){sharedMax=Math.max(sharedMax,Math.abs(P.before[ch][i]),Math.abs(P.after[ch][i]))}}sharedMax*=1.08;
  ctx.strokeStyle='#222';ctx.lineWidth=1;ctx.strokeRect(left,top,plotW,plotH);ctx.fillStyle='#111';ctx.textAlign='center';ctx.fillText('Time from Part start (s)',left+plotW/2,cv.height-8);ctx.save();ctx.translate(18,top+plotH/2);ctx.rotate(-Math.PI/2);ctx.fillText('EEG amplitude (µV)',0,0);ctx.restore();
  for(let tick=0;tick<=5;tick++){const px=left+plotW*tick/5,t=sampleTime(start+(end-start)*tick/5);ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,top+plotH);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(t.toFixed(1),px,top+plotH+20)}
- for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh;ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#111';ctx.fillText(P.channels[ch],left+5,top+ch*rh+17);if(!active[ch])continue;const series=[P.before[ch],P.after[ch]];let max=1;for(let i=start;i<end;i++)for(const values of series)max=Math.max(max,Math.abs(values[i]));max*=1.08;ctx.fillText(`±${max.toFixed(1)} µV`,left+55,top+ch*rh+17);
-  series.forEach((values,k)=>{ctx.strokeStyle=k?'#d1495b':'#1261a0';ctx.globalAlpha=k?.85:.70;ctx.beginPath();if(span<=plotW*2){for(let i=start;i<end;i++){const x=left+(i-start)/Math.max(1,span-1)*plotW,y=y0-values[i]/max*(rh*.40);if(i===start)ctx.moveTo(x,y);else ctx.lineTo(x,y)}}else{for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n_samples);j++){lo=Math.min(lo,values[j]);hi=Math.max(hi,values[j])}const yl=y0-lo/max*(rh*.40),yh=y0-hi/max*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}}ctx.stroke()});ctx.globalAlpha=1}
+ for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh;ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#111';ctx.fillText(P.channels[ch],left+5,top+ch*rh+17);if(!active[ch])continue;const series=[P.before[ch],P.after[ch]];ctx.fillText(`±${sharedMax.toFixed(1)} µV`,left+55,top+ch*rh+17);
+  series.forEach((values,k)=>{ctx.strokeStyle=k?'#d1495b':'#1261a0';ctx.globalAlpha=k?.85:.70;ctx.beginPath();if(span<=plotW*2){for(let i=start;i<end;i++){const x=left+(i-start)/Math.max(1,span-1)*plotW,y=y0-values[i]/sharedMax*(rh*.40);if(i===start)ctx.moveTo(x,y);else ctx.lineTo(x,y)}}else{for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n_samples);j++){lo=Math.min(lo,values[j]);hi=Math.max(hi,values[j])}const yl=y0-lo/sharedMax*(rh*.40),yh=y0-hi/sharedMax*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}}ctx.stroke()});ctx.globalAlpha=1}
  document.getElementById('window').textContent=`表示範囲 ${sampleTime(start).toFixed(1)}–${sampleTime(end).toFixed(1)} s`;}
 document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));document.getElementById('zoomOut').addEventListener('click',()=>zoom(2));document.getElementById('reset').addEventListener('click',()=>{start=0;end=P.n_samples;draw()});
 cv.addEventListener('wheel',e=>{e.preventDefault();const rect=cv.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));zoom(e.deltaY>0?1.5:.67,ratio)},{passive:false});
@@ -1294,88 +1348,69 @@ cv.addEventListener('dblclick',()=>{start=0;end=P.n_samples;draw()});draw();docu
     path.write_text(html, encoding="utf-8")
 
 
-def select_ten_second_window(
-    boundary: SetBoundary,
-    blink_fp1_v: np.ndarray,
-    before_fp1_v: np.ndarray,
-    excluded_intervals: list[dict[str, Any]],
-) -> tuple[int, int]:
-    """Select a ten-second Eye-QC window that does not overlap ICA exclusions."""
-    half = int(5 * SFREQ)
-    window = int(10 * SFREQ)
-    search_start = boundary.start_sample + half
-    search_end = boundary.end_sample - half
-    if search_end <= search_start:
-        raise RuntimeError(f"Set{boundary.set_number}: 10秒確認区間を確保できません")
-    valid_centers = np.ones(search_end - search_start, dtype=bool)
-    for interval in excluded_intervals:
-        if int(interval["part"]) != boundary.part:
-            continue
-        forbidden_start = max(search_start, int(interval["start_sample"]) - half)
-        forbidden_end = min(search_end, int(interval["end_sample"]) + half)
-        if forbidden_start < forbidden_end:
-            valid_centers[forbidden_start - search_start : forbidden_end - search_start] = False
-    if not np.any(valid_centers):
-        raise RuntimeError(
-            f"Set{boundary.set_number}: ICA学習除外区間と重ならない10秒確認区間がありません"
-        )
-    segment = np.abs(blink_fp1_v[search_start:search_end])
-    if not np.any(segment):
-        segment = np.abs(before_fp1_v[search_start:search_end])
-    scores = segment.copy()
-    scores[~valid_centers] = -np.inf
-    center = search_start + int(np.argmax(scores))
-    start = center - half
-    return start, start + window
-
-
-def save_ten_second_figure(
+def save_blink_signal_figure(
     path: Path,
     participant_id: str,
     boundary: SetBoundary,
-    selection_number: int,
-    before_v: np.ndarray,
-    after_v: np.ndarray,
-    blink_v: np.ndarray,
-    channel_names: list[str],
+    blink_signal_v: np.ndarray,
     excluded_intervals: list[dict[str, Any]],
 ) -> None:
-    fp1 = channel_names.index("Fp1")
-    start, end = select_ten_second_window(
-        boundary,
-        blink_v[fp1],
-        before_v[fp1],
-        excluded_intervals,
-    )
-    time = np.arange(end - start) / SFREQ
-    picks = [channel_names.index(ch) for ch in DISPLAY_CHANNELS]
-    values = np.concatenate([before_v[picks, start:end], after_v[picks, start:end]], axis=0) * 1e6
-    limit = max(1.0, float(np.max(np.abs(values))) * 1.05)
+    """Save the exact Phase 3 input signal as a set-level overview."""
+    time = np.arange(blink_signal_v.shape[1]) / SFREQ
+    values_uv = blink_signal_v * 1e6
+    limit = max(1.0, float(np.max(np.abs(values_uv))) * 1.05)
+    max_points = 5000
+    stride = max(1, math.ceil(blink_signal_v.shape[1] / max_points))
+    envelope_time = []
+    envelope_low = []
+    envelope_high = []
+    for values in values_uv:
+        low, high = _fixed_bin_minmax_envelope(values, stride)
+        n_bins = low.size
+        envelope_time.append((np.arange(n_bins) * stride + stride / 2) / SFREQ)
+        envelope_low.append(low)
+        envelope_high.append(high)
     fig, axes = plt.subplots(3, 1, figsize=(14, 8), sharex=True)
-    for axis, ch, pick in zip(axes, DISPLAY_CHANNELS, picks, strict=True):
-        axis.plot(
-            time,
-            before_v[pick, start:end] * 1e6,
-            color="#1261a0",
-            label="Before ICA",
-            alpha=0.75,
+    labels = ("Fp1", "Fp2", "Fp1/Fp2 mean")
+    colors = ("#1261a0", "#d1495b", "#2e8b57")
+    annotations = _interval_annotations_for_set(
+        excluded_intervals, boundary.part, boundary.start_sample, boundary.end_sample
+    )
+    for axis, label, color, plot_time, low, high in zip(
+        axes,
+        labels,
+        colors,
+        envelope_time,
+        envelope_low,
+        envelope_high,
+        strict=True,
+    ):
+        axis.fill_between(
+            plot_time,
+            low,
+            high,
+            color=color,
+            alpha=0.70,
+            linewidth=0,
+            label=f"{label} removed Eye-IC contribution",
         )
-        axis.plot(
-            time,
-            after_v[pick, start:end] * 1e6,
-            color="#d1495b",
-            label="After ICA",
-            alpha=0.85,
-        )
-        axis.set_ylabel(f"{ch} amplitude (µV)")
+        for index, annotation in enumerate(annotations):
+            axis.axvspan(
+                annotation["relative_start_s"],
+                annotation["relative_end_s"],
+                color="#808080",
+                alpha=0.18,
+                label="Excluded from ICA training" if index == 0 else None,
+            )
+        axis.axhline(0, color="#444444", lw=0.6)
+        axis.set_ylabel(f"{label} amplitude (µV)")
         axis.set_ylim(-limit, limit)
         axis.legend(loc="upper right")
-    axes[-1].set_xlabel("Time in 10-second window (s)")
-    set_offset = (start - boundary.start_sample) / SFREQ
+    axes[-1].set_xlim(0, time[-1] if time.size else 0)
+    axes[-1].set_xlabel("Time from set start (s)")
     fig.suptitle(
-        f"ID{participant_id} Set{boundary.set_number} selection {selection_number}: "
-        f"ICA before/after at set time {set_offset:.1f}–{set_offset + len(time) / SFREQ:.1f} s "
-        "(full 256 Hz)"
+        f"ID{participant_id} Set{boundary.set_number}: Phase 3 blink-analysis signal\n"
+        f"Shared y-axis across channels; source data {SFREQ:g} Hz"
     )
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1605,35 +1640,9 @@ def preprocess_participant(
                 keep_channels,
             )
 
-    usable_boundaries = [boundary for boundary in boundaries if boundary.usable]
-    if len(usable_boundaries) < 5:
-        raise RuntimeError(
-            f"ID{participant_id}: 10秒確認figure用の有効セットが5未満です: "
-            f"{[boundary.set_number for boundary in usable_boundaries]}"
-        )
-    selected_indices = np.rint(np.linspace(0, len(usable_boundaries) - 1, 5)).astype(int)
-    selected_boundaries = [usable_boundaries[index] for index in selected_indices]
-    ten_second_files = []
-    for selection_number, boundary in enumerate(selected_boundaries, start=1):
-        path = qc_dir / (
-            f"ID{participant_id}_Set{boundary.set_number}_Selection{selection_number:02d}_"
-            "ICA_before_after_10s.png"
-        )
-        save_ten_second_figure(
-            path,
-            participant_id,
-            boundary,
-            selection_number,
-            detrended_parts[boundary.part - 1],
-            cleaned_parts[boundary.part - 1],
-            blink_parts[boundary.part - 1],
-            keep_channels,
-            intervals,
-        )
-        ten_second_files.append(path)
-
     validations = []
     generated_sets = []
+    blink_figure_files = []
     for boundary in boundaries:
         if not boundary.usable:
             continue
@@ -1654,6 +1663,8 @@ def preprocess_participant(
             results_csv=results_csv,
             results_rows=results_rows,
             bad_intervals=intervals,
+            original_channel_names=CHANNELS,
+            removed_channels=approved_bad_channels,
             data_kind="brain_activity_eeg",
         )
         fp1, fp2 = keep_channels.index("Fp1"), keep_channels.index("Fp2")
@@ -1670,12 +1681,28 @@ def preprocess_participant(
             results_csv=results_csv,
             results_rows=results_rows,
             bad_intervals=intervals,
+            original_channel_names=CHANNELS,
+            removed_channels=approved_bad_channels,
             data_kind="removed_eye_component_signal",
         )
+        blink_figure_path = (
+            qc_dir
+            / f"ID{participant_id}_Set{boundary.set_number}_blink_signal_timeseries.png"
+        )
+        save_blink_signal_figure(
+            blink_figure_path,
+            participant_id,
+            boundary,
+            blink_signal,
+            intervals,
+        )
+        blink_figure_files.append(blink_figure_path)
         validations.extend(
             [
-                validate_hdf5(brain_path, len(keep_channels), results_rows),
-                validate_hdf5(blink_path, 3, results_rows),
+                validate_hdf5(brain_path, keep_channels, results_rows),
+                validate_hdf5(
+                    blink_path, ["Fp1", "Fp2", "Fp1_Fp2_mean"], results_rows
+                ),
             ]
         )
         generated_sets.append(boundary.set_number)
@@ -1697,8 +1724,8 @@ def preprocess_participant(
             (qc_dir / f"ID{participant_id}_Part{part}_ICA_before_after.html").exists()
             for part in expected_qc_parts
         )
-        and len(ten_second_files) == 5
-        and all(path.exists() for path in ten_second_files)
+        and len(blink_figure_files) == len(expected_sets)
+        and all(path.exists() for path in blink_figure_files)
     )
     summary = {
         "status": "complete" if complete else "needs_review",
@@ -1738,7 +1765,7 @@ def preprocess_participant(
             "rms_before": before_rms,
             "rms_after": after_rms,
         },
-        "ten_second_qc_sets": [boundary.set_number for boundary in selected_boundaries],
+        "blink_signal_figure_sets": expected_sets,
         "iclabel_average_reference_deviation": (
             "ICLabel推奨の共通平均参照は、旧MATLAB実装との一貫性を優先して未実施"
         ),

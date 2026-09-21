@@ -42,7 +42,7 @@ PythonではMNE-PythonをEEG解析の中核にします。EEGLABと完全に同�
 | 瞬き・眼球・筋活動などの成分候補分類 | ICLabelのラベルと確率を利用 |
 | 不良センサー・区間の補助評価 | MNEおよびautoreject |
 
-ICLabelは、extended Infomax、平均基準、1–100 HzにフィルタしたEEGを推奨条件としています。本解析は前回MATLAB実装との一貫性を優先し、平均参照は追加しません。1–100 Hzとextended Infomaxは満たしますが、ICLabelの推奨条件を完全には満たさないことを実行ログに明記します。成分除去は `eye blink` 確率0.90以上だけとし、独自の追加特徴は使用しません。
+ICLabelは、extended Infomax、平均基準、1–100 HzにフィルタしたEEGを推奨条件としています。本解析は前回MATLAB実装との一貫性を優先し、平均参照は追加しません。1–100 Hzとextended Infomaxは満たしますが、ICLabelの推奨条件を完全には満たさないことを実行ログに明記します。成分除去は `eye blink` 確率0.80以上だけとし、`ICA.find_bads_eog()`や独自の追加特徴は除去判定に使用しません。
 
 本案件は試行ごとのepochingを脳活動の主解析にしない方針です。autorejectは主にEpochsを対象とするため、必要な場面だけ補助的に使用し、連続解析へ機械的には適用しません。
 

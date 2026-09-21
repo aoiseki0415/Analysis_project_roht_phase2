@@ -11,6 +11,7 @@ sys.path.insert(0, str(MODULE_DIR))
 
 from phase1_pipeline import (  # noqa: E402
     CHANNELS,
+    EYE_BLINK_PROBABILITY_THRESHOLD,
     EegPart,
     SetBoundary,
     absolute_amplitude_intervals,
@@ -18,10 +19,10 @@ from phase1_pipeline import (  # noqa: E402
     detect_flatlines,
     infomax_convergence_diagnostics,
     resolve_bad_channel_decisions,
+    save_blink_signal_figure,
     save_interactive_html,
     save_set_hdf5,
     select_notification_candidates,
-    select_ten_second_window,
     validate_hdf5,
 )
 
@@ -128,6 +129,7 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert '"after"' in html
     assert '"bin_samples"' not in html
     assert "256 Hzの元波形を保持" in html
+    assert "sharedMax" in html
     assert "表示準備完了" in html
     assert html.endswith("</body></html>")
 
@@ -139,23 +141,38 @@ def test_absolute_amplitude_exclusion_adds_one_second_padding() -> None:
     assert intervals == [(4 * 256, 6 * 256 + 2, "AbsoluteAmplitude_500uV", 1)]
 
 
-def test_ten_second_qc_window_avoids_ica_exclusion() -> None:
-    n_samples = 40 * 256
-    boundary = SetBoundary(1, 0.0, 40_000.0, 1, 0, n_samples, True, "使用")
-    blink = np.zeros(n_samples)
-    before = np.zeros(n_samples)
-    blink[20 * 256] = 100.0
-    blink[30 * 256] = 10.0
-    intervals = [
-        {
-            "part": 1,
-            "start_sample": 19 * 256,
-            "end_sample": 21 * 256,
-        }
-    ]
-    start, end = select_ten_second_window(boundary, blink, before, intervals)
-    assert start == 25 * 256
-    assert end == 35 * 256
+def test_eye_blink_probability_threshold_is_point_eight() -> None:
+    assert EYE_BLINK_PROBABILITY_THRESHOLD == 0.80
+
+
+def test_blink_signal_figure_uses_set_level_three_channel_input(tmp_path: Path) -> None:
+    n_samples = 4 * 256
+    boundary = SetBoundary(1, 0.0, 4_000.0, 1, 0, n_samples, True, "使用")
+    output = tmp_path / "blink.png"
+    signal_v = np.vstack(
+        [
+            np.linspace(-20, 20, n_samples),
+            np.linspace(-10, 10, n_samples),
+            np.linspace(-15, 15, n_samples),
+        ]
+    ) * 1e-6
+    save_blink_signal_figure(
+        output,
+        "101",
+        boundary,
+        signal_v,
+        [
+            {
+                "part": 1,
+                "start_sample": 100,
+                "end_sample": 200,
+                "reason": "test",
+                "affected_channel_count": 1,
+            }
+        ],
+    )
+    assert output.exists()
+    assert output.stat().st_size > 0
 
 
 def test_hdf5_contains_signal_times_and_behavior(tmp_path: Path) -> None:
@@ -173,12 +190,24 @@ def test_hdf5_contains_signal_times_and_behavior(tmp_path: Path) -> None:
         original_timestamp=1_700_000_000 + np.arange(n_samples) / 256,
         results_csv=results_csv,
         results_rows=1,
-        bad_intervals=[],
+        bad_intervals=[
+            {
+                "part": 1,
+                "start_sample": 100,
+                "end_sample": 200,
+                "reason": "test",
+                "affected_channel_count": 1,
+            }
+        ],
+        original_channel_names=CHANNELS,
+        removed_channels=[],
         data_kind="brain_activity_eeg",
     )
-    result = validate_hdf5(output, expected_channels=32, expected_behavior_rows=1)
+    result = validate_hdf5(output, expected_channel_names=CHANNELS, expected_behavior_rows=1)
     assert result["ok"] is True
     assert result["signal_shape"] == (512, 32)
+    assert result["ica_training_excluded_mask_rows"] == 512
+    assert result["channel_names_match"] is True
 
 
 def test_infomax_weight_change_stop_is_recognized_when_mne_reports_max_iter() -> None:
