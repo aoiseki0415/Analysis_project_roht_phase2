@@ -445,6 +445,19 @@ def save_detrend_figure(
     picks = [CHANNELS.index(ch) for ch in DISPLAY_CHANNELS]
     before_lo, before_hi = _minmax_envelope(before_v[picks] * 1e6)
     after_lo, after_hi = _minmax_envelope(after_v[picks] * 1e6)
+    shared_limit = max(
+        1.0,
+        float(
+            np.max(
+                np.abs(
+                    np.concatenate(
+                        [before_lo.ravel(), before_hi.ravel(), after_lo.ravel(), after_hi.ravel()]
+                    )
+                )
+            )
+        )
+        * 1.05,
+    )
     duration = before_v.shape[1] / SFREQ
     x = np.linspace(0, duration, before_lo.shape[1], endpoint=False)
     fig, axes = plt.subplots(3, 2, figsize=(16, 9), sharex=True)
@@ -469,6 +482,8 @@ def save_detrend_figure(
         )
         axes[row, 0].set_ylabel(f"{ch} amplitude (µV)")
         axes[row, 1].set_ylabel(f"{ch} amplitude (µV)")
+        axes[row, 0].set_ylim(-shared_limit, shared_limit)
+        axes[row, 1].set_ylim(-shared_limit, shared_limit)
         axes[row, 0].legend(loc="upper right", fontsize=7)
         axes[row, 1].legend(loc="upper right", fontsize=7)
     axes[0, 0].set_title("Before detrend: 49–51 Hz band-stop + 1–100 Hz band-pass")
