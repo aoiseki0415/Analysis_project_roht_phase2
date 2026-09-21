@@ -214,12 +214,32 @@ NotionのPhase 1配下にある「ICA処理結果（ID別）」で、処理し�
 
 詳細figureと品質管理表は引き続きOneDriveへ保存し、NotionにはID別の結果と理由を要約します。
 
-## 13. 実装単位
+## 13. ID別前処理完了確認
+
+NotionのPhase 1配下にある「前処理完了確認（ID別）」で、各IDの最終的な前処理完了状態を記録します。次をすべて確認できた場合だけ「完了」とします。
+
+- 期待するセットがすべて生成されている
+- 各セットについて、脳活動解析用EEGと瞬き解析用データが1つずつ存在する
+- 信号、セット内相対時刻、`OriginalTimestamp`の行数が一致する
+- 対応する`results.csv`由来の行動データが両方の解析データに含まれる
+- ICAモデルが収束し、除去ICとチャンネル除去の結果が「ICA処理結果（ID別）」に記録されている
+- 必要なICA確認用成果物がOneDriveに存在する
+
+通常IDではSet1～6の6セットを期待します。分割対象は5セットを期待し、備考には次を記録します。
+
+- ID 109：Set2～6、確認用波形は`Part2`
+- ID 120：Set1～5、確認用波形は`Part1`
+- ID 135：Set1とSet3～6、確認用波形は`Part1`・`Part2`
+- ID 225：Set1～3とSet5～6、確認用波形は`Part1`・`Part2`
+
+不足、不整合、未確認項目がある場合は「要確認」または「未完了」とし、具体的な内容を備考へ記録します。
+
+## 14. 実装単位
 
 - `Phase1_No1_InputAuditAndSynchronization.py`：入力監査、`OriginalTimestamp` と行動時刻の同期、セット境界、分割・除外マニフェスト
 - `Phase1_No2_AutomatedPreProcessing.py`：前回MATLAB準拠フィルタ、トレンド除去、チャンネル候補検出、ICA学習用区間除外、ICA、ICLabel、最終セット分割、保存、QC出力
 
-## 14. 根拠資料
+## 15. 根拠資料
 
 - 前回MATLAB `参考資料（プログラミング関連）/実験初期の解析プログラミング/実験本番_初期解析/ERP_and_Power_analysis.m`
 - Google Drive `EEG前処理自動化の実装要件定義書 No 2.pdf`
@@ -227,7 +247,7 @@ NotionのPhase 1配下にある「ICA処理結果（ID別）」で、処理し�
 - [MNE-ICALabel ICLabel API](https://mne.tools/mne-icalabel/stable/generated/api/mne_icalabel.iclabel.iclabel_label_components.html)
 - [ICLabel原著論文](https://pubmed.ncbi.nlm.nih.gov/31103785/)
 
-## 15. 実装時に検証する項目
+## 16. 実装時に検証する項目
 
 - 除外区間の開始・終了時刻、理由、影響チャンネル数
 - ICAの収束と再現性
