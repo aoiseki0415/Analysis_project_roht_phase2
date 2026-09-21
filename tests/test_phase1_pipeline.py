@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pandas as pd
 
@@ -19,6 +20,7 @@ from phase1_pipeline import (  # noqa: E402
     detect_flatlines,
     infomax_convergence_diagnostics,
     resolve_bad_channel_decisions,
+    restore_original_channel_layout,
     save_blink_signal_figure,
     save_interactive_html,
     save_set_hdf5,
@@ -201,6 +203,7 @@ def test_hdf5_contains_signal_times_and_behavior(tmp_path: Path) -> None:
         ],
         original_channel_names=CHANNELS,
         removed_channels=[],
+        removed_channel_records=[],
         data_kind="brain_activity_eeg",
     )
     result = validate_hdf5(output, expected_channel_names=CHANNELS, expected_behavior_rows=1)
@@ -208,6 +211,59 @@ def test_hdf5_contains_signal_times_and_behavior(tmp_path: Path) -> None:
     assert result["signal_shape"] == (512, 32)
     assert result["ica_training_excluded_mask_rows"] == 512
     assert result["channel_names_match"] is True
+    assert result["channel_available_mask_matches"] is True
+    assert result["removed_channel_records_match"] is True
+    assert result["fixed_channel_layout_ok"] is True
+
+
+def test_removed_channel_is_nan_in_fixed_32_channel_hdf5(tmp_path: Path) -> None:
+    n_samples = 256
+    removed_channel = "PO9"
+    kept_channels = [channel for channel in CHANNELS if channel != removed_channel]
+    reduced = np.ones((len(kept_channels), n_samples), dtype=np.float64)
+    restored = restore_original_channel_layout(reduced, kept_channels, CHANNELS)
+    removed_index = CHANNELS.index(removed_channel)
+    assert restored.shape == (32, n_samples)
+    assert np.isnan(restored[removed_index]).all()
+    assert np.isfinite(np.delete(restored, removed_index, axis=0)).all()
+
+    output = tmp_path / "fixed_layout.h5"
+    boundary = SetBoundary(1, 1.0, 2.0, 1, 0, n_samples, True, "使用")
+    removed_records = [
+        {
+            "channel": removed_channel,
+            "decision": "removed_with_user_approval",
+            "reasons": [{"reason": "continuous_zero_or_exact_flatline"}],
+        }
+    ]
+    save_set_hdf5(
+        output,
+        participant_id="test",
+        boundary=boundary,
+        source_file=Path("source.csv"),
+        data_v=restored,
+        channel_names=CHANNELS,
+        original_timestamp=1_700_000_000 + np.arange(n_samples) / 256,
+        results_csv="Trial\n",
+        results_rows=0,
+        bad_intervals=[],
+        original_channel_names=CHANNELS,
+        removed_channels=[removed_channel],
+        removed_channel_records=removed_records,
+        data_kind="brain_activity_eeg",
+    )
+    result = validate_hdf5(output, CHANNELS, 0)
+    assert result["ok"] is True
+    assert result["signal_shape"] == (n_samples, 32)
+    assert result["channel_available_mask_matches"] is True
+    assert result["removed_channel_records_match"] is True
+    assert result["fixed_channel_layout_ok"] is True
+    with h5py.File(output, "r") as handle:
+        mask = handle["qc/channel_available_mask"][:]
+        saved = handle["signal/data"][:]
+    assert mask.shape == (32,)
+    assert bool(mask[removed_index]) is False
+    assert np.isnan(saved[:, removed_index]).all()
 
 
 def test_infomax_weight_change_stop_is_recognized_when_mne_reports_max_iter() -> None:

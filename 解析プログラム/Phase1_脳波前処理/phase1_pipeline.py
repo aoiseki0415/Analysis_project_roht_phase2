@@ -977,6 +977,31 @@ def _interval_mask_for_set(
     return mask
 
 
+def restore_original_channel_layout(
+    reduced_data_v: np.ndarray,
+    kept_channel_names: list[str],
+    original_channel_names: list[str],
+) -> np.ndarray:
+    """Restore original channel columns and fill removed channels with NaN."""
+    if reduced_data_v.shape[0] != len(kept_channel_names):
+        raise ValueError("信号行列と保持チャンネル名の列数が一致しません")
+    if len(set(kept_channel_names)) != len(kept_channel_names):
+        raise ValueError("保持チャンネル名に重複があります")
+    unknown = sorted(set(kept_channel_names) - set(original_channel_names))
+    if unknown:
+        raise ValueError(f"元チャンネル一覧にないチャンネルがあります: {unknown}")
+    restored = np.full(
+        (len(original_channel_names), reduced_data_v.shape[1]),
+        np.nan,
+        dtype=reduced_data_v.dtype,
+    )
+    source_index = {channel: index for index, channel in enumerate(kept_channel_names)}
+    for target_index, channel in enumerate(original_channel_names):
+        if channel in source_index:
+            restored[target_index] = reduced_data_v[source_index[channel]]
+    return restored
+
+
 def save_set_hdf5(
     path: Path,
     *,
@@ -991,6 +1016,7 @@ def save_set_hdf5(
     bad_intervals: list[dict[str, Any]],
     original_channel_names: list[str],
     removed_channels: list[str],
+    removed_channel_records: list[dict[str, Any]],
     data_kind: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1037,6 +1063,18 @@ def save_set_hdf5(
         behavior.attrs["n_rows"] = results_rows
         qc = handle.create_group("qc")
         qc.create_dataset(
+            "channel_available_mask",
+            data=np.asarray(
+                [channel not in removed_channels for channel in original_channel_names],
+                dtype=bool,
+            ),
+        )
+        qc.create_dataset(
+            "removed_channel_records_json",
+            data=json.dumps(removed_channel_records, ensure_ascii=False),
+            dtype=utf8,
+        )
+        qc.create_dataset(
             "ica_training_excluded_mask",
             data=exclusion_mask,
             compression="gzip",
@@ -1058,16 +1096,53 @@ def validate_hdf5(
         relative_count = len(handle["time/relative_seconds"])
         timestamp_count = len(handle["time/OriginalTimestamp"])
         exclusion_mask_count = len(handle["qc/ica_training_excluded_mask"])
+        channel_available_mask = handle["qc/channel_available_mask"][:].astype(bool)
         saved_channel_names = [
             value.decode("utf-8") if isinstance(value, bytes) else str(value)
             for value in handle["signal/channel_names"][:]
         ]
         channel_count = len(saved_channel_names)
+        original_channel_names = json.loads(handle.attrs["original_channel_names_json"])
+        removed_channels = json.loads(handle.attrs["removed_channels_json"])
+        raw_removed_records = handle["qc/removed_channel_records_json"][()]
+        if isinstance(raw_removed_records, bytes):
+            raw_removed_records = raw_removed_records.decode("utf-8")
+        removed_channel_records = json.loads(str(raw_removed_records))
+        expected_available_mask = np.asarray(
+            [channel not in removed_channels for channel in original_channel_names],
+            dtype=bool,
+        )
+        mask_matches = np.array_equal(channel_available_mask, expected_available_mask)
+        record_channels = [record["channel"] for record in removed_channel_records]
+        removal_records_match = sorted(record_channels) == sorted(removed_channels) and all(
+            record.get("decision") == "removed_with_user_approval"
+            and bool(record.get("reasons"))
+            for record in removed_channel_records
+        )
+        signal_data = handle["signal/data"][:]
+        fixed_channel_layout_ok = True
+        if str(handle.attrs["data_kind"]) == "brain_activity_eeg":
+            removed_indices = np.flatnonzero(~expected_available_mask)
+            available_indices = np.flatnonzero(expected_available_mask)
+            fixed_channel_layout_ok = (
+                saved_channel_names == original_channel_names
+                and signal_shape[1] == len(original_channel_names)
+                and (
+                    removed_indices.size == 0
+                    or bool(np.isnan(signal_data[:, removed_indices]).all())
+                )
+                and bool(np.isfinite(signal_data[:, available_indices]).all())
+            )
+        else:
+            fixed_channel_layout_ok = bool(np.isfinite(signal_data).all())
         behavior_rows = int(handle["behavior"].attrs["n_rows"])
         ok = (
             signal_shape[0] == relative_count == timestamp_count == exclusion_mask_count
             and signal_shape[1] == channel_count == len(expected_channel_names)
             and saved_channel_names == expected_channel_names
+            and mask_matches
+            and removal_records_match
+            and fixed_channel_layout_ok
             and behavior_rows == expected_behavior_rows
         )
         return {
@@ -1078,6 +1153,9 @@ def validate_hdf5(
             "ica_training_excluded_mask_rows": exclusion_mask_count,
             "channel_count": channel_count,
             "channel_names_match": saved_channel_names == expected_channel_names,
+            "channel_available_mask_matches": bool(mask_matches),
+            "removed_channel_records_match": bool(removal_records_match),
+            "fixed_channel_layout_ok": bool(fixed_channel_layout_ok),
             "behavior_rows": behavior_rows,
             "ok": bool(ok),
         }
@@ -1557,6 +1635,22 @@ def preprocess_participant(
         save_bad_channel_figures(qc_dir, participant_id, parts, detrended_parts, bad_candidates)
     automatically_retained = channel_decisions["automatically_retained"]
     effective_retained_channels = channel_decisions["effective_retained"]
+    removed_channel_records = [
+        {
+            "channel": channel,
+            "decision": "removed_with_user_approval",
+            "reasons": [
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"channel", "start_sample", "end_sample"}
+                }
+                for item in bad_candidates
+                if str(item["channel"]) == channel
+            ],
+        }
+        for channel in approved_bad_channels
+    ]
 
     stop_marker = qc_dir / f"ID{participant_id}_STOP_channel_confirmation_required.json"
     stop_marker.unlink(missing_ok=True)
@@ -1572,6 +1666,7 @@ def preprocess_participant(
                 "チャンネルは保持する"
             ),
             "per_channel": channel_decisions["per_channel"],
+            "removed_channel_records": removed_channel_records,
             "decision_date": date.today().isoformat(),
         },
     )
@@ -1652,19 +1747,25 @@ def preprocess_participant(
         set_dir = local_dir / f"Set{boundary.set_number}"
         brain_path = set_dir / f"ID{participant_id}_Set{boundary.set_number}_brain_activity.h5"
         blink_path = set_dir / f"ID{participant_id}_Set{boundary.set_number}_blink_signal.h5"
+        brain_signal = restore_original_channel_layout(
+            cleaned_parts[boundary.part - 1][:, start:end],
+            keep_channels,
+            CHANNELS,
+        )
         save_set_hdf5(
             brain_path,
             participant_id=participant_id,
             boundary=boundary,
             source_file=part.path,
-            data_v=cleaned_parts[boundary.part - 1][:, start:end],
-            channel_names=keep_channels,
+            data_v=brain_signal,
+            channel_names=CHANNELS,
             original_timestamp=part.original_timestamp[start:end],
             results_csv=results_csv,
             results_rows=results_rows,
             bad_intervals=intervals,
             original_channel_names=CHANNELS,
             removed_channels=approved_bad_channels,
+            removed_channel_records=removed_channel_records,
             data_kind="brain_activity_eeg",
         )
         fp1, fp2 = keep_channels.index("Fp1"), keep_channels.index("Fp2")
@@ -1683,6 +1784,7 @@ def preprocess_participant(
             bad_intervals=intervals,
             original_channel_names=CHANNELS,
             removed_channels=approved_bad_channels,
+            removed_channel_records=removed_channel_records,
             data_kind="removed_eye_component_signal",
         )
         blink_figure_path = (
@@ -1699,7 +1801,7 @@ def preprocess_participant(
         blink_figure_files.append(blink_figure_path)
         validations.extend(
             [
-                validate_hdf5(brain_path, keep_channels, results_rows),
+                validate_hdf5(brain_path, CHANNELS, results_rows),
                 validate_hdf5(
                     blink_path, ["Fp1", "Fp2", "Fp1_Fp2_mean"], results_rows
                 ),
@@ -1734,6 +1836,14 @@ def preprocess_participant(
         "generated_sets": generated_sets,
         "source_parts": expected_qc_parts,
         "approved_removed_channels": approved_bad_channels,
+        "removed_channel_records": removed_channel_records,
+        "brain_activity_channel_layout": {
+            "channel_names": CHANNELS,
+            "channel_available_mask": [
+                channel not in approved_bad_channels for channel in CHANNELS
+            ],
+            "removed_channel_fill_value": "NaN",
+        },
         "reviewed_retained_candidate_channels": retained_bad_channels,
         "automatically_retained_candidate_channels": automatically_retained,
         "effective_retained_candidate_channels": effective_retained_channels,
