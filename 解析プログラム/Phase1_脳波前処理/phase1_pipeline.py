@@ -38,6 +38,14 @@ from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
 
 SFREQ = 256.0
+PIPELINE_SPEC_VERSION = "phase1-fixed-2026-09-22"
+RANDOM_SEED = 97
+QC_FIGURE_STYLE_VERSION = "phase1-qc-v1"
+FILTERED_COLOR = "#4472c4"
+DETRENDED_COLOR = "#2e8b57"
+ICA_BEFORE_COLOR = "#1261a0"
+ICA_AFTER_COLOR = "#d1495b"
+BLINK_MEAN_COLOR = "#2e8b57"
 EYE_BLINK_PROBABILITY_THRESHOLD = 0.80
 ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 500.0
 ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS = 1.0
@@ -466,7 +474,7 @@ def save_detrend_figure(
             x,
             before_lo[row],
             before_hi[row],
-            color="#4472c4",
+            color=FILTERED_COLOR,
             linewidth=0,
             alpha=0.8,
             label="Filtered signal: min–max envelope",
@@ -475,7 +483,7 @@ def save_detrend_figure(
             x,
             after_lo[row],
             after_hi[row],
-            color="#2e8b57",
+            color=DETRENDED_COLOR,
             linewidth=0,
             alpha=0.8,
             label="Filtered + detrended signal: min–max envelope",
@@ -568,7 +576,7 @@ def detect_ransac_channels(data_v: np.ndarray) -> list[dict[str, Any]]:
         min_corr=0.80,
         unbroken_time=0.50,
         n_jobs=1,
-        random_state=97,
+        random_state=RANDOM_SEED,
         verbose=False,
     )
     ransac.fit(epochs)
@@ -707,7 +715,7 @@ def save_bad_channel_figures(
                 time,
                 filtered_lo,
                 filtered_hi,
-                color="#4472c4",
+                color=FILTERED_COLOR,
                 linewidth=0,
                 alpha=0.85,
                 label="Filtered + detrended signal: min–max envelope",
@@ -902,7 +910,7 @@ def fit_ica_and_label(
     ica = ICA(
         n_components=rank,
         method="infomax",
-        random_state=97,
+        random_state=RANDOM_SEED,
         max_iter=1000,
         # Match EEGLAB runica defaults for a decomposition below 33 components.
         fit_params={
@@ -1057,6 +1065,7 @@ def save_set_hdf5(
                 "source_part": boundary.part,
                 "source_file": source_file.name,
                 "timebase": "OriginalTimestamp",
+                "pipeline_spec_version": PIPELINE_SPEC_VERSION,
                 "original_channel_names_json": json.dumps(original_channel_names),
                 "removed_channels_json": json.dumps(removed_channels),
             }
@@ -1211,7 +1220,7 @@ def save_iclabel_outputs(
             axes[row, 0].plot(
                 np.arange(0, len(trace), stride) / SFREQ,
                 trace[::stride],
-                color="#4472c4",
+                color=FILTERED_COLOR,
                 lw=0.5,
                 label=f"IC{component} activation",
             )
@@ -1224,7 +1233,7 @@ def save_iclabel_outputs(
             axes[row, 1].semilogy(
                 frequencies[keep],
                 psd[keep],
-                color="#d1495b",
+                color=ICA_AFTER_COLOR,
                 label=f"IC{component} power spectrum",
             )
             axes[row, 1].set_title(f"IC{component}: PSD")
@@ -1302,8 +1311,8 @@ def _static_svg_overview(
         f'viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
         '<rect width="100%" height="100%" fill="white"/>',
         '<style>text{font-family:system-ui,sans-serif;fill:#111}.axis{stroke:#222;stroke-width:1}'
-        '.grid{stroke:#ddd;stroke-width:1}.before{stroke:#1261a0;stroke-width:.8;opacity:.70}'
-        '.after{stroke:#d1495b;stroke-width:.8;opacity:.85}</style>',
+        f'.grid{{stroke:#ddd;stroke-width:1}}.before{{stroke:{ICA_BEFORE_COLOR};stroke-width:.8;opacity:.70}}'
+        f'.after{{stroke:{ICA_AFTER_COLOR};stroke-width:.8;opacity:.85}}</style>',
     ]
     reduced = []
     for channel_index in range(len(DISPLAY_CHANNELS)):
@@ -1405,7 +1414,7 @@ def save_interactive_html(
 body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channels{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}button{padding:5px 12px}canvas{border:1px solid #777;width:100%;height:660px;touch-action:none;cursor:grab;display:none}#staticFallback{border:1px solid #777;width:100%;overflow:auto}#staticFallback svg{display:block;width:100%;height:auto;min-width:900px}.hint{color:#555}.legend{display:flex;gap:18px}.swatch{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:5px}#readout{white-space:pre-wrap}</style></head><body>
 <h1>__TITLE__</h1><div class=\"channels\" id=\"checks\"></div>
 <div class=\"toolbar\"><button id=\"zoomIn\">x軸 拡大</button><button id=\"zoomOut\">x軸 縮小</button><button id=\"yZoomIn\">y軸 拡大</button><button id=\"yZoomOut\">y軸 縮小</button><button id=\"yReset\">y軸 初期化</button><button id=\"reset\">全体表示</button><span id=\"window\"></span><span id=\"yScale\"></span></div>
-<div class=\"legend\"><span><i class=\"swatch\" style=\"background:#1261a0\"></i>Before ICA</span><span><i class=\"swatch\" style=\"background:#d1495b\"></i>After ICA</span></div>
+<div class=\"legend\"><span><i class=\"swatch\" style=\"background:__BEFORE_COLOR__\"></i>Before ICA</span><span><i class=\"swatch\" style=\"background:__AFTER_COLOR__\"></i>After ICA</span></div>
 <p class=\"hint\">ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグまたは左右矢印キー: 時間移動（長押し中は連続移動）／y軸ボタン: 3チャンネル共通縦軸の拡大・縮小・初期化／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。x軸の表示範囲を変えても縦軸は自動変更しません。十分に拡大すると256 Hzの元波形を表示します。</p>
 <p id=\"status\" class=\"hint\">JavaScriptが無効な表示環境でも、下の全体波形は表示されます。</p>
 <div id=\"staticFallback\">__STATIC_SVG__</div>
@@ -1431,7 +1440,7 @@ function draw(){ctx.clearRect(0,0,cv.width,cv.height);const span=end-start,plotW
  ctx.strokeStyle='#222';ctx.lineWidth=1;ctx.strokeRect(left,top,plotW,plotH);ctx.fillStyle='#111';ctx.textAlign='center';ctx.fillText('Time from Part start (s)',left+plotW/2,cv.height-8);ctx.save();ctx.translate(18,top+plotH/2);ctx.rotate(-Math.PI/2);ctx.fillText('EEG amplitude (µV)',0,0);ctx.restore();
  for(let tick=0;tick<=5;tick++){const px=left+plotW*tick/5,t=sampleTime(start+(end-start)*tick/5);ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,top+plotH);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(t.toFixed(1),px,top+plotH+20)}
  for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh;ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#111';ctx.fillText(P.channels[ch],left+5,top+ch*rh+17);if(!active[ch])continue;const series=[P.before[ch],P.after[ch]];ctx.fillText(`±${sharedYScale.toFixed(1)} µV`,left+55,top+ch*rh+17);
-  series.forEach((values,k)=>{ctx.strokeStyle=k?'#d1495b':'#1261a0';ctx.globalAlpha=k?.85:.70;ctx.beginPath();if(span<=plotW*2){for(let i=start;i<end;i++){const x=left+(i-start)/Math.max(1,span-1)*plotW,y=y0-values[i]/sharedYScale*(rh*.40);if(i===start)ctx.moveTo(x,y);else ctx.lineTo(x,y)}}else{for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n_samples);j++){lo=Math.min(lo,values[j]);hi=Math.max(hi,values[j])}const yl=y0-lo/sharedYScale*(rh*.40),yh=y0-hi/sharedYScale*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}}ctx.stroke()});ctx.globalAlpha=1}
+  series.forEach((values,k)=>{ctx.strokeStyle=k?'__AFTER_COLOR__':'__BEFORE_COLOR__';ctx.globalAlpha=k?.85:.70;ctx.beginPath();if(span<=plotW*2){for(let i=start;i<end;i++){const x=left+(i-start)/Math.max(1,span-1)*plotW,y=y0-values[i]/sharedYScale*(rh*.40);if(i===start)ctx.moveTo(x,y);else ctx.lineTo(x,y)}}else{for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n_samples);j++){lo=Math.min(lo,values[j]);hi=Math.max(hi,values[j])}const yl=y0-lo/sharedYScale*(rh*.40),yh=y0-hi/sharedYScale*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}}ctx.stroke()});ctx.globalAlpha=1}
  document.getElementById('window').textContent=`表示範囲 ${sampleTime(start).toFixed(1)}–${sampleTime(end).toFixed(1)} s`;document.getElementById('yScale').textContent=`共通縦軸 ±${sharedYScale.toFixed(1)} µV`;}
 document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));document.getElementById('zoomOut').addEventListener('click',()=>zoom(2));document.getElementById('yZoomIn').addEventListener('click',()=>zoomY(1/1.5));document.getElementById('yZoomOut').addEventListener('click',()=>zoomY(1.5));document.getElementById('yReset').addEventListener('click',()=>{sharedYScale=baseSharedMax;draw()});document.getElementById('reset').addEventListener('click',()=>{start=0;end=P.n_samples;sharedYScale=baseSharedMax;draw()});
 document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();startPan(e.key==='ArrowLeft'?-1:1)}});document.addEventListener('keyup',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();stopPan()}});window.addEventListener('blur',stopPan);
@@ -1443,6 +1452,8 @@ cv.addEventListener('dblclick',()=>{start=0;end=P.n_samples;sharedYScale=baseSha
     html = html.replace("__TITLE__", f"ID{participant_id} Part{part_number}: ICA before/after")
     html = html.replace("__STATIC_SVG__", static_svg)
     html = html.replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
+    html = html.replace("__BEFORE_COLOR__", ICA_BEFORE_COLOR)
+    html = html.replace("__AFTER_COLOR__", ICA_AFTER_COLOR)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")
 
@@ -1471,7 +1482,7 @@ def save_blink_signal_figure(
         envelope_high.append(high)
     fig, axes = plt.subplots(3, 1, figsize=(14, 8), sharex=True)
     labels = ("Fp1", "Fp2", "Fp1/Fp2 mean")
-    colors = ("#1261a0", "#d1495b", "#2e8b57")
+    colors = (ICA_BEFORE_COLOR, ICA_AFTER_COLOR, BLINK_MEAN_COLOR)
     annotations = _interval_annotations_for_set(
         excluded_intervals, boundary.part, boundary.start_sample, boundary.end_sample
     )
@@ -1853,6 +1864,18 @@ def preprocess_participant(
     summary = {
         "status": "complete" if complete else "needs_review",
         "participant_id": participant_id,
+        "pipeline_spec_version": PIPELINE_SPEC_VERSION,
+        "random_seed": RANDOM_SEED,
+        "qc_figure_style_version": QC_FIGURE_STYLE_VERSION,
+        "fixed_parameters": {
+            "sampling_frequency_hz": SFREQ,
+            "bandpass_hz": [1.0, 100.0],
+            "bandstop_hz": [49.0, 51.0],
+            "flatline_minimum_seconds": 30.0,
+            "ica_absolute_amplitude_threshold_uv": ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV,
+            "ica_absolute_amplitude_padding_seconds": ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS,
+            "iclabel_eye_blink_threshold": EYE_BLINK_PROBABILITY_THRESHOLD,
+        },
         "expected_sets": expected_sets,
         "generated_sets": generated_sets,
         "source_parts": expected_qc_parts,

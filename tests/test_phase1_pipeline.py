@@ -13,6 +13,12 @@ sys.path.insert(0, str(MODULE_DIR))
 from phase1_pipeline import (  # noqa: E402
     CHANNELS,
     EYE_BLINK_PROBABILITY_THRESHOLD,
+    ICA_AFTER_COLOR,
+    ICA_BEFORE_COLOR,
+    PIPELINE_SPEC_VERSION,
+    RANDOM_SEED,
+    SPLIT_EXCLUSIONS,
+    SPLIT_PART_SETS,
     EegPart,
     SetBoundary,
     absolute_amplitude_intervals,
@@ -54,6 +60,30 @@ def test_derive_boundaries_uses_original_timestamp() -> None:
     assert all(boundary.usable and boundary.part == 1 for boundary in boundaries)
     assert boundaries[0].start_sample == 300
     assert boundaries[0].end_sample == 400
+
+
+def test_all_four_split_ids_use_fixed_five_set_mapping() -> None:
+    expected = {
+        "109": {2: 2, 3: 2, 4: 2, 5: 2, 6: 2},
+        "120": {1: 1, 2: 1, 3: 1, 4: 1, 5: 1},
+        "135": {1: 1, 3: 2, 4: 2, 5: 2, 6: 2},
+        "225": {1: 1, 2: 1, 3: 1, 5: 2, 6: 2},
+    }
+    assert SPLIT_PART_SETS == expected
+    assert SPLIT_EXCLUSIONS == {
+        "109": {1},
+        "120": {6},
+        "135": {2},
+        "225": {4},
+    }
+    assert all(len(mapping) == 5 for mapping in SPLIT_PART_SETS.values())
+
+
+def test_pipeline_reproducibility_identifiers_are_fixed() -> None:
+    assert PIPELINE_SPEC_VERSION == "phase1-fixed-2026-09-22"
+    assert RANDOM_SEED == 97
+    assert ICA_BEFORE_COLOR == "#1261a0"
+    assert ICA_AFTER_COLOR == "#d1495b"
 
 
 def test_flatline_requires_thirty_seconds() -> None:
@@ -141,6 +171,10 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert "baseSharedMax" in html
     assert "sharedYScale" in html
     assert "共通縦軸" in html
+    assert ICA_BEFORE_COLOR in html
+    assert ICA_AFTER_COLOR in html
+    assert "__BEFORE_COLOR__" not in html
+    assert "__AFTER_COLOR__" not in html
     assert "x軸の表示範囲を変えても縦軸は自動変更しません" in html
     assert "表示準備完了" in html
     assert html.endswith("</body></html>")
