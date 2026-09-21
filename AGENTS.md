@@ -22,7 +22,8 @@
 
 ## Data boundaries
 
-- Treat the Mac desktop raw-data folder as immutable input. Never edit, delete, upload, or commit its contents.
+- Treat the Mac desktop raw-data folder as immutable input, except for the dedicated `解析に必要なデータたち/` subtree. Never edit, delete, upload, or commit raw-data originals.
+- The only writable location under the raw-data folder is `SandBox_ロート案件（データ）/解析に必要なデータたち/`, which is reserved for processed and intermediate analysis data. Do not silently write those data anywhere else.
 - Write analysis outputs only to the authorized OneDrive `実験本番_本解析` folder. Do not silently fall back to another output directory.
 - Use only the authorized Google Drive `実験本解析_Codex共有用` folder, primarily for reference. Do not modify its files unless the user explicitly changes this rule.
 - The copied Google Drive spreadsheets have been de-identified and may be inspected without routine approval. Use participant IDs internally only as needed for matching and analysis; do not disclose or persist them unnecessarily.
