@@ -116,6 +116,10 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     html = output.read_text(encoding="utf-8")
     assert 'id="zoomIn"' in html
     assert 'id="zoomOut"' in html
+    assert 'id="yZoomIn"' in html
+    assert 'id="yZoomOut"' in html
+    assert 'id="yReset"' in html
+    assert 'id="yScale"' in html
     assert 'id="reset"' in html
     assert 'id="staticFallback"' in html
     assert 'id="waveformPayload" type="application/json"' in html
@@ -127,11 +131,17 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert "document.getElementById('staticFallback').style.display='none'" in html
     assert "addEventListener('wheel'" in html
     assert "addEventListener('pointermove'" in html
+    assert "addEventListener('keydown'" in html
+    assert "addEventListener('keyup'" in html
+    assert "setInterval(()=>pan(direction),80)" in html
     assert '"before"' in html
     assert '"after"' in html
     assert '"bin_samples"' not in html
     assert "256 Hzの元波形を保持" in html
-    assert "sharedMax" in html
+    assert "baseSharedMax" in html
+    assert "sharedYScale" in html
+    assert "共通縦軸" in html
+    assert "x軸の表示範囲を変えても縦軸は自動変更しません" in html
     assert "表示準備完了" in html
     assert html.endswith("</body></html>")
 
