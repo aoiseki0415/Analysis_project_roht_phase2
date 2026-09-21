@@ -124,9 +124,10 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert "document.getElementById('staticFallback').style.display='none'" in html
     assert "addEventListener('wheel'" in html
     assert "addEventListener('pointermove'" in html
-    assert '"bin_samples":64' in html
-    assert '"before_low"' in html
-    assert '"before_high"' in html
+    assert '"before"' in html
+    assert '"after"' in html
+    assert '"bin_samples"' not in html
+    assert "256 Hzの元波形を保持" in html
     assert "表示準備完了" in html
     assert html.endswith("</body></html>")
 

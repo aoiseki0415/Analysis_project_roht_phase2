@@ -1250,12 +1250,8 @@ def save_interactive_html(
         "sfreq": SFREQ,
         "channels": list(DISPLAY_CHANNELS),
         "n_samples": int(before_v.shape[1]),
-        "bin_samples": bin_samples,
-        "n_bins": int(before_envelopes[0][0].size),
-        "before_low": [_encoded_float32(low) for low, _ in before_envelopes],
-        "before_high": [_encoded_float32(high) for _, high in before_envelopes],
-        "after_low": [_encoded_float32(low) for low, _ in after_envelopes],
-        "after_high": [_encoded_float32(high) for _, high in after_envelopes],
+        "before": [_encoded_float32(before_v[pick] * 1e6) for pick in picks],
+        "after": [_encoded_float32(after_v[pick] * 1e6) for pick in picks],
     }
     html = """<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">
 <title>ICA before/after</title><style>
@@ -1263,7 +1259,7 @@ body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channe
 <h1>__TITLE__</h1><div class=\"channels\" id=\"checks\"></div>
 <div class=\"toolbar\"><button id=\"zoomIn\">x軸 拡大</button><button id=\"zoomOut\">x軸 縮小</button><button id=\"reset\">全体表示</button><span id=\"window\"></span></div>
 <div class=\"legend\"><span><i class=\"swatch\" style=\"background:#1261a0\"></i>Before ICA</span><span><i class=\"swatch\" style=\"background:#d1495b\"></i>After ICA</span></div>
-<p class=\"hint\">ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグ: 時間移動／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。</p>
+<p class=\"hint\">ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグ: 時間移動／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。十分に拡大すると256 Hzの元波形を表示します。</p>
 <p id=\"status\" class=\"hint\">JavaScriptが無効な表示環境でも、下の全体波形は表示されます。</p>
 <div id=\"staticFallback\">__STATIC_SVG__</div>
 <canvas id=\"plot\" width=\"1600\" height=\"660\"></canvas><pre id=\"readout\"></pre>
@@ -1271,25 +1267,25 @@ body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channe
 <script>window.addEventListener('error',function(event){var status=document.getElementById('status');if(status){status.textContent='JavaScript error: '+(event.message||'unknown error')+' (line '+event.lineno+')';status.style.color='#b00020'}});</script>
 <script>"use strict";try{const P=JSON.parse(document.getElementById('waveformPayload').textContent);
 function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}
-['before_low','before_high','after_low','after_high'].forEach(k=>P[k]=P[k].map(decode));
-let active=P.channels.map(()=>true),start=0,end=P.n_bins,drag=null;
+['before','after'].forEach(k=>P[k]=P[k].map(decode));
+let active=P.channels.map(()=>true),start=0,end=P.n_samples,drag=null;
 const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),left=78,right=18,top=28,bottom=48;
 P.channels.forEach((c,i)=>{const l=document.createElement('label');l.innerHTML=`<input type=\"checkbox\" checked data-i=\"${i}\"> ${c}`;document.getElementById('checks').append(l)});
 document.getElementById('checks').addEventListener('change',e=>{active[Number(e.target.dataset.i)]=e.target.checked;draw()});
-function binTime(i){return i*P.bin_samples/P.sfreq}
-function clampWindow(s,e){const minSpan=Math.min(P.n_bins,Math.ceil(P.sfreq*2/P.bin_samples));let span=Math.max(minSpan,Math.min(P.n_bins,Math.round(e-s)));s=Math.max(0,Math.min(P.n_bins-span,Math.round(s)));return[s,s+span]}
+function sampleTime(i){return i/P.sfreq}
+function clampWindow(s,e){const minSpan=Math.min(P.n_samples,Math.ceil(P.sfreq*2));let span=Math.max(minSpan,Math.min(P.n_samples,Math.round(e-s)));s=Math.max(0,Math.min(P.n_samples-span,Math.round(s)));return[s,s+span]}
 function zoom(factor,ratio=.5){const anchor=start+ratio*(end-start),span=(end-start)*factor;[start,end]=clampWindow(anchor-ratio*span,anchor+(1-ratio)*span);draw()}
 function draw(){ctx.clearRect(0,0,cv.width,cv.height);const span=end-start,plotW=cv.width-left-right,plotH=cv.height-top-bottom,rows=P.channels.length,rh=plotH/rows;ctx.font='14px sans-serif';
  ctx.strokeStyle='#222';ctx.lineWidth=1;ctx.strokeRect(left,top,plotW,plotH);ctx.fillStyle='#111';ctx.textAlign='center';ctx.fillText('Time from Part start (s)',left+plotW/2,cv.height-8);ctx.save();ctx.translate(18,top+plotH/2);ctx.rotate(-Math.PI/2);ctx.fillText('EEG amplitude (µV)',0,0);ctx.restore();
- for(let tick=0;tick<=5;tick++){const px=left+plotW*tick/5,t=binTime(start+(end-start)*tick/5);ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,top+plotH);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(t.toFixed(1),px,top+plotH+20)}
- for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh;ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#111';ctx.fillText(P.channels[ch],left+5,top+ch*rh+17);if(!active[ch])continue;const series=[[P.before_low[ch],P.before_high[ch]],[P.after_low[ch],P.after_high[ch]]];let max=1,step=Math.max(1,Math.floor(span/plotW));for(let i=start;i<end;i+=step)for(const [lo,hi] of series)max=Math.max(max,Math.abs(lo[i]),Math.abs(hi[i]));max*=1.08;ctx.fillText(`±${max.toFixed(1)} µV`,left+55,top+ch*rh+17);
-  series.forEach(([low,high],k)=>{ctx.strokeStyle=k?'#d1495b':'#1261a0';ctx.globalAlpha=k?.85:.70;ctx.beginPath();for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n_bins);j++){lo=Math.min(lo,low[j]);hi=Math.max(hi,high[j])}const yl=y0-lo/max*(rh*.40),yh=y0-hi/max*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}ctx.stroke()});ctx.globalAlpha=1}
- document.getElementById('window').textContent=`表示範囲 ${binTime(start).toFixed(1)}–${Math.min(P.n_samples/P.sfreq,binTime(end)).toFixed(1)} s`;}
-document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));document.getElementById('zoomOut').addEventListener('click',()=>zoom(2));document.getElementById('reset').addEventListener('click',()=>{start=0;end=P.n_bins;draw()});
+ for(let tick=0;tick<=5;tick++){const px=left+plotW*tick/5,t=sampleTime(start+(end-start)*tick/5);ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,top+plotH);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(t.toFixed(1),px,top+plotH+20)}
+ for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh;ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#111';ctx.fillText(P.channels[ch],left+5,top+ch*rh+17);if(!active[ch])continue;const series=[P.before[ch],P.after[ch]];let max=1;for(let i=start;i<end;i++)for(const values of series)max=Math.max(max,Math.abs(values[i]));max*=1.08;ctx.fillText(`±${max.toFixed(1)} µV`,left+55,top+ch*rh+17);
+  series.forEach((values,k)=>{ctx.strokeStyle=k?'#d1495b':'#1261a0';ctx.globalAlpha=k?.85:.70;ctx.beginPath();if(span<=plotW*2){for(let i=start;i<end;i++){const x=left+(i-start)/Math.max(1,span-1)*plotW,y=y0-values[i]/max*(rh*.40);if(i===start)ctx.moveTo(x,y);else ctx.lineTo(x,y)}}else{for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n_samples);j++){lo=Math.min(lo,values[j]);hi=Math.max(hi,values[j])}const yl=y0-lo/max*(rh*.40),yh=y0-hi/max*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}}ctx.stroke()});ctx.globalAlpha=1}
+ document.getElementById('window').textContent=`表示範囲 ${sampleTime(start).toFixed(1)}–${sampleTime(end).toFixed(1)} s`;}
+document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));document.getElementById('zoomOut').addEventListener('click',()=>zoom(2));document.getElementById('reset').addEventListener('click',()=>{start=0;end=P.n_samples;draw()});
 cv.addEventListener('wheel',e=>{e.preventDefault();const rect=cv.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));zoom(e.deltaY>0?1.5:.67,ratio)},{passive:false});
 cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,s:start,span:end-start};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);drag=null;cv.style.cursor='grab'});cv.addEventListener('pointercancel',()=>{drag=null;cv.style.cursor='grab'});
-cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n_bins-1,Math.max(0,Math.floor(start+ratio*(end-start))));document.getElementById('readout').textContent=`Cursor: t=${binTime(i).toFixed(3)}–${binTime(i+1).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before_low[j][i].toFixed(2)}…${P.before_high[j][i].toFixed(2)} µV, after ${P.after_low[j][i].toFixed(2)}…${P.after_high[j][i].toFixed(2)} µV`).join(' | ')});
-cv.addEventListener('dblclick',()=>{start=0;end=P.n_bins;draw()});draw();document.getElementById('staticFallback').style.display='none';cv.style.display='block';document.getElementById('status').textContent='インタラクティブ表示準備完了（64サンプルごとの最小値・最大値を保持）';}catch(error){const status=document.getElementById('status');status.textContent='JavaScript initialization error: '+error.name+': '+error.message;status.style.color='#b00020';}
+cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n_samples-1,Math.max(0,Math.floor(start+ratio*(end-start))));document.getElementById('readout').textContent=`Cursor: t=${sampleTime(i).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before[j][i].toFixed(2)} µV, after ${P.after[j][i].toFixed(2)} µV`).join(' | ')});
+cv.addEventListener('dblclick',()=>{start=0;end=P.n_samples;draw()});draw();document.getElementById('staticFallback').style.display='none';cv.style.display='block';document.getElementById('status').textContent='インタラクティブ表示準備完了（256 Hzの元波形を保持）';}catch(error){const status=document.getElementById('status');status.textContent='JavaScript initialization error: '+error.name+': '+error.message;status.style.color='#b00020';}
 </script></body></html>"""
     html = html.replace("__TITLE__", f"ID{participant_id} Part{part_number}: ICA before/after")
     html = html.replace("__STATIC_SVG__", static_svg)
