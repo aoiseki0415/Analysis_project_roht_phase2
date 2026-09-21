@@ -1267,7 +1267,9 @@ body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channe
 <p id=\"status\" class=\"hint\">JavaScriptが無効な表示環境でも、下の全体波形は表示されます。</p>
 <div id=\"staticFallback\">__STATIC_SVG__</div>
 <canvas id=\"plot\" width=\"1600\" height=\"660\"></canvas><pre id=\"readout\"></pre>
-<script>"use strict";const P=__PAYLOAD__;
+<script id=\"waveformPayload\" type=\"application/json\">__PAYLOAD__</script>
+<script>window.addEventListener('error',function(event){var status=document.getElementById('status');if(status){status.textContent='JavaScript error: '+(event.message||'unknown error')+' (line '+event.lineno+')';status.style.color='#b00020'}});</script>
+<script>"use strict";try{const P=JSON.parse(document.getElementById('waveformPayload').textContent);
 function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}
 ['before_low','before_high','after_low','after_high'].forEach(k=>P[k]=P[k].map(decode));
 let active=P.channels.map(()=>true),start=0,end=P.n_bins,drag=null;
@@ -1287,7 +1289,7 @@ document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));documen
 cv.addEventListener('wheel',e=>{e.preventDefault();const rect=cv.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));zoom(e.deltaY>0?1.5:.67,ratio)},{passive:false});
 cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,s:start,span:end-start};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);drag=null;cv.style.cursor='grab'});cv.addEventListener('pointercancel',()=>{drag=null;cv.style.cursor='grab'});
 cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n_bins-1,Math.max(0,Math.floor(start+ratio*(end-start))));document.getElementById('readout').textContent=`Cursor: t=${binTime(i).toFixed(3)}–${binTime(i+1).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before_low[j][i].toFixed(2)}…${P.before_high[j][i].toFixed(2)} µV, after ${P.after_low[j][i].toFixed(2)}…${P.after_high[j][i].toFixed(2)} µV`).join(' | ')});
-cv.addEventListener('dblclick',()=>{start=0;end=P.n_bins;draw()});draw();document.getElementById('staticFallback').style.display='none';cv.style.display='block';document.getElementById('status').textContent='インタラクティブ表示準備完了（64サンプルごとの最小値・最大値を保持）';
+cv.addEventListener('dblclick',()=>{start=0;end=P.n_bins;draw()});draw();document.getElementById('staticFallback').style.display='none';cv.style.display='block';document.getElementById('status').textContent='インタラクティブ表示準備完了（64サンプルごとの最小値・最大値を保持）';}catch(error){const status=document.getElementById('status');status.textContent='JavaScript initialization error: '+error.name+': '+error.message;status.style.color='#b00020';}
 </script></body></html>"""
     html = html.replace("__TITLE__", f"ID{participant_id} Part{part_number}: ICA before/after")
     html = html.replace("__STATIC_SVG__", static_svg)

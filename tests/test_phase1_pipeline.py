@@ -115,6 +115,9 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert 'id="zoomOut"' in html
     assert 'id="reset"' in html
     assert 'id="staticFallback"' in html
+    assert 'id="waveformPayload" type="application/json"' in html
+    assert "JSON.parse(document.getElementById('waveformPayload').textContent)" in html
+    assert "JavaScript initialization error:" in html
     assert '<svg role="img"' in html
     assert 'Time from Part start (s)' in html
     assert 'EEG amplitude (µV)' in html
