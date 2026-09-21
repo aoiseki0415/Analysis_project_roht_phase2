@@ -114,6 +114,10 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert 'id="reset"' in html
     assert "addEventListener('wheel'" in html
     assert "addEventListener('pointermove'" in html
+    assert '"bin_samples":8' in html
+    assert '"before_low"' in html
+    assert '"before_high"' in html
+    assert "表示準備完了" in html
     assert html.endswith("</body></html>")
 
 

@@ -10,6 +10,7 @@ from phase1_pipeline import (
     choose_ids,
     configure_logging,
     preprocess_participant,
+    regenerate_interactive_html_outputs,
     resolve_project_paths,
 )
 
@@ -18,6 +19,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--participant-id", action="append", dest="participant_ids")
     parser.add_argument("--first-only", action="store_true")
+    parser.add_argument(
+        "--regenerate-html-only",
+        action="store_true",
+        help="保存済みICAを再利用し、全時間帯の確認HTMLだけを再生成する。",
+    )
     parser.add_argument(
         "--approved-bad-channel",
         action="append",
@@ -53,6 +59,14 @@ def main() -> int:
             / f"ID{participant_id}_run.log"
         )
         logger = configure_logging(log_path)
+        if args.regenerate_html_only:
+            result = regenerate_interactive_html_outputs(
+                paths,
+                participant_id,
+                logger=logger,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            continue
         result = preprocess_participant(
             paths,
             participant_id,
