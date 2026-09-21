@@ -46,7 +46,7 @@ ICLabelは、extended Infomax、平均基準、1–100 HzにフィルタしたEE
 
 本案件は試行ごとのepochingを脳活動の主解析にしない方針です。autorejectは主にEpochsを対象とするため、必要な場面だけ補助的に使用し、連続解析へ機械的には適用しません。
 
-EEGLAB `clean_rawdata` のASR等に相当するPython実装は、現時点の固定環境には追加していません。`pyprep` や `asrpy` を採用する場合は、代表データで再現性、除去率、欠測時刻の保持、Python 3.14との互換性を検証し、`pyproject.toml` と `uv.lock` を同時に更新します。設計値は [Phase 1 脳波前処理仕様](Phase1_脳波前処理仕様.md) を参照します。
+EEGLAB `clean_rawdata`によるASR波形再構成を行う外部Python実装は、現時点の固定環境には追加していません。Phase 1では既存のNumPy・SciPyを使い、`BurstCriterion 20`相当の一般化共分散検出と`WindowCriterion`を、ICA学習用の区間除外に限定して実装します。最終EEGの波形再構成や補間には使いません。`pyprep` や `asrpy` に切り替える場合は、代表データで再現性、除去率、欠測時刻の保持、Python 3.14との互換性を検証し、`pyproject.toml` と `uv.lock` を同時に更新します。設計値は [Phase 1 脳波前処理仕様](Phase1_脳波前処理仕様.md) を参照します。
 
 ## 4. Codexによる実行
 
