@@ -38,11 +38,10 @@ from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
 
 SFREQ = 256.0
-PIPELINE_SPEC_VERSION = "phase1-fixed-2026-09-22"
+PIPELINE_SPEC_VERSION = "phase1-fixed-2026-09-22.2"
 RANDOM_SEED = 97
-QC_FIGURE_STYLE_VERSION = "phase1-qc-v1"
+QC_FIGURE_STYLE_VERSION = "phase1-qc-v2"
 FILTERED_COLOR = "#4472c4"
-DETRENDED_COLOR = "#2e8b57"
 ICA_BEFORE_COLOR = "#1261a0"
 ICA_AFTER_COLOR = "#d1495b"
 BLINK_MEAN_COLOR = "#2e8b57"
@@ -85,7 +84,16 @@ CHANNELS = [
     "F8",
     "Fp2",
 ]
-DISPLAY_CHANNELS = ("Fp1", "Fp2", "Fz")
+ICA_QC_GROUPS = (
+    ("QC01_BlinkCheck", ("Fp1", "Fp2")),
+    ("QC02_Frontal", ("Fz", "F3", "F4")),
+    ("QC03_CentralTemporal", ("Cz", "T7", "T8")),
+    ("QC04_ParietalOccipital", ("Pz", "O1", "O2")),
+)
+DISPLAY_CHANNELS = ICA_QC_GROUPS[0][1]
+ALL_QC_CHANNELS = tuple(
+    dict.fromkeys(channel for _, channels in ICA_QC_GROUPS for channel in channels)
+)
 SKIP_IDS = {"130", "230"}
 SPLIT_EXCLUSIONS = {"109": {1}, "120": {6}, "135": {2}, "225": {4}}
 SPLIT_PART_SETS = {
@@ -447,64 +455,6 @@ def _minmax_envelope(values: np.ndarray, max_points: int = 7000) -> tuple[np.nda
     return low, high
 
 
-def save_detrend_figure(
-    before_v: np.ndarray, after_v: np.ndarray, participant_id: str, part_number: int, path: Path
-) -> None:
-    picks = [CHANNELS.index(ch) for ch in DISPLAY_CHANNELS]
-    before_lo, before_hi = _minmax_envelope(before_v[picks] * 1e6)
-    after_lo, after_hi = _minmax_envelope(after_v[picks] * 1e6)
-    shared_limit = max(
-        1.0,
-        float(
-            np.max(
-                np.abs(
-                    np.concatenate(
-                        [before_lo.ravel(), before_hi.ravel(), after_lo.ravel(), after_hi.ravel()]
-                    )
-                )
-            )
-        )
-        * 1.05,
-    )
-    duration = before_v.shape[1] / SFREQ
-    x = np.linspace(0, duration, before_lo.shape[1], endpoint=False)
-    fig, axes = plt.subplots(3, 2, figsize=(16, 9), sharex=True)
-    for row, ch in enumerate(DISPLAY_CHANNELS):
-        axes[row, 0].fill_between(
-            x,
-            before_lo[row],
-            before_hi[row],
-            color=FILTERED_COLOR,
-            linewidth=0,
-            alpha=0.8,
-            label="Filtered signal: min–max envelope",
-        )
-        axes[row, 1].fill_between(
-            x,
-            after_lo[row],
-            after_hi[row],
-            color=DETRENDED_COLOR,
-            linewidth=0,
-            alpha=0.8,
-            label="Filtered + detrended signal: min–max envelope",
-        )
-        axes[row, 0].set_ylabel(f"{ch} amplitude (µV)")
-        axes[row, 1].set_ylabel(f"{ch} amplitude (µV)")
-        axes[row, 0].set_ylim(-shared_limit, shared_limit)
-        axes[row, 1].set_ylim(-shared_limit, shared_limit)
-        axes[row, 0].legend(loc="upper right", fontsize=7)
-        axes[row, 1].legend(loc="upper right", fontsize=7)
-    axes[0, 0].set_title("Before detrend: 49–51 Hz band-stop + 1–100 Hz band-pass")
-    axes[0, 1].set_title("After linear detrend")
-    axes[-1, 0].set_xlabel("Time from recording start (s)")
-    axes[-1, 1].set_xlabel("Time from recording start (s)")
-    fig.suptitle(f"ID{participant_id} Part{part_number}: detrend QC")
-    fig.tight_layout()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-
-
 def _contiguous_true_regions(mask: np.ndarray) -> list[tuple[int, int]]:
     padded = np.pad(mask.astype(np.int8), (1, 1))
     changes = np.diff(padded)
@@ -623,11 +573,13 @@ def detect_bad_channels(
     return list(unique.values())
 
 
-def select_notification_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Limit user interruptions to clear record-wide channel problems.
+def select_ica_channel_exclusion_candidates(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Restrict automatic ICA-only exclusion to clear record-wide problems.
 
     The official-derived 4-SD line-noise and 0.80/50% RANSAC criteria remain
-    exploratory detectors.  Notification is deliberately more conservative:
+    exploratory detectors. Automatic ICA-only exclusion is more conservative:
     a >=30 s exact flatline, very strong line noise (>=6 robust SD), RANSAC
     failure over >=80% of the record, or agreement of at least two detectors.
     """
@@ -651,44 +603,29 @@ def select_notification_candidates(candidates: list[dict[str, Any]]) -> list[dic
     return output
 
 
-def resolve_bad_channel_decisions(
+def build_ica_channel_exclusion_records(
     candidates: list[dict[str, Any]],
-    approved_bad_channels: list[str],
-    retained_bad_channels: list[str],
-) -> dict[str, Any]:
-    """Resolve each notified channel without blocking the preprocessing run."""
-    overlap = sorted(set(approved_bad_channels) & set(retained_bad_channels))
-    if overlap:
-        raise ValueError(f"同じチャンネルへ除去と保持の両方が指定されています: {overlap}")
-    candidate_channels = {str(item["channel"]) for item in candidates}
-    invalid_approvals = sorted(set(approved_bad_channels) - candidate_channels)
-    if invalid_approvals:
-        raise ValueError(
-            "保守的通知基準に該当しないチャンネルは除去できません: "
-            f"{invalid_approvals}"
-        )
-    automatically_retained = sorted(
-        candidate_channels - set(approved_bad_channels) - set(retained_bad_channels)
-    )
-    effective_retained = sorted(set(retained_bad_channels) | set(automatically_retained))
-    per_channel = {
-        channel: (
-            "removed_with_user_approval"
-            if channel in approved_bad_channels
-            else (
-                "retained_after_user_review"
-                if channel in retained_bad_channels
-                else "retained_without_removal_approval"
-            )
-        )
-        for channel in sorted(candidate_channels)
-    }
-    return {
-        "candidate_channels": candidate_channels,
-        "automatically_retained": automatically_retained,
-        "effective_retained": effective_retained,
-        "per_channel": per_channel,
-    }
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Turn conservative bad-channel candidates into automatic ICA-only exclusions."""
+    excluded_channels = sorted({str(item["channel"]) for item in candidates}, key=CHANNELS.index)
+    records = [
+        {
+            "channel": channel,
+            "decision": "automatically_excluded_from_ica_training_only",
+            "final_eeg_handling": "retained_filtered_and_detrended_without_ica_projection",
+            "reasons": [
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"channel", "start_sample", "end_sample"}
+                }
+                for item in candidates
+                if str(item["channel"]) == channel
+            ],
+        }
+        for channel in excluded_channels
+    ]
+    return excluded_channels, records
 
 
 def save_bad_channel_figures(
@@ -1000,29 +937,30 @@ def _interval_mask_for_set(
     return mask
 
 
-def restore_original_channel_layout(
-    reduced_data_v: np.ndarray,
-    kept_channel_names: list[str],
+def merge_ica_cleaned_channels(
+    full_detrended_v: np.ndarray,
+    reduced_cleaned_v: np.ndarray,
+    ica_included_channel_names: list[str],
     original_channel_names: list[str],
 ) -> np.ndarray:
-    """Restore original channel columns and fill removed channels with NaN."""
-    if reduced_data_v.shape[0] != len(kept_channel_names):
+    """Keep all original channels and replace only ICA-modelled rows with cleaned data."""
+    if full_detrended_v.shape[0] != len(original_channel_names):
+        raise ValueError("全チャンネル信号と元チャンネル名の数が一致しません")
+    if reduced_cleaned_v.shape[0] != len(ica_included_channel_names):
         raise ValueError("信号行列と保持チャンネル名の列数が一致しません")
-    if len(set(kept_channel_names)) != len(kept_channel_names):
+    if full_detrended_v.shape[1] != reduced_cleaned_v.shape[1]:
+        raise ValueError("全チャンネル信号とICA適用信号のサンプル数が一致しません")
+    if len(set(ica_included_channel_names)) != len(ica_included_channel_names):
         raise ValueError("保持チャンネル名に重複があります")
-    unknown = sorted(set(kept_channel_names) - set(original_channel_names))
+    unknown = sorted(set(ica_included_channel_names) - set(original_channel_names))
     if unknown:
         raise ValueError(f"元チャンネル一覧にないチャンネルがあります: {unknown}")
-    restored = np.full(
-        (len(original_channel_names), reduced_data_v.shape[1]),
-        np.nan,
-        dtype=reduced_data_v.dtype,
-    )
-    source_index = {channel: index for index, channel in enumerate(kept_channel_names)}
-    for target_index, channel in enumerate(original_channel_names):
-        if channel in source_index:
-            restored[target_index] = reduced_data_v[source_index[channel]]
-    return restored
+    merged = np.array(full_detrended_v, copy=True)
+    source_index = {channel: index for index, channel in enumerate(ica_included_channel_names)}
+    target_index = {channel: index for index, channel in enumerate(original_channel_names)}
+    for channel, source in source_index.items():
+        merged[target_index[channel]] = reduced_cleaned_v[source]
+    return merged
 
 
 def save_set_hdf5(
@@ -1038,8 +976,8 @@ def save_set_hdf5(
     results_rows: int,
     bad_intervals: list[dict[str, Any]],
     original_channel_names: list[str],
-    removed_channels: list[str],
-    removed_channel_records: list[dict[str, Any]],
+    ica_excluded_channels: list[str],
+    ica_excluded_channel_records: list[dict[str, Any]],
     data_kind: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1067,7 +1005,7 @@ def save_set_hdf5(
                 "timebase": "OriginalTimestamp",
                 "pipeline_spec_version": PIPELINE_SPEC_VERSION,
                 "original_channel_names_json": json.dumps(original_channel_names),
-                "removed_channels_json": json.dumps(removed_channels),
+                "ica_excluded_channels_json": json.dumps(ica_excluded_channels),
             }
         )
         signal_group = handle.create_group("signal")
@@ -1087,15 +1025,15 @@ def save_set_hdf5(
         behavior.attrs["n_rows"] = results_rows
         qc = handle.create_group("qc")
         qc.create_dataset(
-            "channel_available_mask",
+            "ica_channel_excluded_mask",
             data=np.asarray(
-                [channel not in removed_channels for channel in original_channel_names],
+                [channel in ica_excluded_channels for channel in original_channel_names],
                 dtype=bool,
             ),
         )
         qc.create_dataset(
-            "removed_channel_records_json",
-            data=json.dumps(removed_channel_records, ensure_ascii=False),
+            "ica_excluded_channel_records_json",
+            data=json.dumps(ica_excluded_channel_records, ensure_ascii=False),
             dtype=utf8,
         )
         qc.create_dataset(
@@ -1120,52 +1058,58 @@ def validate_hdf5(
         relative_count = len(handle["time/relative_seconds"])
         timestamp_count = len(handle["time/OriginalTimestamp"])
         exclusion_mask_count = len(handle["qc/ica_training_excluded_mask"])
-        channel_available_mask = handle["qc/channel_available_mask"][:].astype(bool)
+        ica_channel_excluded_mask = handle["qc/ica_channel_excluded_mask"][:].astype(bool)
         saved_channel_names = [
             value.decode("utf-8") if isinstance(value, bytes) else str(value)
             for value in handle["signal/channel_names"][:]
         ]
         channel_count = len(saved_channel_names)
         original_channel_names = json.loads(handle.attrs["original_channel_names_json"])
-        removed_channels = json.loads(handle.attrs["removed_channels_json"])
-        raw_removed_records = handle["qc/removed_channel_records_json"][()]
-        if isinstance(raw_removed_records, bytes):
-            raw_removed_records = raw_removed_records.decode("utf-8")
-        removed_channel_records = json.loads(str(raw_removed_records))
-        expected_available_mask = np.asarray(
-            [channel not in removed_channels for channel in original_channel_names],
+        ica_excluded_channels = json.loads(handle.attrs["ica_excluded_channels_json"])
+        raw_exclusion_records = handle["qc/ica_excluded_channel_records_json"][()]
+        if isinstance(raw_exclusion_records, bytes):
+            raw_exclusion_records = raw_exclusion_records.decode("utf-8")
+        ica_excluded_channel_records = json.loads(str(raw_exclusion_records))
+        expected_excluded_mask = np.asarray(
+            [channel in ica_excluded_channels for channel in original_channel_names],
             dtype=bool,
         )
-        mask_matches = np.array_equal(channel_available_mask, expected_available_mask)
-        record_channels = [record["channel"] for record in removed_channel_records]
-        removal_records_match = sorted(record_channels) == sorted(removed_channels) and all(
-            record.get("decision") == "removed_with_user_approval"
+        mask_matches = np.array_equal(ica_channel_excluded_mask, expected_excluded_mask)
+        record_channels = [record["channel"] for record in ica_excluded_channel_records]
+        exclusion_records_match = sorted(record_channels) == sorted(ica_excluded_channels) and all(
+            record.get("decision") == "automatically_excluded_from_ica_training_only"
             and bool(record.get("reasons"))
-            for record in removed_channel_records
+            for record in ica_excluded_channel_records
         )
         signal_data = handle["signal/data"][:]
         fixed_channel_layout_ok = True
         if str(handle.attrs["data_kind"]) == "brain_activity_eeg":
-            removed_indices = np.flatnonzero(~expected_available_mask)
-            available_indices = np.flatnonzero(expected_available_mask)
             fixed_channel_layout_ok = (
                 saved_channel_names == original_channel_names
                 and signal_shape[1] == len(original_channel_names)
-                and (
-                    removed_indices.size == 0
-                    or bool(np.isnan(signal_data[:, removed_indices]).all())
-                )
-                and bool(np.isfinite(signal_data[:, available_indices]).all())
+                and bool(np.isfinite(signal_data).all())
             )
         else:
-            fixed_channel_layout_ok = bool(np.isfinite(signal_data).all())
+            fp1_excluded = "Fp1" in ica_excluded_channels
+            fp2_excluded = "Fp2" in ica_excluded_channels
+            expected_nan_columns = (fp1_excluded, fp2_excluded, fp1_excluded and fp2_excluded)
+            fixed_channel_layout_ok = saved_channel_names == [
+                "Fp1",
+                "Fp2",
+                "Fp1_Fp2_mean",
+            ] and all(
+                bool(np.isnan(signal_data[:, index]).all())
+                if should_be_nan
+                else bool(np.isfinite(signal_data[:, index]).all())
+                for index, should_be_nan in enumerate(expected_nan_columns)
+            )
         behavior_rows = int(handle["behavior"].attrs["n_rows"])
         ok = (
             signal_shape[0] == relative_count == timestamp_count == exclusion_mask_count
             and signal_shape[1] == channel_count == len(expected_channel_names)
             and saved_channel_names == expected_channel_names
             and mask_matches
-            and removal_records_match
+            and exclusion_records_match
             and fixed_channel_layout_ok
             and behavior_rows == expected_behavior_rows
         )
@@ -1177,8 +1121,8 @@ def validate_hdf5(
             "ica_training_excluded_mask_rows": exclusion_mask_count,
             "channel_count": channel_count,
             "channel_names_match": saved_channel_names == expected_channel_names,
-            "channel_available_mask_matches": bool(mask_matches),
-            "removed_channel_records_match": bool(removal_records_match),
+            "ica_channel_excluded_mask_matches": bool(mask_matches),
+            "ica_excluded_channel_records_match": bool(exclusion_records_match),
             "fixed_channel_layout_ok": bool(fixed_channel_layout_ok),
             "behavior_rows": behavior_rows,
             "ok": bool(ok),
@@ -1278,22 +1222,31 @@ def _fixed_bin_minmax_envelope(
     if padding:
         values = np.pad(values, (0, padding), constant_values=np.nan)
     bins = values.reshape(-1, bin_samples)
-    return np.nanmin(bins, axis=1), np.nanmax(bins, axis=1)
+    finite = np.isfinite(bins)
+    low = np.min(np.where(finite, bins, np.inf), axis=1)
+    high = np.max(np.where(finite, bins, -np.inf), axis=1)
+    empty = ~finite.any(axis=1)
+    low[empty] = np.nan
+    high[empty] = np.nan
+    return low, high
 
 
 def _static_svg_overview(
     participant_id: str,
     part_number: int,
+    display_channels: tuple[str, ...],
     before_envelopes: list[tuple[np.ndarray, np.ndarray]],
     after_envelopes: list[tuple[np.ndarray, np.ndarray]],
     duration_s: float,
+    shared_scale_uv: float,
+    set_markers: list[dict[str, Any]],
 ) -> str:
     """Build a visible overview for viewers that do not execute JavaScript."""
     width, height = 1600, 660
     left, right, top, bottom = 78, 18, 28, 48
     plot_width = width - left - right
     plot_height = height - top - bottom
-    row_height = plot_height / len(DISPLAY_CHANNELS)
+    row_height = plot_height / len(display_channels)
 
     def reduce_envelope(low: np.ndarray, high: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         group = max(1, math.ceil(low.size / int(plot_width)))
@@ -1312,24 +1265,19 @@ def _static_svg_overview(
         '<rect width="100%" height="100%" fill="white"/>',
         '<style>text{font-family:system-ui,sans-serif;fill:#111}.axis{stroke:#222;stroke-width:1}'
         f'.grid{{stroke:#ddd;stroke-width:1}}.before{{stroke:{ICA_BEFORE_COLOR};stroke-width:.8;opacity:.70}}'
-        f'.after{{stroke:{ICA_AFTER_COLOR};stroke-width:.8;opacity:.85}}</style>',
+        f'.after{{stroke:{ICA_AFTER_COLOR};stroke-width:.8;opacity:.85}}'
+        '.set-start{stroke:#2e8b57;stroke-width:1.5;stroke-dasharray:7 4}'
+        '.set-end{stroke:#7b3f98;stroke-width:1.5;stroke-dasharray:3 4}</style>',
     ]
     reduced = []
-    for channel_index in range(len(DISPLAY_CHANNELS)):
+    for channel_index in range(len(display_channels)):
         reduced.append(
             (
                 reduce_envelope(*before_envelopes[channel_index]),
                 reduce_envelope(*after_envelopes[channel_index]),
             )
         )
-    shared_scale = max(
-        1.0,
-        max(
-            float(np.nanmax(np.abs(np.concatenate([*before, *after]))))
-            for before, after in reduced
-        )
-        * 1.08,
-    )
+    shared_scale = max(1.0, shared_scale_uv)
     for tick in range(6):
         x = left + plot_width * tick / 5
         seconds = duration_s * tick / 5
@@ -1339,7 +1287,15 @@ def _static_svg_overview(
             f'y="{top + plot_height + 22:.1f}" text-anchor="middle" '
             f'font-size="14">{seconds:.1f}</text>'
         )
-    for channel_index, channel in enumerate(DISPLAY_CHANNELS):
+    for marker in set_markers:
+        x = left + plot_width * float(marker["time_s"]) / max(duration_s, 1e-9)
+        css_class = "set-start" if marker["kind"] == "start" else "set-end"
+        pieces.append(
+            f'<line class="{css_class}" x1="{x:.1f}" y1="{top}" x2="{x:.1f}" '
+            f'y2="{top + plot_height:.1f}"/><text x="{x + 3:.1f}" y="{top + 13:.1f}" '
+            f'font-size="11">{marker["label"]}</text>'
+        )
+    for channel_index, channel in enumerate(display_channels):
         y_center = top + (channel_index + 0.5) * row_height
         (before_low, before_high), (after_low, after_high) = reduced[channel_index]
         pieces.append(
@@ -1386,8 +1342,21 @@ def save_interactive_html(
     before_v: np.ndarray,
     after_v: np.ndarray,
     channel_names: list[str],
+    display_channels: tuple[str, ...] = DISPLAY_CHANNELS,
+    shared_scale_uv: float | None = None,
+    set_markers: list[dict[str, Any]] | None = None,
 ) -> None:
-    picks = [channel_names.index(ch) for ch in DISPLAY_CHANNELS]
+    picks = [channel_names.index(ch) for ch in display_channels]
+    set_markers = set_markers or []
+    if shared_scale_uv is None:
+        shared_scale_uv = max(
+            1.0,
+            max(
+                float(np.nanmax(np.abs(values[picks] * 1e6)))
+                for values in (before_v, after_v)
+            )
+            * 1.08,
+        )
     bin_samples = HTML_ENVELOPE_BIN_SAMPLES
     before_envelopes = [
         _fixed_bin_minmax_envelope(before_v[pick] * 1e6, bin_samples) for pick in picks
@@ -1398,14 +1367,19 @@ def save_interactive_html(
     static_svg = _static_svg_overview(
         participant_id,
         part_number,
+        display_channels,
         before_envelopes,
         after_envelopes,
         before_v.shape[1] / SFREQ,
+        shared_scale_uv,
+        set_markers,
     )
     payload = {
         "sfreq": SFREQ,
-        "channels": list(DISPLAY_CHANNELS),
+        "channels": list(display_channels),
         "n_samples": int(before_v.shape[1]),
+        "shared_scale_uv": float(shared_scale_uv),
+        "set_markers": set_markers,
         "before": [_encoded_float32(before_v[pick] * 1e6) for pick in picks],
         "after": [_encoded_float32(after_v[pick] * 1e6) for pick in picks],
     }
@@ -1414,8 +1388,8 @@ def save_interactive_html(
 body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channels{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}button{padding:5px 12px}canvas{border:1px solid #777;width:100%;height:660px;touch-action:none;cursor:grab;display:none}#staticFallback{border:1px solid #777;width:100%;overflow:auto}#staticFallback svg{display:block;width:100%;height:auto;min-width:900px}.hint{color:#555}.legend{display:flex;gap:18px}.swatch{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:5px}#readout{white-space:pre-wrap}</style></head><body>
 <h1>__TITLE__</h1><div class=\"channels\" id=\"checks\"></div>
 <div class=\"toolbar\"><button id=\"zoomIn\">x軸 拡大</button><button id=\"zoomOut\">x軸 縮小</button><button id=\"yZoomIn\">y軸 拡大</button><button id=\"yZoomOut\">y軸 縮小</button><button id=\"yReset\">y軸 初期化</button><button id=\"reset\">全体表示</button><span id=\"window\"></span><span id=\"yScale\"></span></div>
-<div class=\"legend\"><span><i class=\"swatch\" style=\"background:__BEFORE_COLOR__\"></i>Before ICA</span><span><i class=\"swatch\" style=\"background:__AFTER_COLOR__\"></i>After ICA</span></div>
-<p class=\"hint\">ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグまたは左右矢印キー: 時間移動（長押し中は連続移動）／y軸ボタン: 3チャンネル共通縦軸の拡大・縮小・初期化／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。x軸の表示範囲を変えても縦軸は自動変更しません。十分に拡大すると256 Hzの元波形を表示します。</p>
+	<div class=\"legend\"><span><i class=\"swatch\" style=\"background:__BEFORE_COLOR__\"></i>Before ICA</span><span><i class=\"swatch\" style=\"background:__AFTER_COLOR__\"></i>After ICA</span><span style=\"color:#2e8b57\">-- Set start</span><span style=\"color:#7b3f98\">-- Set end</span></div>
+	<p class=\"hint\">ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグまたは左右矢印キー: 時間移動（長押し中は連続移動）／y軸ボタン: 表示チャンネル共通縦軸の拡大・縮小・初期化／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。緑の破線はセット開始、紫の破線はセット終了です。x軸の表示範囲を変えても縦軸は自動変更しません。十分に拡大すると256 Hzの元波形を表示します。</p>
 <p id=\"status\" class=\"hint\">JavaScriptが無効な表示環境でも、下の全体波形は表示されます。</p>
 <div id=\"staticFallback\">__STATIC_SVG__</div>
 <canvas id=\"plot\" width=\"1600\" height=\"660\"></canvas><pre id=\"readout\"></pre>
@@ -1426,7 +1400,7 @@ function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.le
 ['before','after'].forEach(k=>P[k]=P[k].map(decode));
 let active=P.channels.map(()=>true),start=0,end=P.n_samples,drag=null,panTimer=null,panDirection=0;
 const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),left=78,right=18,top=28,bottom=48;
-let baseSharedMax=1;for(let ch=0;ch<P.channels.length;ch++){for(let i=0;i<P.n_samples;i++){baseSharedMax=Math.max(baseSharedMax,Math.abs(P.before[ch][i]),Math.abs(P.after[ch][i]))}}baseSharedMax*=1.08;let sharedYScale=baseSharedMax;
+let baseSharedMax=Math.max(1,P.shared_scale_uv);let sharedYScale=baseSharedMax;
 P.channels.forEach((c,i)=>{const l=document.createElement('label');l.innerHTML=`<input type=\"checkbox\" checked data-i=\"${i}\"> ${c}`;document.getElementById('checks').append(l)});
 document.getElementById('checks').addEventListener('change',e=>{active[Number(e.target.dataset.i)]=e.target.checked;draw()});
 function sampleTime(i){return i/P.sfreq}
@@ -1439,6 +1413,7 @@ function startPan(direction){if(panDirection===direction)return;stopPan();panDir
 function draw(){ctx.clearRect(0,0,cv.width,cv.height);const span=end-start,plotW=cv.width-left-right,plotH=cv.height-top-bottom,rows=P.channels.length,rh=plotH/rows;ctx.font='14px sans-serif';
  ctx.strokeStyle='#222';ctx.lineWidth=1;ctx.strokeRect(left,top,plotW,plotH);ctx.fillStyle='#111';ctx.textAlign='center';ctx.fillText('Time from Part start (s)',left+plotW/2,cv.height-8);ctx.save();ctx.translate(18,top+plotH/2);ctx.rotate(-Math.PI/2);ctx.fillText('EEG amplitude (µV)',0,0);ctx.restore();
  for(let tick=0;tick<=5;tick++){const px=left+plotW*tick/5,t=sampleTime(start+(end-start)*tick/5);ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,top+plotH);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(t.toFixed(1),px,top+plotH+20)}
+ P.set_markers.forEach(marker=>{const sample=marker.time_s*P.sfreq;if(sample<start||sample>end)return;const x=left+(sample-start)/Math.max(1,span)*plotW;ctx.save();ctx.strokeStyle=marker.kind==='start'?'#2e8b57':'#7b3f98';ctx.setLineDash(marker.kind==='start'?[7,4]:[3,4]);ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,top+plotH);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ctx.strokeStyle;ctx.textAlign='left';ctx.fillText(marker.label,x+3,top+13);ctx.restore()});
  for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh;ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#111';ctx.fillText(P.channels[ch],left+5,top+ch*rh+17);if(!active[ch])continue;const series=[P.before[ch],P.after[ch]];ctx.fillText(`±${sharedYScale.toFixed(1)} µV`,left+55,top+ch*rh+17);
   series.forEach((values,k)=>{ctx.strokeStyle=k?'__AFTER_COLOR__':'__BEFORE_COLOR__';ctx.globalAlpha=k?.85:.70;ctx.beginPath();if(span<=plotW*2){for(let i=start;i<end;i++){const x=left+(i-start)/Math.max(1,span-1)*plotW,y=y0-values[i]/sharedYScale*(rh*.40);if(i===start)ctx.moveTo(x,y);else ctx.lineTo(x,y)}}else{for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n_samples);j++){lo=Math.min(lo,values[j]);hi=Math.max(hi,values[j])}const yl=y0-lo/sharedYScale*(rh*.40),yh=y0-hi/sharedYScale*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}}ctx.stroke()});ctx.globalAlpha=1}
  document.getElementById('window').textContent=`表示範囲 ${sampleTime(start).toFixed(1)}–${sampleTime(end).toFixed(1)} s`;document.getElementById('yScale').textContent=`共通縦軸 ±${sharedYScale.toFixed(1)} µV`;}
@@ -1449,7 +1424,11 @@ cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:
 cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n_samples-1,Math.max(0,Math.floor(start+ratio*(end-start))));document.getElementById('readout').textContent=`Cursor: t=${sampleTime(i).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before[j][i].toFixed(2)} µV, after ${P.after[j][i].toFixed(2)} µV`).join(' | ')});
 cv.addEventListener('dblclick',()=>{start=0;end=P.n_samples;sharedYScale=baseSharedMax;draw()});draw();document.getElementById('staticFallback').style.display='none';cv.style.display='block';document.getElementById('status').textContent='インタラクティブ表示準備完了（256 Hzの元波形を保持・固定共通縦軸）';}catch(error){const status=document.getElementById('status');status.textContent='JavaScript initialization error: '+error.name+': '+error.message;status.style.color='#b00020';}
 </script></body></html>"""
-    html = html.replace("__TITLE__", f"ID{participant_id} Part{part_number}: ICA before/after")
+    html = html.replace(
+        "__TITLE__",
+        f"ID{participant_id} Part{part_number}: ICA before/after "
+        f"({' / '.join(display_channels)})",
+    )
     html = html.replace("__STATIC_SVG__", static_svg)
     html = html.replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
     html = html.replace("__BEFORE_COLOR__", ICA_BEFORE_COLOR)
@@ -1468,7 +1447,8 @@ def save_blink_signal_figure(
     """Save the exact Phase 3 input signal as a set-level overview."""
     time = np.arange(blink_signal_v.shape[1]) / SFREQ
     values_uv = blink_signal_v * 1e6
-    limit = max(1.0, float(np.max(np.abs(values_uv))) * 1.05)
+    finite_values = np.abs(values_uv[np.isfinite(values_uv)])
+    limit = max(1.0, float(np.max(finite_values)) * 1.05) if finite_values.size else 1.0
     max_points = 5000
     stride = max(1, math.ceil(blink_signal_v.shape[1] / max_points))
     envelope_time = []
@@ -1528,6 +1508,62 @@ def save_blink_signal_figure(
     plt.close(fig)
 
 
+def qc_html_filename(participant_id: str, part_number: int, qc_code: str) -> str:
+    return f"ID{participant_id}_Part{part_number}_{qc_code}_ICA_before_after.html"
+
+
+def _shared_qc_scale_uv(
+    before_parts_v: list[np.ndarray], after_parts_v: list[np.ndarray]
+) -> float:
+    picks = [CHANNELS.index(channel) for channel in ALL_QC_CHANNELS]
+    maximum = max(
+        float(np.nanmax(np.abs(data_v[picks] * 1e6)))
+        for data_v in [*before_parts_v, *after_parts_v]
+    )
+    return max(1.0, maximum * 1.08)
+
+
+def _set_markers_for_part(events: pd.DataFrame, part: EegPart) -> list[dict[str, Any]]:
+    """Assign every start/end event independently to the Part containing its timestamp."""
+    markers: list[dict[str, Any]] = []
+    start_ms = float(part.original_timestamp[0] * 1000.0)
+    end_ms = float(part.original_timestamp[-1] * 1000.0)
+    marker_rows = events.loc[events["Event"].isin(["block_start", "block_end"])]
+    for _, row in marker_rows.iterrows():
+        event_ms = float(row["SysUnixTime(ms)"])
+        if not start_ms <= event_ms <= end_ms:
+            continue
+        event_name = str(row["Event"])
+        set_number = _parse_set_number(row["Detail"])
+        kind = "start" if event_name == "block_start" else "end"
+        markers.append(
+            {
+                "time_s": event_ms / 1000.0 - float(part.original_timestamp[0]),
+                "label": f"Set{set_number} {kind}",
+                "kind": kind,
+            }
+        )
+    return sorted(markers, key=lambda marker: (float(marker["time_s"]), marker["kind"]))
+
+
+def extract_blink_analysis_signal(
+    blink_contribution_v: np.ndarray,
+    ica_included_channel_names: list[str],
+) -> np.ndarray:
+    """Return Fp1, Fp2 and their available-channel mean from the Eye-IC projection."""
+    signals = []
+    for channel in ("Fp1", "Fp2"):
+        if channel in ica_included_channel_names:
+            signals.append(blink_contribution_v[ica_included_channel_names.index(channel)])
+        else:
+            signals.append(np.full(blink_contribution_v.shape[1], np.nan, dtype=float))
+    stacked = np.vstack(signals)
+    valid_count = np.sum(np.isfinite(stacked), axis=0)
+    mean = np.full(stacked.shape[1], np.nan, dtype=float)
+    np.divide(np.nansum(stacked, axis=0), valid_count, out=mean, where=valid_count > 0)
+    return np.vstack([stacked, mean])
+
+
 def regenerate_interactive_html_outputs(
     paths: ProjectPaths,
     participant_id: str,
@@ -1549,38 +1585,51 @@ def regenerate_interactive_html_outputs(
     )
     metadata_path = local_dir / f"ID{participant_id}_preprocessing_metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    removed_channels = list(metadata["approved_removed_channels"])
-    keep_channels = [channel for channel in CHANNELS if channel not in removed_channels]
+    ica_excluded_channels = list(metadata["ica_excluded_channels"])
+    keep_channels = [channel for channel in CHANNELS if channel not in ica_excluded_channels]
+    keep_indices = [CHANNELS.index(channel) for channel in keep_channels]
     eye_components = [int(component) for component in metadata["removed_eye_components"]]
     expected_parts = {int(part) for part in metadata["source_parts"]}
 
     audit = audit_participant(paths, participant_id, logger)
     ica = mne.preprocessing.read_ica(local_dir / f"ID{participant_id}_ica.fif", verbose="ERROR")
     outputs = []
+    prepared_parts: list[tuple[EegPart, np.ndarray, np.ndarray]] = []
     for part in audit["parts"]:
         if part.part not in expected_parts:
             continue
         _, detrended_v = filter_and_detrend(part)
-        if removed_channels:
-            keep_indices = [CHANNELS.index(channel) for channel in keep_channels]
-            detrended_v = detrended_v[keep_indices]
-        cleaned_v, _ = apply_ica(ica, detrended_v, eye_components, keep_channels)
-        output_path = qc_dir / f"ID{participant_id}_Part{part.part}_ICA_before_after.html"
-        save_interactive_html(
-            output_path,
-            participant_id,
-            part.part,
-            detrended_v,
-            cleaned_v,
-            keep_channels,
+        reduced_v = detrended_v[keep_indices]
+        cleaned_reduced_v, _ = apply_ica(ica, reduced_v, eye_components, keep_channels)
+        cleaned_full_v = merge_ica_cleaned_channels(
+            detrended_v, cleaned_reduced_v, keep_channels, CHANNELS
         )
-        outputs.append(
-            {
-                "part": part.part,
-                "path": str(output_path),
-                "size_bytes": output_path.stat().st_size,
-            }
-        )
+        prepared_parts.append((part, detrended_v, cleaned_full_v))
+    shared_scale_uv = _shared_qc_scale_uv(
+        [item[1] for item in prepared_parts], [item[2] for item in prepared_parts]
+    )
+    for part, detrended_v, cleaned_full_v in prepared_parts:
+        for qc_code, display_channels in ICA_QC_GROUPS:
+            output_path = qc_dir / qc_html_filename(participant_id, part.part, qc_code)
+            save_interactive_html(
+                output_path,
+                participant_id,
+                part.part,
+                detrended_v,
+                cleaned_full_v,
+                CHANNELS,
+                display_channels,
+                shared_scale_uv,
+                _set_markers_for_part(audit["events"], part),
+            )
+            outputs.append(
+                {
+                    "part": part.part,
+                    "qc_code": qc_code,
+                    "path": str(output_path),
+                    "size_bytes": output_path.stat().st_size,
+                }
+            )
     logger.info("ID%s: interactive HTML regenerated without refitting ICA", participant_id)
     return {
         "participant_id": participant_id,
@@ -1610,12 +1659,8 @@ def preprocess_participant(
     paths: ProjectPaths,
     participant_id: str,
     *,
-    approved_bad_channels: list[str] | None = None,
-    retained_bad_channels: list[str] | None = None,
     logger: logging.Logger,
 ) -> dict[str, Any]:
-    approved_bad_channels = approved_bad_channels or []
-    retained_bad_channels = retained_bad_channels or []
     audit = audit_participant(paths, participant_id, logger)
     write_audit_outputs(paths, participant_id, audit)
     parts: list[EegPart] = audit["parts"]
@@ -1638,25 +1683,17 @@ def preprocess_participant(
     detrended_parts: list[np.ndarray] = []
     line_quality_parts: list[np.ndarray] = []
     for part in parts:
-        filtered, detrended = filter_and_detrend(part)
+        _, detrended = filter_and_detrend(part)
         detrended_parts.append(detrended)
         line_quality_parts.append(channel_quality_signal(part))
-        save_detrend_figure(
-            filtered,
-            detrended,
-            participant_id,
-            part.part,
-            qc_dir / f"ID{participant_id}_Part{part.part}_detrend_before_after.png",
-        )
-        del filtered
 
     exploratory_bad_candidates = detect_bad_channels(
         [part.data_uv for part in parts], detrended_parts, line_quality_parts
     )
-    bad_candidates = select_notification_candidates(exploratory_bad_candidates)
+    bad_candidates = select_ica_channel_exclusion_candidates(exploratory_bad_candidates)
     del line_quality_parts
-    channel_decisions = resolve_bad_channel_decisions(
-        bad_candidates, approved_bad_channels, retained_bad_channels
+    ica_excluded_channels, ica_excluded_channel_records = (
+        build_ica_channel_exclusion_records(bad_candidates)
     )
     write_json(
         qc_dir / f"ID{participant_id}_bad_channel_exploratory_detections.json",
@@ -1665,58 +1702,27 @@ def preprocess_participant(
     write_json(qc_dir / f"ID{participant_id}_bad_channel_candidates.json", bad_candidates)
     if bad_candidates:
         save_bad_channel_figures(qc_dir, participant_id, parts, detrended_parts, bad_candidates)
-    automatically_retained = channel_decisions["automatically_retained"]
-    effective_retained_channels = channel_decisions["effective_retained"]
-    removed_channel_records = [
-        {
-            "channel": channel,
-            "decision": "removed_with_user_approval",
-            "reasons": [
-                {
-                    key: value
-                    for key, value in item.items()
-                    if key not in {"channel", "start_sample", "end_sample"}
-                }
-                for item in bad_candidates
-                if str(item["channel"]) == channel
-            ],
-        }
-        for channel in approved_bad_channels
-    ]
-
-    stop_marker = qc_dir / f"ID{participant_id}_STOP_channel_confirmation_required.json"
-    stop_marker.unlink(missing_ok=True)
     write_json(
-        qc_dir / f"ID{participant_id}_channel_decisions.json",
+        qc_dir / f"ID{participant_id}_ICA_channel_exclusions.json",
         {
             "participant_id": participant_id,
-            "removed_with_user_approval": approved_bad_channels,
-            "retained_after_user_review": retained_bad_channels,
-            "retained_without_removal_approval": automatically_retained,
+            "ica_excluded_channels": ica_excluded_channels,
             "policy": (
-                "候補figureを保存したうえで処理を継続し、明示的な除去承認がない"
-                "チャンネルは保持する"
+                "保守的通知基準に該当したチャンネルを利用者承認なしでICA学習・"
+                "ICA適用対象から自動除外し、最終32ch EEGではフィルタ・"
+                "トレンド除去済み信号を保持する"
             ),
-            "per_channel": channel_decisions["per_channel"],
-            "removed_channel_records": removed_channel_records,
+            "ica_excluded_channel_records": ica_excluded_channel_records,
             "decision_date": date.today().isoformat(),
         },
     )
 
-    keep_channels = [ch for ch in CHANNELS if ch not in approved_bad_channels]
+    keep_channels = [ch for ch in CHANNELS if ch not in ica_excluded_channels]
     keep_indices = [CHANNELS.index(ch) for ch in keep_channels]
-    removed_required = sorted((set(DISPLAY_CHANNELS) | {"Fp1", "Fp2"}) & set(approved_bad_channels))
-    if removed_required:
-        raise ValueError(
-            "ICA確認・瞬き信号に必要なチャンネルは除去できません: "
-            f"{removed_required}。別方針を利用者と決めてください。"
-        )
-    if approved_bad_channels:
-        for index in range(len(detrended_parts)):
-            detrended_parts[index] = detrended_parts[index][keep_indices]
+    ica_input_parts = [data_v[keep_indices] for data_v in detrended_parts]
 
     intervals: list[dict[str, Any]] = []
-    for part, data_v in zip(parts, detrended_parts, strict=True):
+    for part, data_v in zip(parts, ica_input_parts, strict=True):
         intervals.extend(detect_ica_bad_intervals(data_v, part.part, part.original_timestamp))
     pd.DataFrame(
         [
@@ -1733,7 +1739,7 @@ def preprocess_participant(
     ).to_csv(qc_dir / f"ID{participant_id}_ICA_training_excluded_intervals.csv", index=False)
 
     training_segments = []
-    for part, data_v in zip(parts, detrended_parts, strict=True):
+    for part, data_v in zip(parts, ica_input_parts, strict=True):
         usable_mask = np.zeros(data_v.shape[1], dtype=bool)
         for boundary in boundaries:
             if boundary.usable and boundary.part == part.part:
@@ -1753,19 +1759,40 @@ def preprocess_participant(
     expected_qc_parts = sorted({b.part for b in boundaries if b.usable})
     cleaned_parts: list[np.ndarray] = []
     blink_parts: list[np.ndarray] = []
-    for part, data_v in zip(parts, detrended_parts, strict=True):
-        cleaned_v, blink_v = apply_ica(ica, data_v, eye_components, keep_channels)
-        cleaned_parts.append(cleaned_v)
-        blink_parts.append(blink_v)
-        if part.part in expected_qc_parts:
-            save_interactive_html(
-                qc_dir / f"ID{participant_id}_Part{part.part}_ICA_before_after.html",
-                participant_id,
-                part.part,
-                data_v,
-                cleaned_v,
-                keep_channels,
+    for _part, full_detrended_v, ica_input_v in zip(
+        parts, detrended_parts, ica_input_parts, strict=True
+    ):
+        cleaned_reduced_v, blink_v = apply_ica(
+            ica, ica_input_v, eye_components, keep_channels
+        )
+        cleaned_parts.append(
+            merge_ica_cleaned_channels(
+                full_detrended_v, cleaned_reduced_v, keep_channels, CHANNELS
             )
+        )
+        blink_parts.append(blink_v)
+    qc_part_indices = [part_number - 1 for part_number in expected_qc_parts]
+    shared_qc_scale_uv = _shared_qc_scale_uv(
+        [detrended_parts[index] for index in qc_part_indices],
+        [cleaned_parts[index] for index in qc_part_indices],
+    )
+    html_files = []
+    for part_number in expected_qc_parts:
+        part_index = part_number - 1
+        for qc_code, display_channels in ICA_QC_GROUPS:
+            html_path = qc_dir / qc_html_filename(participant_id, part_number, qc_code)
+            save_interactive_html(
+                html_path,
+                participant_id,
+                part_number,
+                detrended_parts[part_index],
+                cleaned_parts[part_index],
+                CHANNELS,
+                display_channels,
+                shared_qc_scale_uv,
+                _set_markers_for_part(audit["events"], parts[part_index]),
+            )
+            html_files.append(html_path)
 
     validations = []
     generated_sets = []
@@ -1779,11 +1806,7 @@ def preprocess_participant(
         set_dir = local_dir / f"Set{boundary.set_number}"
         brain_path = set_dir / f"ID{participant_id}_Set{boundary.set_number}_brain_activity.h5"
         blink_path = set_dir / f"ID{participant_id}_Set{boundary.set_number}_blink_signal.h5"
-        brain_signal = restore_original_channel_layout(
-            cleaned_parts[boundary.part - 1][:, start:end],
-            keep_channels,
-            CHANNELS,
-        )
+        brain_signal = cleaned_parts[boundary.part - 1][:, start:end]
         save_set_hdf5(
             brain_path,
             participant_id=participant_id,
@@ -1796,13 +1819,13 @@ def preprocess_participant(
             results_rows=results_rows,
             bad_intervals=intervals,
             original_channel_names=CHANNELS,
-            removed_channels=approved_bad_channels,
-            removed_channel_records=removed_channel_records,
+            ica_excluded_channels=ica_excluded_channels,
+            ica_excluded_channel_records=ica_excluded_channel_records,
             data_kind="brain_activity_eeg",
         )
-        fp1, fp2 = keep_channels.index("Fp1"), keep_channels.index("Fp2")
-        blink_signal = blink_parts[boundary.part - 1][[fp1, fp2], start:end]
-        blink_signal = np.vstack([blink_signal, np.mean(blink_signal, axis=0)])
+        blink_signal = extract_blink_analysis_signal(
+            blink_parts[boundary.part - 1][:, start:end], keep_channels
+        )
         save_set_hdf5(
             blink_path,
             participant_id=participant_id,
@@ -1815,8 +1838,8 @@ def preprocess_participant(
             results_rows=results_rows,
             bad_intervals=intervals,
             original_channel_names=CHANNELS,
-            removed_channels=approved_bad_channels,
-            removed_channel_records=removed_channel_records,
+            ica_excluded_channels=ica_excluded_channels,
+            ica_excluded_channel_records=ica_excluded_channel_records,
             data_kind="removed_eye_component_signal",
         )
         blink_figure_path = (
@@ -1854,10 +1877,8 @@ def preprocess_participant(
         generated_sets == expected_sets
         and all(v["ok"] for v in validations)
         and converged
-        and all(
-            (qc_dir / f"ID{participant_id}_Part{part}_ICA_before_after.html").exists()
-            for part in expected_qc_parts
-        )
+        and len(html_files) == len(expected_qc_parts) * len(ICA_QC_GROUPS)
+        and all(path.exists() for path in html_files)
         and len(blink_figure_files) == len(expected_sets)
         and all(path.exists() for path in blink_figure_files)
     )
@@ -1879,18 +1900,16 @@ def preprocess_participant(
         "expected_sets": expected_sets,
         "generated_sets": generated_sets,
         "source_parts": expected_qc_parts,
-        "approved_removed_channels": approved_bad_channels,
-        "removed_channel_records": removed_channel_records,
+        "ica_excluded_channels": ica_excluded_channels,
+        "ica_excluded_channel_records": ica_excluded_channel_records,
         "brain_activity_channel_layout": {
             "channel_names": CHANNELS,
-            "channel_available_mask": [
-                channel not in approved_bad_channels for channel in CHANNELS
-            ],
-            "removed_channel_fill_value": "NaN",
+            "all_channels_retained": True,
+            "ica_excluded_channels_keep_filtered_detrended_signal": True,
         },
-        "reviewed_retained_candidate_channels": retained_bad_channels,
-        "automatically_retained_candidate_channels": automatically_retained,
-        "effective_retained_candidate_channels": effective_retained_channels,
+        "ica_channel_excluded_mask": [
+            channel in ica_excluded_channels for channel in CHANNELS
+        ],
         "ica_training_excluded_intervals": [
             {k: v for k, v in item.items() if k not in {"start_sample", "end_sample"}}
             for item in intervals
@@ -1920,6 +1939,12 @@ def preprocess_participant(
             "rms_after": after_rms,
         },
         "blink_signal_figure_sets": expected_sets,
+        "qc_html_groups": [
+            {"code": code, "channels": list(channels)}
+            for code, channels in ICA_QC_GROUPS
+        ],
+        "qc_html_shared_scale_uv": shared_qc_scale_uv,
+        "blink_accuracy_review_html": "QC01_BlinkCheck (Fp1, Fp2) only",
         "iclabel_average_reference_deviation": (
             "ICLabel推奨の共通平均参照は、旧MATLAB実装との一貫性を優先して未実施"
         ),
@@ -1937,10 +1962,7 @@ def preprocess_participant(
                 "participant_id": participant_id,
                 "status": summary["status"],
                 "generated_sets": ",".join(map(str, generated_sets)),
-                "removed_channels": ",".join(approved_bad_channels) or "none",
-                "retained_candidate_channels": (
-                    ",".join(effective_retained_channels) or "none"
-                ),
+                "ica_excluded_channels": ",".join(ica_excluded_channels) or "none",
                 "ica_training_excluded_interval_count": len(intervals),
                 "ica_converged": converged,
                 "ica_n_iter": int(ica.n_iter_),

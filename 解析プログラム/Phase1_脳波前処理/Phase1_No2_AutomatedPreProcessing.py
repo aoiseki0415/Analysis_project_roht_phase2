@@ -24,24 +24,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="保存済みICAを再利用し、全時間帯の確認HTMLだけを再生成する。",
     )
-    parser.add_argument(
-        "--approved-bad-channel",
-        action="append",
-        default=[],
-        help=(
-            "利用者が明示的に除去を許可した候補チャンネル。候補ごとに繰り返し指定する。"
-            "指定がない候補は保持したまま処理を続ける。"
-        ),
-    )
-    parser.add_argument(
-        "--retained-bad-channel",
-        action="append",
-        default=[],
-        help=(
-            "候補figureを確認したうえで、利用者が保持すると決定したチャンネル。"
-            "候補ごとに繰り返し指定する。"
-        ),
-    )
     return parser.parse_args()
 
 
@@ -70,8 +52,6 @@ def main() -> int:
         result = preprocess_participant(
             paths,
             participant_id,
-            approved_bad_channels=args.approved_bad_channel,
-            retained_bad_channels=args.retained_bad_channel,
             logger=logger,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
