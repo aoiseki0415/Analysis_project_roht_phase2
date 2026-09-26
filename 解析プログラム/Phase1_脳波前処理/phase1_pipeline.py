@@ -38,7 +38,7 @@ from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
 
 SFREQ = 256.0
-PIPELINE_SPEC_VERSION = "phase1-fixed-2026-09-22.2"
+PIPELINE_SPEC_VERSION = "phase1-parameter-update-2026-09-26.1"
 RANDOM_SEED = 97
 QC_FIGURE_STYLE_VERSION = "phase1-qc-v2"
 FILTERED_COLOR = "#4472c4"
@@ -46,7 +46,12 @@ ICA_BEFORE_COLOR = "#1261a0"
 ICA_AFTER_COLOR = "#d1495b"
 BLINK_MEAN_COLOR = "#2e8b57"
 EYE_BLINK_PROBABILITY_THRESHOLD = 0.80
-ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 500.0
+FLATLINE_MINIMUM_SECONDS = 5.0
+RANSAC_MIN_CORRELATION = 0.75
+RANSAC_CANDIDATE_BAD_TIME_FRACTION = 0.40
+RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION = 0.60
+ASR_BURST_CRITERION = 15.0
+ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 200.0
 ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS = 1.0
 HTML_ENVELOPE_BIN_SAMPLES = 64
 EEG_PREFIX = "EEG."
@@ -188,9 +193,7 @@ def configure_logging(log_path: Path) -> logging.Logger:
     return logger
 
 
-def participant_output_directory_name(
-    participant_id: str, output_label: str | None = None
-) -> str:
+def participant_output_directory_name(participant_id: str, output_label: str | None = None) -> str:
     """Return the normal ID directory name or an explicitly labelled comparison run."""
     if output_label is None:
         return f"ID{participant_id}"
@@ -478,7 +481,9 @@ def _contiguous_true_regions(mask: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(np.flatnonzero(changes == 1), np.flatnonzero(changes == -1), strict=True))
 
 
-def detect_flatlines(data_v: np.ndarray, minimum_seconds: float = 30.0) -> list[dict[str, Any]]:
+def detect_flatlines(
+    data_v: np.ndarray, minimum_seconds: float = FLATLINE_MINIMUM_SECONDS
+) -> list[dict[str, Any]]:
     minimum = int(round(minimum_seconds * SFREQ))
     candidates = []
     for channel_index, channel in enumerate(CHANNELS):
@@ -540,8 +545,8 @@ def detect_ransac_channels(data_v: np.ndarray) -> list[dict[str, Any]]:
     ransac = Ransac(
         n_resample=50,
         min_channels=0.25,
-        min_corr=0.80,
-        unbroken_time=0.50,
+        min_corr=RANSAC_MIN_CORRELATION,
+        unbroken_time=RANSAC_CANDIDATE_BAD_TIME_FRACTION,
         n_jobs=1,
         random_state=RANDOM_SEED,
         verbose=False,
@@ -550,12 +555,15 @@ def detect_ransac_channels(data_v: np.ndarray) -> list[dict[str, Any]]:
     output = []
     for channel in ransac.bad_chs_:
         channel_index = CHANNELS.index(str(channel))
-        poor = ransac.corr_[:, channel_index] < 0.80
+        poor = ransac.corr_[:, channel_index] < RANSAC_MIN_CORRELATION
         poor_indices = np.flatnonzero(poor)
         output.append(
             {
                 "channel": str(channel),
-                "reason": "ransac_correlation_below_0.80_for_over_50pct",
+                "reason": (
+                    f"ransac_correlation_below_{RANSAC_MIN_CORRELATION:.2f}_for_over_"
+                    f"{int(RANSAC_CANDIDATE_BAD_TIME_FRACTION * 100)}pct"
+                ),
                 "start_s": float(poor_indices[0] * 5.0),
                 "end_s": float((poor_indices[-1] + 1) * 5.0),
                 "duration_s": float(np.count_nonzero(poor) * 5.0),
@@ -595,10 +603,10 @@ def select_ica_channel_exclusion_candidates(
 ) -> list[dict[str, Any]]:
     """Restrict automatic ICA-only exclusion to clear record-wide problems.
 
-    The official-derived 4-SD line-noise and 0.80/50% RANSAC criteria remain
+    The official-derived 4-SD line-noise and 0.75/40% RANSAC criteria remain
     exploratory detectors. Automatic ICA-only exclusion is more conservative:
-    a >=30 s exact flatline, very strong line noise (>=6 robust SD), RANSAC
-    failure over >=80% of the record, or agreement of at least two detectors.
+    a >=5 s exact flatline, very strong line noise (>=6 robust SD), RANSAC
+    failure over >=60% of the record, or agreement of at least two detectors.
     """
     reasons_by_channel: dict[str, set[str]] = {}
     for item in candidates:
@@ -610,8 +618,13 @@ def select_ica_channel_exclusion_candidates(
             reason == "continuous_zero_or_exact_flatline"
             or (reason == "line_noise_above_4sd" and float(item.get("z_score", 0.0)) >= 6.0)
             or (
-                reason == "ransac_correlation_below_0.80_for_over_50pct"
-                and float(item.get("recording_fraction", 0.0)) >= 0.80
+                reason
+                == (
+                    f"ransac_correlation_below_{RANSAC_MIN_CORRELATION:.2f}_for_over_"
+                    f"{int(RANSAC_CANDIDATE_BAD_TIME_FRACTION * 100)}pct"
+                )
+                and float(item.get("recording_fraction", 0.0))
+                >= RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION
             )
             or len(reasons_by_channel[str(item["channel"])]) >= 2
         )
@@ -726,7 +739,7 @@ def detect_ica_bad_intervals(
     """Detect burst/window artifacts without reconstructing the final EEG.
 
     The 0.5 s detector applies an ASR-compatible generalized-eigenvalue burst
-    criterion of 20 against robust calibration covariance.  The 1 s detector
+    criterion of 15 against robust calibration covariance.  The 1 s detector
     implements the configured clean-windows tolerances and 25% bad-channel rule.
     Only detected time spans are returned; reconstructed ASR samples are never
     used downstream.
@@ -756,7 +769,7 @@ def detect_ica_bad_intervals(
         whitened = whitening @ (window - np.mean(window, axis=1, keepdims=True))
         window_cov = np.cov(whitened)
         component_power = np.maximum(scipy.linalg.eigvalsh(window_cov), 0.0)
-        burst_flags.append(float(np.sqrt(np.max(component_power))) > 20.0)
+        burst_flags.append(float(np.sqrt(np.max(component_power))) > ASR_BURST_CRITERION)
         channel_rms_z = np.abs(_robust_z(np.sqrt(np.mean(window * window, axis=1)), axis=0))
         burst_affected.append(int(np.count_nonzero(channel_rms_z > 7.0)))
 
@@ -776,7 +789,14 @@ def detect_ica_bad_intervals(
     intervals: list[tuple[int, int, str, int]] = absolute_amplitude_intervals(data_v)
     for flag, start, affected in zip(burst_flags, starts, burst_affected, strict=True):
         if flag:
-            intervals.append((int(start), int(start + half), "ASR_BurstCriterion_20", affected))
+            intervals.append(
+                (
+                    int(start),
+                    int(start + half),
+                    f"ASR_BurstCriterion_{ASR_BURST_CRITERION:g}",
+                    affected,
+                )
+            )
     for flag, start, bads in zip(window_flags, starts_one, window_bad_channels, strict=True):
         if flag:
             intervals.append(
@@ -891,9 +911,11 @@ def fit_ica_and_label(
     )
     probabilities = iclabel_label_components(raw, ica, inplace=True, backend="onnx")
     eye_column = ICLABEL_CLASSES.index("eye blink")
-    eye_components = np.flatnonzero(
-        probabilities[:, eye_column] >= EYE_BLINK_PROBABILITY_THRESHOLD
-    ).astype(int).tolist()
+    eye_components = (
+        np.flatnonzero(probabilities[:, eye_column] >= EYE_BLINK_PROBABILITY_THRESHOLD)
+        .astype(int)
+        .tolist()
+    )
     return ica, raw, probabilities, eye_components, diagnostics
 
 
@@ -1168,9 +1190,7 @@ def save_iclabel_outputs(
                 "Scalp color = ICA spatial weight [a.u.]",
                 fontsize=11,
             )
-            figure.savefig(
-                qc_dir / f"ID{participant_id}_eye_IC_topomap_IC{component}.png", dpi=160
-            )
+            figure.savefig(qc_dir / f"ID{participant_id}_eye_IC_topomap_IC{component}.png", dpi=160)
             plt.close(figure)
         sources = ica.get_sources(training_raw).get_data(picks=eye_components)
         fig, axes = plt.subplots(len(eye_components), 2, figsize=(14, 3.2 * len(eye_components)))
@@ -1286,13 +1306,13 @@ def _static_svg_overview(
         f'<svg role="img" aria-label="ID{participant_id} Part{part_number} ICA overview" '
         f'viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
         '<rect width="100%" height="100%" fill="white"/>',
-        '<style>text{font-family:system-ui,sans-serif;fill:#111}.axis{stroke:#222;stroke-width:1}'
-        f'.grid{{stroke:#ddd;stroke-width:1}}.before{{stroke:{ICA_BEFORE_COLOR};stroke-width:.8;opacity:.70}}'
-        f'.after{{stroke:{ICA_AFTER_COLOR};stroke-width:.8;opacity:.85}}'
-        '.excluded-interval{fill:#d1495b;opacity:.16}'
-        '.excluded-channel{fill:#f4b942;opacity:.18}'
-        '.set-start{stroke:#2e8b57;stroke-width:1.5;stroke-dasharray:7 4}'
-        '.set-end{stroke:#7b3f98;stroke-width:1.5;stroke-dasharray:3 4}</style>',
+        "<style>text{font-family:system-ui,sans-serif;fill:#111}.axis{stroke:#222;stroke-width:1}"
+        f".grid{{stroke:#ddd;stroke-width:1}}.before{{stroke:{ICA_BEFORE_COLOR};stroke-width:.8;opacity:.70}}"
+        f".after{{stroke:{ICA_AFTER_COLOR};stroke-width:.8;opacity:.85}}"
+        ".excluded-interval{fill:#d1495b;opacity:.16}"
+        ".excluded-channel{fill:#f4b942;opacity:.18}"
+        ".set-start{stroke:#2e8b57;stroke-width:1.5;stroke-dasharray:7 4}"
+        ".set-end{stroke:#7b3f98;stroke-width:1.5;stroke-dasharray:3 4}</style>",
     ]
     reduced = []
     for channel_index in range(len(display_channels)):
@@ -1354,7 +1374,7 @@ def _static_svg_overview(
                 x = left + plot_width * index / denominator
                 y_low = y_center - low_value / shared_scale * row_height * 0.40
                 y_high = y_center - high_value / shared_scale * row_height * 0.40
-                segments.append(f'M{x:.1f},{y_low:.1f}V{y_high:.1f}')
+                segments.append(f"M{x:.1f},{y_low:.1f}V{y_high:.1f}")
             pieces.append(f'<path class="{css_class}" d="{"".join(segments)}"/>')
     pieces.extend(
         [
@@ -1373,7 +1393,7 @@ def _static_svg_overview(
                 else '<line class="after" x1="1325" y1="18" x2="1350" y2="18"/>'
                 '<text x="1357" y="23" font-size="14">After ICA</text>'
             ),
-            '</svg>',
+            "</svg>",
         ]
     )
     return "".join(pieces)
@@ -1402,10 +1422,7 @@ def save_interactive_html(
     if shared_scale_uv is None:
         shared_scale_uv = max(
             1.0,
-            max(
-                float(np.nanmax(np.abs(values[picks] * 1e6)))
-                for values in (before_v, after_v)
-            )
+            max(float(np.nanmax(np.abs(values[picks] * 1e6))) for values in (before_v, after_v))
             * 1.08,
         )
     bin_samples = HTML_ENVELOPE_BIN_SAMPLES
@@ -1485,8 +1502,7 @@ cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(d
 cv.addEventListener('dblclick',()=>{start=0;end=P.n_samples;sharedYScale=baseSharedMax;draw()});draw();document.getElementById('staticFallback').style.display='none';cv.style.display='block';document.getElementById('status').textContent='インタラクティブ表示準備完了（256 Hzの元波形を保持・固定共通縦軸）';}catch(error){const status=document.getElementById('status');status.textContent='JavaScript initialization error: '+error.name+': '+error.message;status.style.color='#b00020';}
 </script></body></html>"""
     page_title = title or (
-        f"ID{participant_id} Part{part_number}: ICA before/after "
-        f"({' / '.join(display_channels)})"
+        f"ID{participant_id} Part{part_number}: ICA before/after ({' / '.join(display_channels)})"
     )
     if before_only:
         legend = (
@@ -1635,16 +1651,11 @@ def save_ica_exclusion_review_html(
         excluded_intervals=_excluded_intervals_for_part(intervals, part.part),
         excluded_channels=excluded_channels,
         before_only=True,
-        title=(
-            f"ID{participant_id} Part{part.part}: ICA学習除外確認 "
-            "（Before ICA・全32ch）"
-        ),
+        title=(f"ID{participant_id} Part{part.part}: ICA学習除外確認 （Before ICA・全32ch）"),
     )
 
 
-def _shared_qc_scale_uv(
-    before_parts_v: list[np.ndarray], after_parts_v: list[np.ndarray]
-) -> float:
+def _shared_qc_scale_uv(before_parts_v: list[np.ndarray], after_parts_v: list[np.ndarray]) -> float:
     picks = [CHANNELS.index(channel) for channel in ALL_QC_CHANNELS]
     maximum = max(
         float(np.nanmax(np.abs(data_v[picks] * 1e6)))
@@ -1704,16 +1715,10 @@ def regenerate_interactive_html_outputs(
     """Rebuild only the interactive QC HTML from the saved ICA solution."""
     output_directory = participant_output_directory_name(participant_id, output_label)
     local_dir = (
-        paths.processed_root
-        / "Phase1_脳波前処理"
-        / "No2_AutomatedPreProcessing"
-        / output_directory
+        paths.processed_root / "Phase1_脳波前処理" / "No2_AutomatedPreProcessing" / output_directory
     )
     qc_dir = (
-        paths.onedrive_root
-        / "Phase1_脳波前処理"
-        / "No2_AutomatedPreProcessing"
-        / output_directory
+        paths.onedrive_root / "Phase1_脳波前処理" / "No2_AutomatedPreProcessing" / output_directory
     )
     metadata_path = local_dir / f"ID{participant_id}_preprocessing_metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -1786,9 +1791,7 @@ def regenerate_interactive_html_outputs(
                     "size_bytes": output_path.stat().st_size,
                 }
             )
-        exclusion_output = qc_dir / exclusion_review_html_filename(
-            participant_id, part.part
-        )
+        exclusion_output = qc_dir / exclusion_review_html_filename(participant_id, part.part)
         save_ica_exclusion_review_html(
             exclusion_output,
             participant_id,
@@ -1851,16 +1854,10 @@ def preprocess_participant(
     boundaries: list[SetBoundary] = audit["boundaries"]
     output_directory = participant_output_directory_name(participant_id, output_label)
     qc_dir = (
-        paths.onedrive_root
-        / "Phase1_脳波前処理"
-        / "No2_AutomatedPreProcessing"
-        / output_directory
+        paths.onedrive_root / "Phase1_脳波前処理" / "No2_AutomatedPreProcessing" / output_directory
     )
     local_dir = (
-        paths.processed_root
-        / "Phase1_脳波前処理"
-        / "No2_AutomatedPreProcessing"
-        / output_directory
+        paths.processed_root / "Phase1_脳波前処理" / "No2_AutomatedPreProcessing" / output_directory
     )
     qc_dir.mkdir(parents=True, exist_ok=True)
     if save_local_data:
@@ -1878,8 +1875,8 @@ def preprocess_participant(
     )
     bad_candidates = select_ica_channel_exclusion_candidates(exploratory_bad_candidates)
     del line_quality_parts
-    ica_excluded_channels, ica_excluded_channel_records = (
-        build_ica_channel_exclusion_records(bad_candidates)
+    ica_excluded_channels, ica_excluded_channel_records = build_ica_channel_exclusion_records(
+        bad_candidates
     )
     write_json(
         qc_dir / f"ID{participant_id}_bad_channel_exploratory_detections.json",
@@ -1949,13 +1946,9 @@ def preprocess_participant(
     for _part, full_detrended_v, ica_input_v in zip(
         parts, detrended_parts, ica_input_parts, strict=True
     ):
-        cleaned_reduced_v, blink_v = apply_ica(
-            ica, ica_input_v, eye_components, keep_channels
-        )
+        cleaned_reduced_v, blink_v = apply_ica(ica, ica_input_v, eye_components, keep_channels)
         cleaned_parts.append(
-            merge_ica_cleaned_channels(
-                full_detrended_v, cleaned_reduced_v, keep_channels, CHANNELS
-            )
+            merge_ica_cleaned_channels(full_detrended_v, cleaned_reduced_v, keep_channels, CHANNELS)
         )
         blink_parts.append(blink_v)
     qc_part_indices = [part_number - 1 for part_number in expected_qc_parts]
@@ -1981,9 +1974,7 @@ def preprocess_participant(
                 _set_markers_for_part(audit["events"], parts[part_index]),
             )
             html_files.append(html_path)
-        exclusion_html_path = qc_dir / exclusion_review_html_filename(
-            participant_id, part_number
-        )
+        exclusion_html_path = qc_dir / exclusion_review_html_filename(participant_id, part_number)
         save_ica_exclusion_review_html(
             exclusion_html_path,
             participant_id,
@@ -2008,16 +1999,10 @@ def preprocess_participant(
             blink_parts[boundary.part - 1][:, start:end], keep_channels
         )
         if save_local_data:
-            results_csv, results_rows = _csv_text_for_results(
-                audit["results"][boundary.set_number]
-            )
+            results_csv, results_rows = _csv_text_for_results(audit["results"][boundary.set_number])
             set_dir = local_dir / f"Set{boundary.set_number}"
-            brain_path = (
-                set_dir / f"ID{participant_id}_Set{boundary.set_number}_brain_activity.h5"
-            )
-            blink_path = (
-                set_dir / f"ID{participant_id}_Set{boundary.set_number}_blink_signal.h5"
-            )
+            brain_path = set_dir / f"ID{participant_id}_Set{boundary.set_number}_brain_activity.h5"
+            blink_path = set_dir / f"ID{participant_id}_Set{boundary.set_number}_blink_signal.h5"
             save_set_hdf5(
                 brain_path,
                 participant_id=participant_id,
@@ -2053,14 +2038,11 @@ def preprocess_participant(
             validations.extend(
                 [
                     validate_hdf5(brain_path, CHANNELS, results_rows),
-                    validate_hdf5(
-                        blink_path, ["Fp1", "Fp2", "Fp1_Fp2_mean"], results_rows
-                    ),
+                    validate_hdf5(blink_path, ["Fp1", "Fp2", "Fp1_Fp2_mean"], results_rows),
                 ]
             )
         blink_figure_path = (
-            qc_dir
-            / f"ID{participant_id}_Set{boundary.set_number}_blink_signal_timeseries.png"
+            qc_dir / f"ID{participant_id}_Set{boundary.set_number}_blink_signal_timeseries.png"
         )
         save_blink_signal_figure(
             blink_figure_path,
@@ -2109,7 +2091,11 @@ def preprocess_participant(
             "sampling_frequency_hz": SFREQ,
             "bandpass_hz": [1.0, 100.0],
             "bandstop_hz": [49.0, 51.0],
-            "flatline_minimum_seconds": 30.0,
+            "flatline_minimum_seconds": FLATLINE_MINIMUM_SECONDS,
+            "ransac_min_correlation": RANSAC_MIN_CORRELATION,
+            "ransac_candidate_bad_time_fraction": RANSAC_CANDIDATE_BAD_TIME_FRACTION,
+            "ransac_auto_exclusion_bad_time_fraction": (RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION),
+            "asr_burst_criterion": ASR_BURST_CRITERION,
             "ica_absolute_amplitude_threshold_uv": ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV,
             "ica_absolute_amplitude_padding_seconds": ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS,
             "iclabel_eye_blink_threshold": EYE_BLINK_PROBABILITY_THRESHOLD,
@@ -2124,9 +2110,7 @@ def preprocess_participant(
             "all_channels_retained": True,
             "ica_excluded_channels_keep_filtered_detrended_signal": True,
         },
-        "ica_channel_excluded_mask": [
-            channel in ica_excluded_channels for channel in CHANNELS
-        ],
+        "ica_channel_excluded_mask": [channel in ica_excluded_channels for channel in CHANNELS],
         "ica_training_excluded_intervals": [
             {k: v for k, v in item.items() if k not in {"start_sample", "end_sample"}}
             for item in intervals
@@ -2157,8 +2141,7 @@ def preprocess_participant(
         },
         "blink_signal_figure_sets": expected_sets,
         "qc_html_groups": [
-            {"code": code, "channels": list(channels)}
-            for code, channels in ICA_QC_GROUPS
+            {"code": code, "channels": list(channels)} for code, channels in ICA_QC_GROUPS
         ],
         "qc_html_shared_scale_uv": shared_qc_scale_uv,
         "ica_exclusion_review_html": {

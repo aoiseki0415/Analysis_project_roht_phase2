@@ -11,8 +11,10 @@ MODULE_DIR = Path(__file__).parents[1] / "解析プログラム" / "Phase1_脳�
 sys.path.insert(0, str(MODULE_DIR))
 
 from phase1_pipeline import (  # noqa: E402
+    ASR_BURST_CRITERION,
     CHANNELS,
     EYE_BLINK_PROBABILITY_THRESHOLD,
+    FLATLINE_MINIMUM_SECONDS,
     ICA_AFTER_COLOR,
     ICA_BEFORE_COLOR,
     ICA_EXCLUSION_REVIEW_CODE,
@@ -20,6 +22,9 @@ from phase1_pipeline import (  # noqa: E402
     PIPELINE_SPEC_VERSION,
     QC_FIGURE_STYLE_VERSION,
     RANDOM_SEED,
+    RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION,
+    RANSAC_CANDIDATE_BAD_TIME_FRACTION,
+    RANSAC_MIN_CORRELATION,
     SPLIT_EXCLUSIONS,
     SPLIT_PART_SETS,
     EegPart,
@@ -88,7 +93,7 @@ def test_all_four_split_ids_use_fixed_five_set_mapping() -> None:
 
 
 def test_pipeline_reproducibility_identifiers_are_fixed() -> None:
-    assert PIPELINE_SPEC_VERSION == "phase1-fixed-2026-09-22.2"
+    assert PIPELINE_SPEC_VERSION == "phase1-parameter-update-2026-09-26.1"
     assert RANDOM_SEED == 97
     assert QC_FIGURE_STYLE_VERSION == "phase1-qc-v2"
     assert ICA_BEFORE_COLOR == "#1261a0"
@@ -120,11 +125,11 @@ def test_audit_can_write_onedrive_only_without_local_manifest(tmp_path: Path) ->
     assert not paths.processed_root.exists()
 
 
-def test_flatline_requires_thirty_seconds() -> None:
+def test_flatline_requires_five_seconds() -> None:
     rng = np.random.default_rng(97)
-    data = rng.normal(size=(32, 40 * 256)) * 1e-6
-    data[0, : 29 * 256] = 0
-    data[1, : 31 * 256] = 0
+    data = rng.normal(size=(32, 10 * 256)) * 1e-6
+    data[0, : 4 * 256] = 0
+    data[1, : 6 * 256] = 0
     candidates = detect_flatlines(data)
     assert [candidate["channel"] for candidate in candidates] == [CHANNELS[1]]
 
@@ -133,8 +138,8 @@ def test_channel_notification_is_more_conservative_than_exploratory_detection() 
     exploratory = [
         {
             "channel": "PO9",
-            "reason": "ransac_correlation_below_0.80_for_over_50pct",
-            "recording_fraction": 0.55,
+            "reason": "ransac_correlation_below_0.75_for_over_40pct",
+            "recording_fraction": 0.45,
         },
         {
             "channel": "O2",
@@ -143,12 +148,20 @@ def test_channel_notification_is_more_conservative_than_exploratory_detection() 
         },
         {
             "channel": "F7",
-            "reason": "ransac_correlation_below_0.80_for_over_50pct",
-            "recording_fraction": 0.85,
+            "reason": "ransac_correlation_below_0.75_for_over_40pct",
+            "recording_fraction": 0.65,
         },
     ]
     notified = select_ica_channel_exclusion_candidates(exploratory)
     assert [item["channel"] for item in notified] == ["F7"]
+
+
+def test_updated_artifact_detection_parameters_are_fixed() -> None:
+    assert FLATLINE_MINIMUM_SECONDS == 5.0
+    assert RANSAC_MIN_CORRELATION == 0.75
+    assert RANSAC_CANDIDATE_BAD_TIME_FRACTION == 0.40
+    assert RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION == 0.60
+    assert ASR_BURST_CRITERION == 15.0
 
 
 def test_bad_channel_candidates_are_automatically_excluded_from_ica_only() -> None:
@@ -160,8 +173,7 @@ def test_bad_channel_candidates_are_automatically_excluded_from_ica_only() -> No
     assert excluded == ["PO9", "O2"]
     assert [record["channel"] for record in records] == excluded
     assert all(
-        record["decision"] == "automatically_excluded_from_ica_training_only"
-        for record in records
+        record["decision"] == "automatically_excluded_from_ica_training_only" for record in records
     )
 
 
@@ -197,12 +209,8 @@ def test_split_set_markers_are_assigned_independently_to_each_part() -> None:
             {"SysUnixTime(ms)": 125_000, "Event": "block_end", "Detail": 2},
         ]
     )
-    assert [marker["label"] for marker in _set_markers_for_part(events, part1)] == [
-        "Set2 start"
-    ]
-    assert [marker["label"] for marker in _set_markers_for_part(events, part2)] == [
-        "Set2 end"
-    ]
+    assert [marker["label"] for marker in _set_markers_for_part(events, part1)] == ["Set2 start"]
+    assert [marker["label"] for marker in _set_markers_for_part(events, part2)] == ["Set2 end"]
 
 
 def test_blink_signal_marks_ica_excluded_fp_channel_as_nan() -> None:
@@ -241,8 +249,8 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert "JSON.parse(document.getElementById('waveformPayload').textContent)" in html
     assert "JavaScript initialization error:" in html
     assert '<svg role="img"' in html
-    assert 'Time from Part start (s)' in html
-    assert 'EEG amplitude (µV)' in html
+    assert "Time from Part start (s)" in html
+    assert "EEG amplitude (µV)" in html
     assert "document.getElementById('staticFallback').style.display='none'" in html
     assert "addEventListener('wheel'" in html
     assert "addEventListener('pointermove'" in html
@@ -316,7 +324,7 @@ def test_absolute_amplitude_exclusion_adds_one_second_padding() -> None:
     data = np.zeros((32, 10 * 256), dtype=float)
     data[0, 5 * 256 : 5 * 256 + 2] = 0.001
     intervals = absolute_amplitude_intervals(data)
-    assert intervals == [(4 * 256, 6 * 256 + 2, "AbsoluteAmplitude_500uV", 1)]
+    assert intervals == [(4 * 256, 6 * 256 + 2, "AbsoluteAmplitude_200uV", 1)]
 
 
 def test_eye_blink_probability_threshold_is_point_eight() -> None:
@@ -327,13 +335,16 @@ def test_blink_signal_figure_uses_set_level_three_channel_input(tmp_path: Path) 
     n_samples = 4 * 256
     boundary = SetBoundary(1, 0.0, 4_000.0, 1, 0, n_samples, True, "使用")
     output = tmp_path / "blink.png"
-    signal_v = np.vstack(
-        [
-            np.linspace(-20, 20, n_samples),
-            np.linspace(-10, 10, n_samples),
-            np.linspace(-15, 15, n_samples),
-        ]
-    ) * 1e-6
+    signal_v = (
+        np.vstack(
+            [
+                np.linspace(-20, 20, n_samples),
+                np.linspace(-10, 10, n_samples),
+                np.linspace(-15, 15, n_samples),
+            ]
+        )
+        * 1e-6
+    )
     save_blink_signal_figure(
         output,
         "101",
@@ -398,9 +409,7 @@ def test_ica_excluded_channel_is_retained_in_fixed_32_channel_hdf5(tmp_path: Pat
     kept_channels = [channel for channel in CHANNELS if channel != excluded_channel]
     full_detrended = np.arange(32, dtype=float)[:, None] * np.ones((1, n_samples))
     reduced_cleaned = np.ones((len(kept_channels), n_samples), dtype=np.float64) * -1
-    merged = merge_ica_cleaned_channels(
-        full_detrended, reduced_cleaned, kept_channels, CHANNELS
-    )
+    merged = merge_ica_cleaned_channels(full_detrended, reduced_cleaned, kept_channels, CHANNELS)
     excluded_index = CHANNELS.index(excluded_channel)
     assert merged.shape == (32, n_samples)
     assert np.array_equal(merged[excluded_index], full_detrended[excluded_index])
@@ -445,9 +454,7 @@ def test_ica_excluded_channel_is_retained_in_fixed_32_channel_hdf5(tmp_path: Pat
     assert np.array_equal(saved[:, excluded_index], full_detrended[excluded_index])
 
     blink_output = tmp_path / "blink_with_excluded_fp2.h5"
-    blink_signal = np.vstack(
-        [np.ones(n_samples), np.full(n_samples, np.nan), np.ones(n_samples)]
-    )
+    blink_signal = np.vstack([np.ones(n_samples), np.full(n_samples, np.nan), np.ones(n_samples)])
     fp2_record = [
         {
             "channel": "Fp2",
@@ -471,9 +478,7 @@ def test_ica_excluded_channel_is_retained_in_fixed_32_channel_hdf5(tmp_path: Pat
         ica_excluded_channel_records=fp2_record,
         data_kind="removed_eye_component_signal",
     )
-    blink_result = validate_hdf5(
-        blink_output, ["Fp1", "Fp2", "Fp1_Fp2_mean"], 0
-    )
+    blink_result = validate_hdf5(blink_output, ["Fp1", "Fp2", "Fp1_Fp2_mean"], 0)
     assert blink_result["ok"] is True
     with h5py.File(blink_output, "r") as handle:
         assert bool(handle["qc/ica_channel_excluded_mask"][CHANNELS.index("Fp2")]) is True
