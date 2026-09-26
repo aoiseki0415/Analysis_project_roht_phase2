@@ -90,6 +90,7 @@ ICA_QC_GROUPS = (
     ("QC03_CentralTemporal", ("Cz", "T7", "T8")),
     ("QC04_ParietalOccipital", ("Pz", "O1", "O2")),
 )
+ICA_EXCLUSION_REVIEW_CODE = "QC05_ICAExclusionReview"
 DISPLAY_CHANNELS = ICA_QC_GROUPS[0][1]
 ALL_QC_CHANNELS = tuple(
     dict.fromkeys(channel for _, channels in ICA_QC_GROUPS for channel in channels)
@@ -185,6 +186,17 @@ def configure_logging(log_path: Path) -> logging.Logger:
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
     return logger
+
+
+def participant_output_directory_name(
+    participant_id: str, output_label: str | None = None
+) -> str:
+    """Return the normal ID directory name or an explicitly labelled comparison run."""
+    if output_label is None:
+        return f"ID{participant_id}"
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", output_label):
+        raise ValueError("output_labelは英数字・ハイフン・アンダースコアだけを使用してください")
+    return f"ID{participant_id}_{output_label}"
 
 
 def eligible_ids(paths: ProjectPaths) -> list[str]:
@@ -1240,9 +1252,15 @@ def _static_svg_overview(
     duration_s: float,
     shared_scale_uv: float,
     set_markers: list[dict[str, Any]],
+    excluded_intervals: list[dict[str, Any]] | None = None,
+    excluded_channels: list[str] | None = None,
+    before_only: bool = False,
 ) -> str:
     """Build a visible overview for viewers that do not execute JavaScript."""
-    width, height = 1600, 660
+    excluded_intervals = excluded_intervals or []
+    excluded_channels = excluded_channels or []
+    width = 1600
+    height = max(660, 76 + 30 * len(display_channels))
     left, right, top, bottom = 78, 18, 28, 48
     plot_width = width - left - right
     plot_height = height - top - bottom
@@ -1266,6 +1284,8 @@ def _static_svg_overview(
         '<style>text{font-family:system-ui,sans-serif;fill:#111}.axis{stroke:#222;stroke-width:1}'
         f'.grid{{stroke:#ddd;stroke-width:1}}.before{{stroke:{ICA_BEFORE_COLOR};stroke-width:.8;opacity:.70}}'
         f'.after{{stroke:{ICA_AFTER_COLOR};stroke-width:.8;opacity:.85}}'
+        '.excluded-interval{fill:#d1495b;opacity:.16}'
+        '.excluded-channel{fill:#f4b942;opacity:.18}'
         '.set-start{stroke:#2e8b57;stroke-width:1.5;stroke-dasharray:7 4}'
         '.set-end{stroke:#7b3f98;stroke-width:1.5;stroke-dasharray:3 4}</style>',
     ]
@@ -1287,6 +1307,13 @@ def _static_svg_overview(
             f'y="{top + plot_height + 22:.1f}" text-anchor="middle" '
             f'font-size="14">{seconds:.1f}</text>'
         )
+    for interval in excluded_intervals:
+        x1 = left + plot_width * float(interval["start_s"]) / max(duration_s, 1e-9)
+        x2 = left + plot_width * float(interval["end_s"]) / max(duration_s, 1e-9)
+        pieces.append(
+            f'<rect class="excluded-interval" x="{x1:.1f}" y="{top}" '
+            f'width="{max(1.0, x2 - x1):.1f}" height="{plot_height:.1f}"/>'
+        )
     for marker in set_markers:
         x = left + plot_width * float(marker["time_s"]) / max(duration_s, 1e-9)
         css_class = "set-start" if marker["kind"] == "start" else "set-end"
@@ -1298,17 +1325,24 @@ def _static_svg_overview(
     for channel_index, channel in enumerate(display_channels):
         y_center = top + (channel_index + 0.5) * row_height
         (before_low, before_high), (after_low, after_high) = reduced[channel_index]
+        if channel in excluded_channels:
+            pieces.append(
+                f'<rect class="excluded-channel" x="{left}" '
+                f'y="{top + channel_index * row_height:.1f}" width="{plot_width}" '
+                f'height="{row_height:.1f}"/>'
+            )
+        channel_label = f"{channel} [ICA除外]" if channel in excluded_channels else channel
         pieces.append(
             f'<line class="axis" x1="{left}" y1="{y_center:.1f}" '
             f'x2="{left + plot_width}" y2="{y_center:.1f}"/>'
             f'<text x="{left + 5}" y="{top + channel_index * row_height + 18:.1f}" '
-            f'font-size="14">{channel}</text><text x="{left + 55}" '
+            f'font-size="14">{channel_label}</text><text x="{left + 155}" '
             f'y="{top + channel_index * row_height + 18:.1f}" font-size="14">±{shared_scale:.1f} µV</text>'
         )
-        for css_class, low, high in (
-            ("before", before_low, before_high),
-            ("after", after_low, after_high),
-        ):
+        plot_series = [("before", before_low, before_high)]
+        if not before_only:
+            plot_series.append(("after", after_low, after_high))
+        for css_class, low, high in plot_series:
             denominator = max(1, low.size - 1)
             segments = []
             for index, (low_value, high_value) in enumerate(zip(low, high, strict=True)):
@@ -1325,10 +1359,15 @@ def _static_svg_overview(
             'text-anchor="middle" font-size="14">Time from Part start (s)</text>',
             '<text x="18" y="330" text-anchor="middle" font-size="14" '
             'transform="rotate(-90 18 330)">EEG amplitude (µV)</text>',
-            '<line class="before" x1="1180" y1="18" x2="1205" y2="18"/>'
-            '<text x="1212" y="23" font-size="14">Before ICA</text>',
-            '<line class="after" x1="1325" y1="18" x2="1350" y2="18"/>'
-            '<text x="1357" y="23" font-size="14">After ICA</text>',
+            '<line class="before" x1="1110" y1="18" x2="1135" y2="18"/>'
+            '<text x="1142" y="23" font-size="14">Before ICA</text>',
+            (
+                '<rect class="excluded-interval" x="1240" y="10" width="22" height="12"/>'
+                '<text x="1268" y="23" font-size="14">ICA学習除外区間</text>'
+                if before_only
+                else '<line class="after" x1="1325" y1="18" x2="1350" y2="18"/>'
+                '<text x="1357" y="23" font-size="14">After ICA</text>'
+            ),
             '</svg>',
         ]
     )
@@ -1345,9 +1384,16 @@ def save_interactive_html(
     display_channels: tuple[str, ...] = DISPLAY_CHANNELS,
     shared_scale_uv: float | None = None,
     set_markers: list[dict[str, Any]] | None = None,
+    *,
+    excluded_intervals: list[dict[str, Any]] | None = None,
+    excluded_channels: list[str] | None = None,
+    before_only: bool = False,
+    title: str | None = None,
 ) -> None:
     picks = [channel_names.index(ch) for ch in display_channels]
     set_markers = set_markers or []
+    excluded_intervals = excluded_intervals or []
+    excluded_channels = excluded_channels or []
     if shared_scale_uv is None:
         shared_scale_uv = max(
             1.0,
@@ -1373,6 +1419,9 @@ def save_interactive_html(
         before_v.shape[1] / SFREQ,
         shared_scale_uv,
         set_markers,
+        excluded_intervals,
+        excluded_channels,
+        before_only,
     )
     payload = {
         "sfreq": SFREQ,
@@ -1380,24 +1429,29 @@ def save_interactive_html(
         "n_samples": int(before_v.shape[1]),
         "shared_scale_uv": float(shared_scale_uv),
         "set_markers": set_markers,
+        "excluded_intervals": excluded_intervals,
+        "excluded_channels": excluded_channels,
+        "before_only": before_only,
         "before": [_encoded_float32(before_v[pick] * 1e6) for pick in picks],
-        "after": [_encoded_float32(after_v[pick] * 1e6) for pick in picks],
     }
+    if not before_only:
+        payload["after"] = [_encoded_float32(after_v[pick] * 1e6) for pick in picks]
+    canvas_height = max(660, 76 + 30 * len(display_channels))
     html = """<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">
 <title>ICA before/after</title><style>
-body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channels{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}button{padding:5px 12px}canvas{border:1px solid #777;width:100%;height:660px;touch-action:none;cursor:grab;display:none}#staticFallback{border:1px solid #777;width:100%;overflow:auto}#staticFallback svg{display:block;width:100%;height:auto;min-width:900px}.hint{color:#555}.legend{display:flex;gap:18px}.swatch{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:5px}#readout{white-space:pre-wrap}</style></head><body>
+body{font-family:system-ui,sans-serif;margin:16px;color:#202124}.toolbar,.channels{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}button{padding:5px 12px}canvas{border:1px solid #777;width:100%;height:__CANVAS_HEIGHT__px;touch-action:none;cursor:grab;display:none}#staticFallback{border:1px solid #777;width:100%;overflow:auto}#staticFallback svg{display:block;width:100%;height:auto;min-width:900px}.hint{color:#555}.legend{display:flex;gap:18px;flex-wrap:wrap}.swatch{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:5px}.band{display:inline-block;width:22px;height:12px;vertical-align:middle;margin-right:5px}#readout{white-space:pre-wrap}</style></head><body>
 <h1>__TITLE__</h1><div class=\"channels\" id=\"checks\"></div>
 <div class=\"toolbar\"><button id=\"zoomIn\">x軸 拡大</button><button id=\"zoomOut\">x軸 縮小</button><button id=\"yZoomIn\">y軸 拡大</button><button id=\"yZoomOut\">y軸 縮小</button><button id=\"yReset\">y軸 初期化</button><button id=\"reset\">全体表示</button><span id=\"window\"></span><span id=\"yScale\"></span></div>
-	<div class=\"legend\"><span><i class=\"swatch\" style=\"background:__BEFORE_COLOR__\"></i>Before ICA</span><span><i class=\"swatch\" style=\"background:__AFTER_COLOR__\"></i>After ICA</span><span style=\"color:#2e8b57\">-- Set start</span><span style=\"color:#7b3f98\">-- Set end</span></div>
-	<p class=\"hint\">ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグまたは左右矢印キー: 時間移動（長押し中は連続移動）／y軸ボタン: 表示チャンネル共通縦軸の拡大・縮小・初期化／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。緑の破線はセット開始、紫の破線はセット終了です。x軸の表示範囲を変えても縦軸は自動変更しません。十分に拡大すると256 Hzの元波形を表示します。</p>
+	<div class=\"legend\">__LEGEND__<span style=\"color:#2e8b57\">-- Set start</span><span style=\"color:#7b3f98\">-- Set end</span></div>
+	<p class=\"hint\">__HINT__ ホイールまたはボタン: x軸拡大・縮小／波形を左右へドラッグまたは左右矢印キー: 時間移動（長押し中は連続移動）／y軸ボタン: 表示チャンネル共通縦軸の拡大・縮小・初期化／ダブルクリック: 全体表示／チェック: チャンネル切替。横軸はPart開始からの時間 (s)、縦軸はEEG amplitude (µV)。緑の破線はセット開始、紫の破線はセット終了です。x軸の表示範囲を変えても縦軸は自動変更しません。十分に拡大すると256 Hzの元波形を表示します。</p>
 <p id=\"status\" class=\"hint\">JavaScriptが無効な表示環境でも、下の全体波形は表示されます。</p>
 <div id=\"staticFallback\">__STATIC_SVG__</div>
-<canvas id=\"plot\" width=\"1600\" height=\"660\"></canvas><pre id=\"readout\"></pre>
+<canvas id=\"plot\" width=\"1600\" height=\"__CANVAS_HEIGHT__\"></canvas><pre id=\"readout\"></pre>
 <script id=\"waveformPayload\" type=\"application/json\">__PAYLOAD__</script>
 <script>window.addEventListener('error',function(event){var status=document.getElementById('status');if(status){status.textContent='JavaScript error: '+(event.message||'unknown error')+' (line '+event.lineno+')';status.style.color='#b00020'}});</script>
 <script>"use strict";try{const P=JSON.parse(document.getElementById('waveformPayload').textContent);
 function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}
-['before','after'].forEach(k=>P[k]=P[k].map(decode));
+P.before=P.before.map(decode);if(P.after)P.after=P.after.map(decode);
 let active=P.channels.map(()=>true),start=0,end=P.n_samples,drag=null,panTimer=null,panDirection=0;
 const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),left=78,right=18,top=28,bottom=48;
 let baseSharedMax=Math.max(1,P.shared_scale_uv);let sharedYScale=baseSharedMax;
@@ -1413,22 +1467,39 @@ function startPan(direction){if(panDirection===direction)return;stopPan();panDir
 function draw(){ctx.clearRect(0,0,cv.width,cv.height);const span=end-start,plotW=cv.width-left-right,plotH=cv.height-top-bottom,rows=P.channels.length,rh=plotH/rows;ctx.font='14px sans-serif';
  ctx.strokeStyle='#222';ctx.lineWidth=1;ctx.strokeRect(left,top,plotW,plotH);ctx.fillStyle='#111';ctx.textAlign='center';ctx.fillText('Time from Part start (s)',left+plotW/2,cv.height-8);ctx.save();ctx.translate(18,top+plotH/2);ctx.rotate(-Math.PI/2);ctx.fillText('EEG amplitude (µV)',0,0);ctx.restore();
  for(let tick=0;tick<=5;tick++){const px=left+plotW*tick/5,t=sampleTime(start+(end-start)*tick/5);ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,top+plotH);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(t.toFixed(1),px,top+plotH+20)}
+ P.excluded_intervals.forEach(interval=>{const a=interval.start_s*P.sfreq,b=interval.end_s*P.sfreq;if(b<start||a>end)return;const x1=left+(Math.max(a,start)-start)/Math.max(1,span)*plotW,x2=left+(Math.min(b,end)-start)/Math.max(1,span)*plotW;ctx.fillStyle='rgba(209,73,91,.16)';ctx.fillRect(x1,top,Math.max(1,x2-x1),plotH)});
  P.set_markers.forEach(marker=>{const sample=marker.time_s*P.sfreq;if(sample<start||sample>end)return;const x=left+(sample-start)/Math.max(1,span)*plotW;ctx.save();ctx.strokeStyle=marker.kind==='start'?'#2e8b57':'#7b3f98';ctx.setLineDash(marker.kind==='start'?[7,4]:[3,4]);ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,top+plotH);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ctx.strokeStyle;ctx.textAlign='left';ctx.fillText(marker.label,x+3,top+13);ctx.restore()});
- for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh;ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#111';ctx.fillText(P.channels[ch],left+5,top+ch*rh+17);if(!active[ch])continue;const series=[P.before[ch],P.after[ch]];ctx.fillText(`±${sharedYScale.toFixed(1)} µV`,left+55,top+ch*rh+17);
+ for(let ch=0;ch<rows;ch++){const y0=top+(ch+.5)*rh,isExcluded=P.excluded_channels.includes(P.channels[ch]);if(isExcluded){ctx.fillStyle='rgba(244,185,66,.18)';ctx.fillRect(left,top+ch*rh,plotW,rh)}ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(left,y0);ctx.lineTo(left+plotW,y0);ctx.stroke();ctx.textAlign='left';ctx.fillStyle=isExcluded?'#9a4d00':'#111';ctx.fillText(P.channels[ch]+(isExcluded?' [ICA除外]':''),left+5,top+ch*rh+Math.min(17,rh*.75));if(!active[ch])continue;const series=P.before_only?[P.before[ch]]:[P.before[ch],P.after[ch]];ctx.fillText(`±${sharedYScale.toFixed(1)} µV`,left+155,top+ch*rh+Math.min(17,rh*.75));
   series.forEach((values,k)=>{ctx.strokeStyle=k?'__AFTER_COLOR__':'__BEFORE_COLOR__';ctx.globalAlpha=k?.85:.70;ctx.beginPath();if(span<=plotW*2){for(let i=start;i<end;i++){const x=left+(i-start)/Math.max(1,span-1)*plotW,y=y0-values[i]/sharedYScale*(rh*.40);if(i===start)ctx.moveTo(x,y);else ctx.lineTo(x,y)}}else{for(let px=0;px<plotW;px++){const a=Math.floor(start+px*span/plotW),b=Math.max(a+1,Math.floor(start+(px+1)*span/plotW));let lo=Infinity,hi=-Infinity;for(let j=a;j<Math.min(b,P.n_samples);j++){lo=Math.min(lo,values[j]);hi=Math.max(hi,values[j])}const yl=y0-lo/sharedYScale*(rh*.40),yh=y0-hi/sharedYScale*(rh*.40);ctx.moveTo(left+px,yl);ctx.lineTo(left+px,yh)}}ctx.stroke()});ctx.globalAlpha=1}
  document.getElementById('window').textContent=`表示範囲 ${sampleTime(start).toFixed(1)}–${sampleTime(end).toFixed(1)} s`;document.getElementById('yScale').textContent=`共通縦軸 ±${sharedYScale.toFixed(1)} µV`;}
 document.getElementById('zoomIn').addEventListener('click',()=>zoom(.5));document.getElementById('zoomOut').addEventListener('click',()=>zoom(2));document.getElementById('yZoomIn').addEventListener('click',()=>zoomY(1/1.5));document.getElementById('yZoomOut').addEventListener('click',()=>zoomY(1.5));document.getElementById('yReset').addEventListener('click',()=>{sharedYScale=baseSharedMax;draw()});document.getElementById('reset').addEventListener('click',()=>{start=0;end=P.n_samples;sharedYScale=baseSharedMax;draw()});
 document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();startPan(e.key==='ArrowLeft'?-1:1)}});document.addEventListener('keyup',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();stopPan()}});window.addEventListener('blur',stopPan);
 cv.addEventListener('wheel',e=>{e.preventDefault();const rect=cv.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));zoom(e.deltaY>0?1.5:.67,ratio)},{passive:false});
 cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,s:start,span:end-start};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);drag=null;cv.style.cursor='grab'});cv.addEventListener('pointercancel',()=>{drag=null;cv.style.cursor='grab'});
-cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n_samples-1,Math.max(0,Math.floor(start+ratio*(end-start))));document.getElementById('readout').textContent=`Cursor: t=${sampleTime(i).toFixed(3)} s | `+P.channels.map((c,j)=>`${c}: before ${P.before[j][i].toFixed(2)} µV, after ${P.after[j][i].toFixed(2)} µV`).join(' | ')});
+cv.addEventListener('pointermove',e=>{const rect=cv.getBoundingClientRect();if(drag){const delta=(e.clientX-drag.x)/rect.width*drag.span;[start,end]=clampWindow(drag.s-delta,drag.s-delta+drag.span);draw();return}const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),i=Math.min(P.n_samples-1,Math.max(0,Math.floor(start+ratio*(end-start)))),t=sampleTime(i),intervals=P.excluded_intervals.filter(x=>x.start_s<=t&&t<=x.end_s).map(x=>x.reason).join(', ');document.getElementById('readout').textContent=`Cursor: t=${t.toFixed(3)} s`+(intervals?` | ICA学習除外区間: ${intervals}`:'')+' | '+P.channels.map((c,j)=>P.before_only?`${c}: ${P.before[j][i].toFixed(2)} µV`:`${c}: before ${P.before[j][i].toFixed(2)} µV, after ${P.after[j][i].toFixed(2)} µV`).join(' | ')});
 cv.addEventListener('dblclick',()=>{start=0;end=P.n_samples;sharedYScale=baseSharedMax;draw()});draw();document.getElementById('staticFallback').style.display='none';cv.style.display='block';document.getElementById('status').textContent='インタラクティブ表示準備完了（256 Hzの元波形を保持・固定共通縦軸）';}catch(error){const status=document.getElementById('status');status.textContent='JavaScript initialization error: '+error.name+': '+error.message;status.style.color='#b00020';}
 </script></body></html>"""
-    html = html.replace(
-        "__TITLE__",
+    page_title = title or (
         f"ID{participant_id} Part{part_number}: ICA before/after "
-        f"({' / '.join(display_channels)})",
+        f"({' / '.join(display_channels)})"
     )
+    if before_only:
+        legend = (
+            f'<span><i class="swatch" style="background:{ICA_BEFORE_COLOR}"></i>Before ICA</span>'
+            '<span><i class="band" style="background:rgba(209,73,91,.28)"></i>ICA学習除外区間</span>'
+            '<span><i class="band" style="background:rgba(244,185,66,.32)"></i>ICA学習除外ch</span>'
+        )
+        hint = "赤い帯はICA学習から除外した時間帯、黄色の行と[ICA除外]表示はICA学習・適用から除外したチャンネルです。"
+    else:
+        legend = (
+            f'<span><i class="swatch" style="background:{ICA_BEFORE_COLOR}"></i>Before ICA</span>'
+            f'<span><i class="swatch" style="background:{ICA_AFTER_COLOR}"></i>After ICA</span>'
+        )
+        hint = ""
+    html = html.replace("__TITLE__", page_title)
+    html = html.replace("__LEGEND__", legend)
+    html = html.replace("__HINT__", hint)
+    html = html.replace("__CANVAS_HEIGHT__", str(canvas_height))
     html = html.replace("__STATIC_SVG__", static_svg)
     html = html.replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
     html = html.replace("__BEFORE_COLOR__", ICA_BEFORE_COLOR)
@@ -1512,6 +1583,60 @@ def qc_html_filename(participant_id: str, part_number: int, qc_code: str) -> str
     return f"ID{participant_id}_Part{part_number}_{qc_code}_ICA_before_after.html"
 
 
+def exclusion_review_html_filename(participant_id: str, part_number: int) -> str:
+    return f"ID{participant_id}_Part{part_number}_{ICA_EXCLUSION_REVIEW_CODE}_BeforeICA.html"
+
+
+def _excluded_intervals_for_part(
+    intervals: list[dict[str, Any]], part_number: int
+) -> list[dict[str, Any]]:
+    """Convert saved ICA-training exclusions to Part-relative HTML annotations."""
+    annotations = []
+    for interval in intervals:
+        if int(interval["part"]) != part_number:
+            continue
+        annotations.append(
+            {
+                "start_s": float(interval["start_sample"]) / SFREQ,
+                "end_s": float(interval["end_sample"]) / SFREQ,
+                "reason": str(interval["reason"]),
+                "affected_channel_count": int(interval["affected_channel_count"]),
+            }
+        )
+    return annotations
+
+
+def save_ica_exclusion_review_html(
+    path: Path,
+    participant_id: str,
+    part: EegPart,
+    before_v: np.ndarray,
+    intervals: list[dict[str, Any]],
+    excluded_channels: list[str],
+    set_markers: list[dict[str, Any]],
+) -> None:
+    """Save all 32 Before-ICA channels with interval/channel exclusions overlaid."""
+    scale_uv = max(1.0, float(np.nanmax(np.abs(before_v * 1e6))) * 1.08)
+    save_interactive_html(
+        path,
+        participant_id,
+        part.part,
+        before_v,
+        before_v,
+        CHANNELS,
+        tuple(CHANNELS),
+        scale_uv,
+        set_markers,
+        excluded_intervals=_excluded_intervals_for_part(intervals, part.part),
+        excluded_channels=excluded_channels,
+        before_only=True,
+        title=(
+            f"ID{participant_id} Part{part.part}: ICA学習除外確認 "
+            "（Before ICA・全32ch）"
+        ),
+    )
+
+
 def _shared_qc_scale_uv(
     before_parts_v: list[np.ndarray], after_parts_v: list[np.ndarray]
 ) -> float:
@@ -1569,19 +1694,21 @@ def regenerate_interactive_html_outputs(
     participant_id: str,
     *,
     logger: logging.Logger,
+    output_label: str | None = None,
 ) -> dict[str, Any]:
     """Rebuild only the interactive QC HTML from the saved ICA solution."""
+    output_directory = participant_output_directory_name(participant_id, output_label)
     local_dir = (
         paths.processed_root
         / "Phase1_脳波前処理"
         / "No2_AutomatedPreProcessing"
-        / f"ID{participant_id}"
+        / output_directory
     )
     qc_dir = (
         paths.onedrive_root
         / "Phase1_脳波前処理"
         / "No2_AutomatedPreProcessing"
-        / f"ID{participant_id}"
+        / output_directory
     )
     metadata_path = local_dir / f"ID{participant_id}_preprocessing_metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -1592,6 +1719,30 @@ def regenerate_interactive_html_outputs(
     expected_parts = {int(part) for part in metadata["source_parts"]}
 
     audit = audit_participant(paths, participant_id, logger)
+    saved_intervals = []
+    parts_by_number = {part.part: part for part in audit["parts"]}
+    for interval in metadata["ica_training_excluded_intervals"]:
+        part_number = int(interval["part"])
+        part = parts_by_number[part_number]
+        saved_intervals.append(
+            {
+                **interval,
+                "start_sample": int(
+                    np.searchsorted(
+                        part.original_timestamp,
+                        float(interval["start_original_timestamp_s"]),
+                        side="left",
+                    )
+                ),
+                "end_sample": int(
+                    np.searchsorted(
+                        part.original_timestamp,
+                        float(interval["end_original_timestamp_s"]),
+                        side="right",
+                    )
+                ),
+            }
+        )
     ica = mne.preprocessing.read_ica(local_dir / f"ID{participant_id}_ica.fif", verbose="ERROR")
     outputs = []
     prepared_parts: list[tuple[EegPart, np.ndarray, np.ndarray]] = []
@@ -1630,9 +1781,30 @@ def regenerate_interactive_html_outputs(
                     "size_bytes": output_path.stat().st_size,
                 }
             )
+        exclusion_output = qc_dir / exclusion_review_html_filename(
+            participant_id, part.part
+        )
+        save_ica_exclusion_review_html(
+            exclusion_output,
+            participant_id,
+            part,
+            detrended_v,
+            saved_intervals,
+            ica_excluded_channels,
+            _set_markers_for_part(audit["events"], part),
+        )
+        outputs.append(
+            {
+                "part": part.part,
+                "qc_code": ICA_EXCLUSION_REVIEW_CODE,
+                "path": str(exclusion_output),
+                "size_bytes": exclusion_output.stat().st_size,
+            }
+        )
     logger.info("ID%s: interactive HTML regenerated without refitting ICA", participant_id)
     return {
         "participant_id": participant_id,
+        "output_label": output_label,
         "ica_refitted": False,
         "outputs": outputs,
     }
@@ -1660,22 +1832,24 @@ def preprocess_participant(
     participant_id: str,
     *,
     logger: logging.Logger,
+    output_label: str | None = None,
 ) -> dict[str, Any]:
     audit = audit_participant(paths, participant_id, logger)
     write_audit_outputs(paths, participant_id, audit)
     parts: list[EegPart] = audit["parts"]
     boundaries: list[SetBoundary] = audit["boundaries"]
+    output_directory = participant_output_directory_name(participant_id, output_label)
     qc_dir = (
         paths.onedrive_root
         / "Phase1_脳波前処理"
         / "No2_AutomatedPreProcessing"
-        / f"ID{participant_id}"
+        / output_directory
     )
     local_dir = (
         paths.processed_root
         / "Phase1_脳波前処理"
         / "No2_AutomatedPreProcessing"
-        / f"ID{participant_id}"
+        / output_directory
     )
     qc_dir.mkdir(parents=True, exist_ok=True)
     local_dir.mkdir(parents=True, exist_ok=True)
@@ -1777,6 +1951,7 @@ def preprocess_participant(
         [cleaned_parts[index] for index in qc_part_indices],
     )
     html_files = []
+    exclusion_review_html_files = []
     for part_number in expected_qc_parts:
         part_index = part_number - 1
         for qc_code, display_channels in ICA_QC_GROUPS:
@@ -1793,6 +1968,19 @@ def preprocess_participant(
                 _set_markers_for_part(audit["events"], parts[part_index]),
             )
             html_files.append(html_path)
+        exclusion_html_path = qc_dir / exclusion_review_html_filename(
+            participant_id, part_number
+        )
+        save_ica_exclusion_review_html(
+            exclusion_html_path,
+            participant_id,
+            parts[part_index],
+            detrended_parts[part_index],
+            intervals,
+            ica_excluded_channels,
+            _set_markers_for_part(audit["events"], parts[part_index]),
+        )
+        exclusion_review_html_files.append(exclusion_html_path)
 
     validations = []
     generated_sets = []
@@ -1879,12 +2067,15 @@ def preprocess_participant(
         and converged
         and len(html_files) == len(expected_qc_parts) * len(ICA_QC_GROUPS)
         and all(path.exists() for path in html_files)
+        and len(exclusion_review_html_files) == len(expected_qc_parts)
+        and all(path.exists() for path in exclusion_review_html_files)
         and len(blink_figure_files) == len(expected_sets)
         and all(path.exists() for path in blink_figure_files)
     )
     summary = {
         "status": "complete" if complete else "needs_review",
         "participant_id": participant_id,
+        "output_label": output_label,
         "pipeline_spec_version": PIPELINE_SPEC_VERSION,
         "random_seed": RANDOM_SEED,
         "qc_figure_style_version": QC_FIGURE_STYLE_VERSION,
@@ -1944,6 +2135,13 @@ def preprocess_participant(
             for code, channels in ICA_QC_GROUPS
         ],
         "qc_html_shared_scale_uv": shared_qc_scale_uv,
+        "ica_exclusion_review_html": {
+            "code": ICA_EXCLUSION_REVIEW_CODE,
+            "channels": CHANNELS,
+            "before_ica_only": True,
+            "interval_exclusions_overlaid": True,
+            "channel_exclusions_highlighted": True,
+        },
         "blink_accuracy_review_html": "QC01_BlinkCheck (Fp1, Fp2) only",
         "iclabel_average_reference_deviation": (
             "ICLabel推奨の共通平均参照は、旧MATLAB実装との一貫性を優先して未実施"

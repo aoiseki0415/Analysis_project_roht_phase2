@@ -15,6 +15,7 @@ from phase1_pipeline import (  # noqa: E402
     EYE_BLINK_PROBABILITY_THRESHOLD,
     ICA_AFTER_COLOR,
     ICA_BEFORE_COLOR,
+    ICA_EXCLUSION_REVIEW_CODE,
     ICA_QC_GROUPS,
     PIPELINE_SPEC_VERSION,
     QC_FIGURE_STYLE_VERSION,
@@ -32,6 +33,7 @@ from phase1_pipeline import (  # noqa: E402
     infomax_convergence_diagnostics,
     merge_ica_cleaned_channels,
     save_blink_signal_figure,
+    save_ica_exclusion_review_html,
     save_interactive_html,
     save_set_hdf5,
     select_ica_channel_exclusion_candidates,
@@ -238,6 +240,49 @@ def test_interactive_html_contains_working_navigation_controls(tmp_path: Path) -
     assert "x軸の表示範囲を変えても縦軸は自動変更しません" in html
     assert "表示準備完了" in html
     assert html.endswith("</body></html>")
+
+
+def test_ica_exclusion_review_html_shows_all_channels_intervals_and_channels(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "exclusion_review.html"
+    data = np.zeros((32, 512), dtype=float)
+    part = EegPart(
+        part=1,
+        path=Path("input.csv"),
+        metadata="",
+        original_timestamp=1_700_000_000 + np.arange(512) / 256,
+        interpolated=np.zeros(512),
+        data_uv=np.zeros((32, 512)),
+    )
+    save_ica_exclusion_review_html(
+        output,
+        "101",
+        part,
+        data,
+        [
+            {
+                "part": 1,
+                "start_sample": 128,
+                "end_sample": 256,
+                "reason": "AbsoluteAmplitude_500uV",
+                "affected_channel_count": 1,
+            }
+        ],
+        ["PO9"],
+        [{"time_s": 1.0, "label": "Set1 start", "kind": "start"}],
+    )
+    html = output.read_text(encoding="utf-8")
+    assert ICA_EXCLUSION_REVIEW_CODE == "QC05_ICAExclusionReview"
+    assert '"channels":' in html
+    assert all(f'"{channel}"' in html for channel in CHANNELS)
+    assert '"before_only":true' in html
+    assert '"excluded_channels":["PO9"]' in html
+    assert '"reason":"AbsoluteAmplitude_500uV"' in html
+    assert "ICA学習除外区間" in html
+    assert "ICA学習除外ch" in html
+    assert "[ICA除外]" in html
+    assert '"after":' not in html
 
 
 def test_absolute_amplitude_exclusion_adds_one_second_padding() -> None:
