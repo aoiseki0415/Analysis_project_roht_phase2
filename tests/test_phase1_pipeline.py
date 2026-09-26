@@ -23,6 +23,7 @@ from phase1_pipeline import (  # noqa: E402
     SPLIT_EXCLUSIONS,
     SPLIT_PART_SETS,
     EegPart,
+    ProjectPaths,
     SetBoundary,
     _set_markers_for_part,
     absolute_amplitude_intervals,
@@ -38,6 +39,7 @@ from phase1_pipeline import (  # noqa: E402
     save_set_hdf5,
     select_ica_channel_exclusion_candidates,
     validate_hdf5,
+    write_audit_outputs,
 )
 
 
@@ -91,6 +93,31 @@ def test_pipeline_reproducibility_identifiers_are_fixed() -> None:
     assert QC_FIGURE_STYLE_VERSION == "phase1-qc-v2"
     assert ICA_BEFORE_COLOR == "#1261a0"
     assert ICA_AFTER_COLOR == "#d1495b"
+
+
+def test_audit_can_write_onedrive_only_without_local_manifest(tmp_path: Path) -> None:
+    paths = ProjectPaths(
+        raw_root=tmp_path / "raw",
+        eeg_root=tmp_path / "raw" / "eeg",
+        behavior_root=tmp_path / "raw" / "behavior",
+        processed_root=tmp_path / "processed",
+        onedrive_root=tmp_path / "onedrive",
+    )
+    audit = {
+        "manifest": {
+            "parts": [{"part": 1, "sample_count": 256}],
+            "sets": [{"set_number": 1, "usable": True}],
+        }
+    }
+    local_path, qc_path = write_audit_outputs(
+        paths,
+        "102",
+        audit,
+        save_local_manifest=False,
+    )
+    assert local_path is None
+    assert qc_path.exists()
+    assert not paths.processed_root.exists()
 
 
 def test_flatline_requires_thirty_seconds() -> None:

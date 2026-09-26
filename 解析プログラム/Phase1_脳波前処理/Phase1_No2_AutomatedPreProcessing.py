@@ -32,11 +32,24 @@ def parse_args() -> argparse.Namespace:
             "通常実行では指定しない。"
         ),
     )
+    parser.add_argument(
+        "--skip-local-data-output",
+        action="store_true",
+        help=(
+            "比較検証用に、HDF5・ICAモデル・ローカルメタデータを"
+            "保存せずOneDriveのQC成果だけを作成する。"
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.regenerate_html_only and args.skip_local_data_output:
+        raise ValueError(
+            "--regenerate-html-onlyは保存済みICAが必要なため、"
+            "--skip-local-data-outputと同時には指定できません。"
+        )
     paths = resolve_project_paths()
     ids = choose_ids(paths, args.participant_ids, args.first_only)
     exit_code = 0
@@ -66,6 +79,7 @@ def main() -> int:
             participant_id,
             logger=logger,
             output_label=args.output_label,
+            save_local_data=not args.skip_local_data_output,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if result["status"] != "complete":

@@ -411,12 +411,17 @@ def write_json(path: Path, value: Any) -> None:
 
 
 def write_audit_outputs(
-    paths: ProjectPaths, participant_id: str, audit: dict[str, Any]
-) -> tuple[Path, Path]:
+    paths: ProjectPaths,
+    participant_id: str,
+    audit: dict[str, Any],
+    *,
+    save_local_manifest: bool = True,
+) -> tuple[Path | None, Path]:
     local_dir = paths.processed_root / "Phase1_脳波前処理" / "No1_InputAuditAndSynchronization"
     qc_dir = paths.onedrive_root / "Phase1_脳波前処理" / "No1_InputAuditAndSynchronization"
     local_path = local_dir / f"ID{participant_id}_input_manifest.json"
-    write_json(local_path, audit["manifest"])
+    if save_local_manifest:
+        write_json(local_path, audit["manifest"])
     rows = []
     for part in audit["manifest"]["parts"]:
         rows.append({"record_type": "part", **part})
@@ -425,7 +430,7 @@ def write_audit_outputs(
     qc_dir.mkdir(parents=True, exist_ok=True)
     qc_path = qc_dir / f"ID{participant_id}_input_audit.csv"
     pd.DataFrame(rows).to_csv(qc_path, index=False)
-    return local_path, qc_path
+    return local_path if save_local_manifest else None, qc_path
 
 
 def make_mne_raw(data_uv: np.ndarray, channel_names: list[str] | None = None) -> mne.io.RawArray:
@@ -1833,9 +1838,15 @@ def preprocess_participant(
     *,
     logger: logging.Logger,
     output_label: str | None = None,
+    save_local_data: bool = True,
 ) -> dict[str, Any]:
     audit = audit_participant(paths, participant_id, logger)
-    write_audit_outputs(paths, participant_id, audit)
+    write_audit_outputs(
+        paths,
+        participant_id,
+        audit,
+        save_local_manifest=save_local_data,
+    )
     parts: list[EegPart] = audit["parts"]
     boundaries: list[SetBoundary] = audit["boundaries"]
     output_directory = participant_output_directory_name(participant_id, output_label)
@@ -1852,7 +1863,8 @@ def preprocess_participant(
         / output_directory
     )
     qc_dir.mkdir(parents=True, exist_ok=True)
-    local_dir.mkdir(parents=True, exist_ok=True)
+    if save_local_data:
+        local_dir.mkdir(parents=True, exist_ok=True)
 
     detrended_parts: list[np.ndarray] = []
     line_quality_parts: list[np.ndarray] = []
@@ -1928,7 +1940,8 @@ def preprocess_participant(
         training_v, keep_channels
     )
     save_iclabel_outputs(qc_dir, participant_id, ica, training_raw, probabilities, eye_components)
-    ica.save(local_dir / f"ID{participant_id}_ica.fif", overwrite=True)
+    if save_local_data:
+        ica.save(local_dir / f"ID{participant_id}_ica.fif", overwrite=True)
 
     expected_qc_parts = sorted({b.part for b in boundaries if b.usable})
     cleaned_parts: list[np.ndarray] = []
@@ -1990,46 +2003,61 @@ def preprocess_participant(
             continue
         part = parts[boundary.part - 1]
         start, end = boundary.start_sample, boundary.end_sample
-        results_csv, results_rows = _csv_text_for_results(audit["results"][boundary.set_number])
-        set_dir = local_dir / f"Set{boundary.set_number}"
-        brain_path = set_dir / f"ID{participant_id}_Set{boundary.set_number}_brain_activity.h5"
-        blink_path = set_dir / f"ID{participant_id}_Set{boundary.set_number}_blink_signal.h5"
         brain_signal = cleaned_parts[boundary.part - 1][:, start:end]
-        save_set_hdf5(
-            brain_path,
-            participant_id=participant_id,
-            boundary=boundary,
-            source_file=part.path,
-            data_v=brain_signal,
-            channel_names=CHANNELS,
-            original_timestamp=part.original_timestamp[start:end],
-            results_csv=results_csv,
-            results_rows=results_rows,
-            bad_intervals=intervals,
-            original_channel_names=CHANNELS,
-            ica_excluded_channels=ica_excluded_channels,
-            ica_excluded_channel_records=ica_excluded_channel_records,
-            data_kind="brain_activity_eeg",
-        )
         blink_signal = extract_blink_analysis_signal(
             blink_parts[boundary.part - 1][:, start:end], keep_channels
         )
-        save_set_hdf5(
-            blink_path,
-            participant_id=participant_id,
-            boundary=boundary,
-            source_file=part.path,
-            data_v=blink_signal,
-            channel_names=["Fp1", "Fp2", "Fp1_Fp2_mean"],
-            original_timestamp=part.original_timestamp[start:end],
-            results_csv=results_csv,
-            results_rows=results_rows,
-            bad_intervals=intervals,
-            original_channel_names=CHANNELS,
-            ica_excluded_channels=ica_excluded_channels,
-            ica_excluded_channel_records=ica_excluded_channel_records,
-            data_kind="removed_eye_component_signal",
-        )
+        if save_local_data:
+            results_csv, results_rows = _csv_text_for_results(
+                audit["results"][boundary.set_number]
+            )
+            set_dir = local_dir / f"Set{boundary.set_number}"
+            brain_path = (
+                set_dir / f"ID{participant_id}_Set{boundary.set_number}_brain_activity.h5"
+            )
+            blink_path = (
+                set_dir / f"ID{participant_id}_Set{boundary.set_number}_blink_signal.h5"
+            )
+            save_set_hdf5(
+                brain_path,
+                participant_id=participant_id,
+                boundary=boundary,
+                source_file=part.path,
+                data_v=brain_signal,
+                channel_names=CHANNELS,
+                original_timestamp=part.original_timestamp[start:end],
+                results_csv=results_csv,
+                results_rows=results_rows,
+                bad_intervals=intervals,
+                original_channel_names=CHANNELS,
+                ica_excluded_channels=ica_excluded_channels,
+                ica_excluded_channel_records=ica_excluded_channel_records,
+                data_kind="brain_activity_eeg",
+            )
+            save_set_hdf5(
+                blink_path,
+                participant_id=participant_id,
+                boundary=boundary,
+                source_file=part.path,
+                data_v=blink_signal,
+                channel_names=["Fp1", "Fp2", "Fp1_Fp2_mean"],
+                original_timestamp=part.original_timestamp[start:end],
+                results_csv=results_csv,
+                results_rows=results_rows,
+                bad_intervals=intervals,
+                original_channel_names=CHANNELS,
+                ica_excluded_channels=ica_excluded_channels,
+                ica_excluded_channel_records=ica_excluded_channel_records,
+                data_kind="removed_eye_component_signal",
+            )
+            validations.extend(
+                [
+                    validate_hdf5(brain_path, CHANNELS, results_rows),
+                    validate_hdf5(
+                        blink_path, ["Fp1", "Fp2", "Fp1_Fp2_mean"], results_rows
+                    ),
+                ]
+            )
         blink_figure_path = (
             qc_dir
             / f"ID{participant_id}_Set{boundary.set_number}_blink_signal_timeseries.png"
@@ -2042,14 +2070,6 @@ def preprocess_participant(
             intervals,
         )
         blink_figure_files.append(blink_figure_path)
-        validations.extend(
-            [
-                validate_hdf5(brain_path, CHANNELS, results_rows),
-                validate_hdf5(
-                    blink_path, ["Fp1", "Fp2", "Fp1_Fp2_mean"], results_rows
-                ),
-            ]
-        )
         generated_sets.append(boundary.set_number)
 
     expected_sets = [b.set_number for b in boundaries if b.usable]
@@ -2063,7 +2083,7 @@ def preprocess_participant(
     after_rms = float(np.sqrt(np.mean(np.square(after_all))) * 1e6)
     complete = (
         generated_sets == expected_sets
-        and all(v["ok"] for v in validations)
+        and (not save_local_data or all(v["ok"] for v in validations))
         and converged
         and len(html_files) == len(expected_qc_parts) * len(ICA_QC_GROUPS)
         and all(path.exists() for path in html_files)
@@ -2076,6 +2096,12 @@ def preprocess_participant(
         "status": "complete" if complete else "needs_review",
         "participant_id": participant_id,
         "output_label": output_label,
+        "execution_scope": (
+            "full_with_local_analysis_data"
+            if save_local_data
+            else "onedrive_qc_only_without_local_analysis_data"
+        ),
+        "local_analysis_data_saved": save_local_data,
         "pipeline_spec_version": PIPELINE_SPEC_VERSION,
         "random_seed": RANDOM_SEED,
         "qc_figure_style_version": QC_FIGURE_STYLE_VERSION,
@@ -2147,12 +2173,13 @@ def preprocess_participant(
             "ICLabel推奨の共通平均参照は、旧MATLAB実装との一貫性を優先して未実施"
         ),
         "validations": validations,
-        "local_output": str(local_dir),
+        "local_output": str(local_dir) if save_local_data else None,
         "onedrive_output": str(qc_dir),
         "qc_files": qc_files,
         "software_versions": software_versions(),
     }
-    write_json(local_dir / f"ID{participant_id}_preprocessing_metadata.json", summary)
+    if save_local_data:
+        write_json(local_dir / f"ID{participant_id}_preprocessing_metadata.json", summary)
     write_json(qc_dir / f"ID{participant_id}_QC_summary.json", summary)
     pd.DataFrame(
         [
