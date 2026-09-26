@@ -7,6 +7,9 @@
 - `Phase1_No1_InputAuditAndSynchronization.py`：入力監査、`OriginalTimestamp`と行動側の`*Sys(ms)`の同期、セット境界の決定
 - `Phase1_No2_AutomatedPreProcessing.py`：フィルタ、detrend、不良チャンネル候補検出、ICA学習用区間除外、extended Infomax、ICLabel、セット分割、HDF5とQC成果物の保存
 - `phase1_pipeline.py`：No1とNo2の共通実装
+- `パラメータ比較/Phase1_No2_Pattern1_Initial.py`：初期設定（20、500 µV、30秒、0.80、50%、80%）
+- `パラメータ比較/Phase1_No2_Pattern2_Intermediate.py`：中間型（20、400 µV、5秒、0.75、40%、60%）
+- `パラメータ比較/Phase1_No2_Pattern3_Extreme.py`：極端型（15、200 µV、5秒、0.75、40%、60%）
 
 ## 実行順序
 
@@ -22,7 +25,15 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
 
 No2が記録全体への影響が明確な不良チャンネル候補を検出した場合は、フィルタ・トレンド除去後の0 µV中心波形をOneDriveへ保存しますが、処理は停止しません。保守的基準に該当したチャンネルは、利用者承認なしでICA学習・ICA適用対象からだけ自動除外します。不良区間のICA学習用除外と、ICLabelの`eye blink >= 0.80`による成分除去も事前承認なしで実行します。
 
-2026年9月26日以降の固定値は、flatline 5秒、RANSAC相関0.75・候補時間率40%・自動除外時間率60%、ASR BurstCriterion 15、絶対振幅200 µV（前後1秒を含む）です。その他の設定は `docs/Phase1_脳波前処理仕様.md` に従います。
+ID101では初期設定・中間型・極端型の3パターンを比較します。変更するのはASR、絶対振幅、flatline、RANSAC相関、候補時間率、自動除外時間率の6項目だけです。中間型・極端型は比較検証用であり、最終採用値ではありません。その他の設定は `docs/Phase1_脳波前処理仕様.md` に従います。
+
+比較用3スクリプトは、対応するパターンとOneDrive出力ラベルを内部で固定し、ローカル加工済みデータを保存しません。ID101の中間型は次で実行します。
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
+  '解析プログラム/Phase1_脳波前処理/パラメータ比較/Phase1_No2_Pattern2_Intermediate.py' \
+  --participant-id 101
+```
 
 確定した保存方針では、ICA除外チャンネルをICA・MNEの計算行列からだけ外し、脳活動解析用HDF5は元の32チャンネル順・32列で保存します。ICA除外列は削除・NaN化せず、フィルタ・トレンド除去済み信号を保持します。`ica_channel_excluded_mask`は元順の32要素とし、除外名・理由を付帯させます。瞬き解析用HDF5はFp1・Fp2・平均の3列を維持しつつ、同じICA除外情報を持たせます。
 

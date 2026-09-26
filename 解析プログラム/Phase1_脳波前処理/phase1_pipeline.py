@@ -38,7 +38,7 @@ from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
 
 SFREQ = 256.0
-PIPELINE_SPEC_VERSION = "phase1-parameter-update-2026-09-26.1"
+PIPELINE_SPEC_VERSION = "phase1-parameter-comparison-2026-09-26.1"
 RANDOM_SEED = 97
 QC_FIGURE_STYLE_VERSION = "phase1-qc-v2"
 FILTERED_COLOR = "#4472c4"
@@ -46,12 +46,53 @@ ICA_BEFORE_COLOR = "#1261a0"
 ICA_AFTER_COLOR = "#d1495b"
 BLINK_MEAN_COLOR = "#2e8b57"
 EYE_BLINK_PROBABILITY_THRESHOLD = 0.80
-FLATLINE_MINIMUM_SECONDS = 5.0
-RANSAC_MIN_CORRELATION = 0.75
-RANSAC_CANDIDATE_BAD_TIME_FRACTION = 0.40
-RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION = 0.60
-ASR_BURST_CRITERION = 15.0
-ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 200.0
+
+
+@dataclass(frozen=True)
+class ArtifactDetectionProfile:
+    """The six artifact-detection values varied in the ID101 comparison."""
+
+    flatline_minimum_seconds: float
+    ransac_min_correlation: float
+    ransac_candidate_bad_time_fraction: float
+    ransac_auto_exclusion_bad_time_fraction: float
+    asr_burst_criterion: float
+    ica_absolute_amplitude_threshold_uv: float
+
+
+PARAMETER_PROFILES = {
+    "Pattern1_Initial": ArtifactDetectionProfile(
+        flatline_minimum_seconds=30.0,
+        ransac_min_correlation=0.80,
+        ransac_candidate_bad_time_fraction=0.50,
+        ransac_auto_exclusion_bad_time_fraction=0.80,
+        asr_burst_criterion=20.0,
+        ica_absolute_amplitude_threshold_uv=500.0,
+    ),
+    "Pattern2_Intermediate": ArtifactDetectionProfile(
+        flatline_minimum_seconds=5.0,
+        ransac_min_correlation=0.75,
+        ransac_candidate_bad_time_fraction=0.40,
+        ransac_auto_exclusion_bad_time_fraction=0.60,
+        asr_burst_criterion=20.0,
+        ica_absolute_amplitude_threshold_uv=400.0,
+    ),
+    "Pattern3_Extreme": ArtifactDetectionProfile(
+        flatline_minimum_seconds=5.0,
+        ransac_min_correlation=0.75,
+        ransac_candidate_bad_time_fraction=0.40,
+        ransac_auto_exclusion_bad_time_fraction=0.60,
+        asr_burst_criterion=15.0,
+        ica_absolute_amplitude_threshold_uv=200.0,
+    ),
+}
+ACTIVE_PARAMETER_PROFILE = "Pattern1_Initial"
+FLATLINE_MINIMUM_SECONDS = 30.0
+RANSAC_MIN_CORRELATION = 0.80
+RANSAC_CANDIDATE_BAD_TIME_FRACTION = 0.50
+RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION = 0.80
+ASR_BURST_CRITERION = 20.0
+ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 500.0
 ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS = 1.0
 HTML_ENVELOPE_BIN_SAMPLES = 64
 EEG_PREFIX = "EEG."
@@ -117,6 +158,28 @@ ICLABEL_CLASSES = [
     "channel noise",
     "other",
 ]
+
+
+def apply_parameter_profile(profile_name: str) -> ArtifactDetectionProfile:
+    """Select one named comparison profile for the current Python process."""
+    if profile_name not in PARAMETER_PROFILES:
+        raise ValueError(f"未定義のパラメータパターンです: {profile_name}")
+    profile = PARAMETER_PROFILES[profile_name]
+    global ACTIVE_PARAMETER_PROFILE
+    global FLATLINE_MINIMUM_SECONDS
+    global RANSAC_MIN_CORRELATION
+    global RANSAC_CANDIDATE_BAD_TIME_FRACTION
+    global RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION
+    global ASR_BURST_CRITERION
+    global ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV
+    ACTIVE_PARAMETER_PROFILE = profile_name
+    FLATLINE_MINIMUM_SECONDS = profile.flatline_minimum_seconds
+    RANSAC_MIN_CORRELATION = profile.ransac_min_correlation
+    RANSAC_CANDIDATE_BAD_TIME_FRACTION = profile.ransac_candidate_bad_time_fraction
+    RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION = profile.ransac_auto_exclusion_bad_time_fraction
+    ASR_BURST_CRITERION = profile.asr_burst_criterion
+    ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = profile.ica_absolute_amplitude_threshold_uv
+    return profile
 
 
 @dataclass(frozen=True)
@@ -482,8 +545,10 @@ def _contiguous_true_regions(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def detect_flatlines(
-    data_v: np.ndarray, minimum_seconds: float = FLATLINE_MINIMUM_SECONDS
+    data_v: np.ndarray, minimum_seconds: float | None = None
 ) -> list[dict[str, Any]]:
+    if minimum_seconds is None:
+        minimum_seconds = FLATLINE_MINIMUM_SECONDS
     minimum = int(round(minimum_seconds * SFREQ))
     candidates = []
     for channel_index, channel in enumerate(CHANNELS):
@@ -603,10 +668,11 @@ def select_ica_channel_exclusion_candidates(
 ) -> list[dict[str, Any]]:
     """Restrict automatic ICA-only exclusion to clear record-wide problems.
 
-    The official-derived 4-SD line-noise and 0.75/40% RANSAC criteria remain
-    exploratory detectors. Automatic ICA-only exclusion is more conservative:
-    a >=5 s exact flatline, very strong line noise (>=6 robust SD), RANSAC
-    failure over >=60% of the record, or agreement of at least two detectors.
+    The official-derived 4-SD line-noise and selected-profile RANSAC criteria
+    remain exploratory detectors. Automatic ICA-only exclusion is more
+    conservative: a profile-defined exact flatline, very strong line noise
+    (>=6 robust SD), RANSAC failure above the profile-defined record fraction,
+    or agreement of at least two detectors.
     """
     reasons_by_channel: dict[str, set[str]] = {}
     for item in candidates:
@@ -1843,6 +1909,11 @@ def preprocess_participant(
     output_label: str | None = None,
     save_local_data: bool = True,
 ) -> dict[str, Any]:
+    logger.info(
+        "parameter_profile=%s values=%s",
+        ACTIVE_PARAMETER_PROFILE,
+        asdict(PARAMETER_PROFILES[ACTIVE_PARAMETER_PROFILE]),
+    )
     audit = audit_participant(paths, participant_id, logger)
     write_audit_outputs(
         paths,
@@ -2085,6 +2156,7 @@ def preprocess_participant(
         ),
         "local_analysis_data_saved": save_local_data,
         "pipeline_spec_version": PIPELINE_SPEC_VERSION,
+        "parameter_profile": ACTIVE_PARAMETER_PROFILE,
         "random_seed": RANDOM_SEED,
         "qc_figure_style_version": QC_FIGURE_STYLE_VERSION,
         "fixed_parameters": {
