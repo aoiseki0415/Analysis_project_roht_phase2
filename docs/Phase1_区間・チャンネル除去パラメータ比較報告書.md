@@ -62,37 +62,25 @@ ICA学習前の区間除去・チャンネル除去について、初期設定�
 
 ### 6.1 Google Driveのフォルダ構造
 
-共有・確認用のコピーは、許可されたGoogle Driveフォルダ内に、次の名前と構造で配置する。Pythonファイル名と相対的な配置は変更しない。
+共有・確認用のコピーは、許可されたGoogle Driveフォルダ内の`スクリプト/`をルートとし、次の名前と構造で配置する。Pythonファイル名と相対的な配置は変更しない。ドキュメントは別の場所で管理するため、この構造には含めない。
 
 ```text
 マイドライブ/
 └── SandBox関連/
     └── ロート製薬PJ フェーズ2 2026.5~/
         └── 実験本解析_Codex共有用/
-            └── 解析プログラム共有用/
+            └── スクリプト/
                 └── Phase1_脳波前処理/
-                    ├── README.md
                     ├── Phase1_No1_InputAuditAndSynchronization.py
                     ├── Phase1_No2_AutomatedPreProcessing.py
                     ├── phase1_pipeline.py
-                    ├── パラメータ比較/
-                    │   ├── Phase1_No2_Pattern1_Initial.py
-                    │   ├── Phase1_No2_Pattern2_Intermediate.py
-                    │   └── Phase1_No2_Pattern3_Extreme.py
-                    └── ドキュメント/
-                        ├── Phase1_区間・チャンネル除去パラメータ比較報告書.md
-                        ├── Phase1_脳波前処理仕様.md
-                        └── Python環境.md
+                    └── パラメータ比較/
+                        ├── Phase1_No2_Pattern1_Initial.py
+                        ├── Phase1_No2_Pattern2_Intermediate.py
+                        └── Phase1_No2_Pattern3_Extreme.py
 ```
 
-Google Drive版は共有・確認用のコピーであり、最新版の正本はGitHubリポジトリとする。スクリプトを更新するときはGitHub側を更新し、検証・commit・push後に必要なファイルだけをGoogle Driveへコピーする。生データ、加工済みEEG、OneDriveの品質確認HTML・figure、HDF5、実行ログ、`.venv/`、`.tools/`、キャッシュはこのフォルダへ入れない。
-
-Google Driveへコピーする`README.md`には、少なくとも次を記載する。
-
-- 正本となるGitHubリポジトリ名
-- コピー元のGit commit番号
-- 実行順序（No1の入力監査後、目的に合うNo2を実行）
-- 結果の保存先はGoogle Driveではなく、指定OneDriveと許可されたローカル領域であること
+Google Drive版は共有・確認用のコピーであり、最新版の正本はGitHubリポジトリとする。スクリプトを更新するときはGitHub側を更新し、検証・commit・push後に必要なPythonファイルだけをGoogle Driveへコピーする。ドキュメント、生データ、加工済みEEG、OneDriveの品質確認HTML・figure、HDF5、実行ログ、`.venv/`、`.tools/`、キャッシュは`スクリプト/`へ入れない。
 
 ### 6.2 GitHub上の正本
 
