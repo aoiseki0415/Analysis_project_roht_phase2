@@ -38,7 +38,7 @@ from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
 
 SFREQ = 256.0
-PIPELINE_SPEC_VERSION = "phase1-parameter-comparison-2026-09-26.1"
+PIPELINE_SPEC_VERSION = "phase1-ica-component-comparison-2026-09-27.1"
 RANDOM_SEED = 97
 QC_FIGURE_STYLE_VERSION = "phase1-qc-v2"
 FILTERED_COLOR = "#4472c4"
@@ -985,6 +985,21 @@ def fit_ica_and_label(
     return ica, raw, probabilities, eye_components, diagnostics
 
 
+def combine_eye_component_selection(
+    threshold_components: list[int],
+    additional_components: list[int] | None,
+    n_components: int,
+) -> tuple[list[int], list[int]]:
+    """Add explicit comparison ICs without changing the ICLabel threshold rule."""
+    additional = sorted(set(additional_components or []))
+    invalid = [component for component in additional if not 0 <= component < n_components]
+    if invalid:
+        raise ValueError(
+            f"追加除去ICがICA成分範囲外です: {invalid}; 有効範囲=0..{n_components - 1}"
+        )
+    return sorted(set(threshold_components) | set(additional)), additional
+
+
 def apply_ica(
     ica: ICA,
     data_v: np.ndarray,
@@ -1241,6 +1256,7 @@ def save_iclabel_outputs(
     training_raw: mne.io.RawArray,
     probabilities: np.ndarray,
     eye_components: list[int],
+    threshold_eye_components: list[int],
 ) -> None:
     qc_dir.mkdir(parents=True, exist_ok=True)
     probability_frame = pd.DataFrame(probabilities, columns=ICLABEL_CLASSES)
@@ -1251,8 +1267,13 @@ def save_iclabel_outputs(
             figure = ica.plot_components(picks=[component], colorbar=True, show=False)
             if isinstance(figure, list):
                 figure = figure[0]
+            selection = (
+                "ICLabel eye blink probability threshold"
+                if component in threshold_eye_components
+                else "additional comparison removal"
+            )
             figure.suptitle(
-                f"ID{participant_id}: removed eye component IC{component}\n"
+                f"ID{participant_id}: removed component IC{component} ({selection})\n"
                 "Scalp color = ICA spatial weight [a.u.]",
                 fontsize=11,
             )
@@ -1908,6 +1929,7 @@ def preprocess_participant(
     logger: logging.Logger,
     output_label: str | None = None,
     save_local_data: bool = True,
+    additional_eye_components: list[int] | None = None,
 ) -> dict[str, Any]:
     logger.info(
         "parameter_profile=%s values=%s",
@@ -2004,10 +2026,23 @@ def preprocess_participant(
     if not training_segments:
         raise RuntimeError(f"ID{participant_id}: ICA学習可能サンプルがありません")
     training_v = np.concatenate(training_segments, axis=1)
-    ica, training_raw, probabilities, eye_components, ica_diagnostics = fit_ica_and_label(
+    ica, training_raw, probabilities, threshold_eye_components, ica_diagnostics = fit_ica_and_label(
         training_v, keep_channels
     )
-    save_iclabel_outputs(qc_dir, participant_id, ica, training_raw, probabilities, eye_components)
+    eye_components, additional_eye_components = combine_eye_component_selection(
+        threshold_eye_components,
+        additional_eye_components,
+        int(ica.n_components_),
+    )
+    save_iclabel_outputs(
+        qc_dir,
+        participant_id,
+        ica,
+        training_raw,
+        probabilities,
+        eye_components,
+        threshold_eye_components,
+    )
     if save_local_data:
         ica.save(local_dir / f"ID{participant_id}_ica.fif", overwrite=True)
 
@@ -2201,6 +2236,8 @@ def preprocess_participant(
         "ica_learning_rate": float(0.00065 / np.log(ica.n_components_)),
         "ica_anneal_step": 0.98,
         "removed_eye_components": eye_components,
+        "iclabel_threshold_eye_components": threshold_eye_components,
+        "additional_comparison_removed_components": additional_eye_components,
         "removed_eye_probabilities": {
             str(index): float(probabilities[index, ICLABEL_CLASSES.index("eye blink")])
             for index in eye_components

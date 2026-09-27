@@ -34,6 +34,7 @@ from phase1_pipeline import (  # noqa: E402
     _set_markers_for_part,
     absolute_amplitude_intervals,
     build_ica_channel_exclusion_records,
+    combine_eye_component_selection,
     derive_boundaries,
     detect_flatlines,
     extract_blink_analysis_signal,
@@ -94,7 +95,7 @@ def test_all_four_split_ids_use_fixed_five_set_mapping() -> None:
 
 
 def test_pipeline_reproducibility_identifiers_are_fixed() -> None:
-    assert PIPELINE_SPEC_VERSION == "phase1-parameter-comparison-2026-09-26.1"
+    assert PIPELINE_SPEC_VERSION == "phase1-ica-component-comparison-2026-09-27.1"
     assert RANDOM_SEED == 97
     assert QC_FIGURE_STYLE_VERSION == "phase1-qc-v2"
     assert ICA_BEFORE_COLOR == "#1261a0"
@@ -372,6 +373,12 @@ def test_absolute_amplitude_exclusion_adds_one_second_padding() -> None:
 
 def test_eye_blink_probability_threshold_is_point_eight() -> None:
     assert EYE_BLINK_PROBABILITY_THRESHOLD == 0.80
+
+
+def test_additional_eye_component_is_explicit_and_keeps_threshold_components() -> None:
+    combined, additional = combine_eye_component_selection([0, 5, 13], [6], 31)
+    assert combined == [0, 5, 6, 13]
+    assert additional == [6]
 
 
 def test_blink_signal_figure_uses_set_level_three_channel_input(tmp_path: Path) -> None:

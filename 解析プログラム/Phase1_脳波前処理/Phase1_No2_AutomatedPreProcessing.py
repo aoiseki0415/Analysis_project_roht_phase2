@@ -46,6 +46,16 @@ def parse_args() -> argparse.Namespace:
             "保存せずOneDriveのQC成果だけを作成する。"
         ),
     )
+    parser.add_argument(
+        "--additional-eye-component",
+        action="append",
+        type=int,
+        default=[],
+        help=(
+            "比較検証時だけ、ICLabel 0.80以上の自動除去成分へ追加するIC番号。"
+            "通常実行では指定しない。"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -54,6 +64,7 @@ def main(
     forced_profile: str | None = None,
     forced_output_label: str | None = None,
     force_skip_local_data_output: bool = False,
+    forced_additional_eye_components: list[int] | None = None,
 ) -> int:
     args = parse_args()
     if forced_profile is not None and args.parameter_profile is not None:
@@ -63,6 +74,13 @@ def main(
     parameter_profile = forced_profile or args.parameter_profile or "Pattern1_Initial"
     output_label = forced_output_label or args.output_label
     skip_local_data_output = force_skip_local_data_output or args.skip_local_data_output
+    if forced_additional_eye_components is not None and args.additional_eye_component:
+        raise ValueError("比較用スクリプトでは--additional-eye-componentを追加指定できません。")
+    additional_eye_components = (
+        forced_additional_eye_components
+        if forced_additional_eye_components is not None
+        else args.additional_eye_component
+    )
     apply_parameter_profile(parameter_profile)
     if args.regenerate_html_only and skip_local_data_output:
         raise ValueError(
@@ -97,6 +115,7 @@ def main(
             logger=logger,
             output_label=output_label,
             save_local_data=not skip_local_data_output,
+            additional_eye_components=additional_eye_components,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if result["status"] != "complete":
