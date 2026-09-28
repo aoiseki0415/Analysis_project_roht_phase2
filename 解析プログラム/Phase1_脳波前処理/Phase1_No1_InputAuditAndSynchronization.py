@@ -18,14 +18,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--participant-id", action="append", dest="participant_ids")
     parser.add_argument("--first-only", action="store_true")
-    parser.add_argument(
-        "--skip-local-data-output",
-        action="store_true",
-        help=(
-            "比較検証用に、ローカルの解析用マニフェストを保存せず"
-            "OneDriveの入力監査成果だけを作成する。"
-        ),
-    )
     return parser.parse_args()
 
 
@@ -46,7 +38,7 @@ def main() -> int:
             paths,
             participant_id,
             audit,
-            save_local_manifest=not args.skip_local_data_output,
+            save_local_manifest=True,
         )
         logger.info("入力監査出力: %s | %s", local_path, qc_path)
     return 0

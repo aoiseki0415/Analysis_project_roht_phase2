@@ -34,12 +34,12 @@ from phase1_pipeline import (  # noqa: E402
     _set_markers_for_part,
     absolute_amplitude_intervals,
     build_ica_channel_exclusion_records,
-    combine_eye_component_selection,
     derive_boundaries,
     detect_flatlines,
     extract_blink_analysis_signal,
     infomax_convergence_diagnostics,
     merge_ica_cleaned_channels,
+    participant_output_directory_name,
     save_blink_signal_figure,
     save_ica_exclusion_review_html,
     save_interactive_html,
@@ -95,14 +95,18 @@ def test_all_four_split_ids_use_fixed_five_set_mapping() -> None:
 
 
 def test_pipeline_reproducibility_identifiers_are_fixed() -> None:
-    assert PIPELINE_SPEC_VERSION == "phase1-ica-component-comparison-2026-09-27.1"
+    assert PIPELINE_SPEC_VERSION == "phase1-final-2026-09-28.1"
     assert RANDOM_SEED == 97
     assert QC_FIGURE_STYLE_VERSION == "phase1-qc-v2"
     assert ICA_BEFORE_COLOR == "#1261a0"
     assert ICA_AFTER_COLOR == "#d1495b"
 
 
-def test_audit_can_write_onedrive_only_without_local_manifest(tmp_path: Path) -> None:
+def test_production_output_directory_has_no_exploratory_label() -> None:
+    assert participant_output_directory_name("101") == "ID101"
+
+
+def test_audit_writes_local_manifest_and_onedrive_qc(tmp_path: Path) -> None:
     paths = ProjectPaths(
         raw_root=tmp_path / "raw",
         eeg_root=tmp_path / "raw" / "eeg",
@@ -120,25 +124,21 @@ def test_audit_can_write_onedrive_only_without_local_manifest(tmp_path: Path) ->
         paths,
         "102",
         audit,
-        save_local_manifest=False,
+        save_local_manifest=True,
     )
-    assert local_path is None
+    assert local_path is not None
+    assert local_path.exists()
     assert qc_path.exists()
-    assert not paths.processed_root.exists()
+    assert paths.processed_root.exists()
 
 
-def test_flatline_uses_selected_profile_threshold() -> None:
+def test_flatline_uses_final_five_second_threshold() -> None:
     rng = np.random.default_rng(97)
     data = rng.normal(size=(32, 10 * 256)) * 1e-6
     data[0, : 4 * 256] = 0
     data[1, : 6 * 256] = 0
-    assert detect_flatlines(data) == []
-    try:
-        phase1.apply_parameter_profile("Pattern2_Intermediate")
-        candidates = detect_flatlines(data)
-        assert [candidate["channel"] for candidate in candidates] == [CHANNELS[1]]
-    finally:
-        phase1.apply_parameter_profile("Pattern1_Initial")
+    candidates = detect_flatlines(data)
+    assert [candidate["channel"] for candidate in candidates] == [CHANNELS[1]]
 
 
 def test_channel_notification_is_more_conservative_than_exploratory_detection() -> None:
@@ -159,45 +159,17 @@ def test_channel_notification_is_more_conservative_than_exploratory_detection() 
             "recording_fraction": 0.65,
         },
     ]
-    try:
-        phase1.apply_parameter_profile("Pattern2_Intermediate")
-        notified = select_ica_channel_exclusion_candidates(exploratory)
-        assert [item["channel"] for item in notified] == ["F7"]
-    finally:
-        phase1.apply_parameter_profile("Pattern1_Initial")
+    notified = select_ica_channel_exclusion_candidates(exploratory)
+    assert [item["channel"] for item in notified] == ["F7"]
 
 
 def test_updated_artifact_detection_parameters_are_fixed() -> None:
-    assert FLATLINE_MINIMUM_SECONDS == 30.0
-    assert RANSAC_MIN_CORRELATION == 0.80
-    assert RANSAC_CANDIDATE_BAD_TIME_FRACTION == 0.50
-    assert RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION == 0.80
+    assert FLATLINE_MINIMUM_SECONDS == 5.0
+    assert RANSAC_MIN_CORRELATION == 0.75
+    assert RANSAC_CANDIDATE_BAD_TIME_FRACTION == 0.40
+    assert RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION == 0.60
     assert ASR_BURST_CRITERION == 20.0
-
-
-def test_three_parameter_comparison_profiles_are_fixed() -> None:
-    expected = {
-        "Pattern1_Initial": (20.0, 500.0, 30.0, 0.80, 0.50, 0.80),
-        "Pattern2_Intermediate": (20.0, 400.0, 5.0, 0.75, 0.40, 0.60),
-        "Pattern3_Extreme": (15.0, 200.0, 5.0, 0.75, 0.40, 0.60),
-    }
-    for name, values in expected.items():
-        profile = phase1.PARAMETER_PROFILES[name]
-        assert (
-            profile.asr_burst_criterion,
-            profile.ica_absolute_amplitude_threshold_uv,
-            profile.flatline_minimum_seconds,
-            profile.ransac_min_correlation,
-            profile.ransac_candidate_bad_time_fraction,
-            profile.ransac_auto_exclusion_bad_time_fraction,
-        ) == values
-
-    try:
-        phase1.apply_parameter_profile("Pattern2_Intermediate")
-        assert phase1.ACTIVE_PARAMETER_PROFILE == "Pattern2_Intermediate"
-        assert phase1.ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV == 400.0
-    finally:
-        phase1.apply_parameter_profile("Pattern1_Initial")
+    assert phase1.ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV == 400.0
 
 
 def test_bad_channel_candidates_are_automatically_excluded_from_ica_only() -> None:
@@ -216,9 +188,6 @@ def test_bad_channel_candidates_are_automatically_excluded_from_ica_only() -> No
 def test_qc_channel_groups_have_fixed_order_and_blink_group() -> None:
     assert ICA_QC_GROUPS == (
         ("QC01_BlinkCheck", ("Fp1", "Fp2")),
-        ("QC02_Frontal", ("Fz", "F3", "F4")),
-        ("QC03_CentralTemporal", ("Cz", "T7", "T8")),
-        ("QC04_ParietalOccipital", ("Pz", "O1", "O2")),
     )
 
 
@@ -336,7 +305,7 @@ def test_ica_exclusion_review_html_shows_all_channels_intervals_and_channels(
                 "part": 1,
                 "start_sample": 128,
                 "end_sample": 256,
-                "reason": "AbsoluteAmplitude_500uV",
+                "reason": "AbsoluteAmplitude_400uV",
                 "affected_channel_count": 1,
             }
         ],
@@ -349,7 +318,7 @@ def test_ica_exclusion_review_html_shows_all_channels_intervals_and_channels(
     assert all(f'"{channel}"' in html for channel in CHANNELS)
     assert '"before_only":true' in html
     assert '"excluded_channels":["PO9"]' in html
-    assert '"reason":"AbsoluteAmplitude_500uV"' in html
+    assert '"reason":"AbsoluteAmplitude_400uV"' in html
     assert "ICA学習除外区間" in html
     assert "ICA学習除外ch" in html
     assert "[ICA除外]" in html
@@ -360,25 +329,12 @@ def test_absolute_amplitude_exclusion_adds_one_second_padding() -> None:
     data = np.zeros((32, 10 * 256), dtype=float)
     data[0, 5 * 256 : 5 * 256 + 2] = 0.001
     assert absolute_amplitude_intervals(data) == [
-        (4 * 256, 6 * 256 + 2, "AbsoluteAmplitude_500uV", 1)
+        (4 * 256, 6 * 256 + 2, "AbsoluteAmplitude_400uV", 1)
     ]
-    try:
-        phase1.apply_parameter_profile("Pattern2_Intermediate")
-        assert absolute_amplitude_intervals(data) == [
-            (4 * 256, 6 * 256 + 2, "AbsoluteAmplitude_400uV", 1)
-        ]
-    finally:
-        phase1.apply_parameter_profile("Pattern1_Initial")
 
 
 def test_eye_blink_probability_threshold_is_point_eight() -> None:
     assert EYE_BLINK_PROBABILITY_THRESHOLD == 0.80
-
-
-def test_additional_eye_component_is_explicit_and_keeps_threshold_components() -> None:
-    combined, additional = combine_eye_component_selection([0, 5, 13], [6], 31)
-    assert combined == [0, 5, 6, 13]
-    assert additional == [6]
 
 
 def test_blink_signal_figure_uses_set_level_three_channel_input(tmp_path: Path) -> None:

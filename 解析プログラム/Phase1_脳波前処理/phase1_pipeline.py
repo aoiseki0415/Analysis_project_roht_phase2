@@ -38,7 +38,7 @@ from mne_icalabel.iclabel import iclabel_label_components
 from scipy import signal
 
 SFREQ = 256.0
-PIPELINE_SPEC_VERSION = "phase1-ica-component-comparison-2026-09-27.1"
+PIPELINE_SPEC_VERSION = "phase1-final-2026-09-28.1"
 RANDOM_SEED = 97
 QC_FIGURE_STYLE_VERSION = "phase1-qc-v2"
 FILTERED_COLOR = "#4472c4"
@@ -48,51 +48,15 @@ BLINK_MEAN_COLOR = "#2e8b57"
 EYE_BLINK_PROBABILITY_THRESHOLD = 0.80
 
 
-@dataclass(frozen=True)
-class ArtifactDetectionProfile:
-    """The six artifact-detection values varied in the ID101 comparison."""
-
-    flatline_minimum_seconds: float
-    ransac_min_correlation: float
-    ransac_candidate_bad_time_fraction: float
-    ransac_auto_exclusion_bad_time_fraction: float
-    asr_burst_criterion: float
-    ica_absolute_amplitude_threshold_uv: float
-
-
-PARAMETER_PROFILES = {
-    "Pattern1_Initial": ArtifactDetectionProfile(
-        flatline_minimum_seconds=30.0,
-        ransac_min_correlation=0.80,
-        ransac_candidate_bad_time_fraction=0.50,
-        ransac_auto_exclusion_bad_time_fraction=0.80,
-        asr_burst_criterion=20.0,
-        ica_absolute_amplitude_threshold_uv=500.0,
-    ),
-    "Pattern2_Intermediate": ArtifactDetectionProfile(
-        flatline_minimum_seconds=5.0,
-        ransac_min_correlation=0.75,
-        ransac_candidate_bad_time_fraction=0.40,
-        ransac_auto_exclusion_bad_time_fraction=0.60,
-        asr_burst_criterion=20.0,
-        ica_absolute_amplitude_threshold_uv=400.0,
-    ),
-    "Pattern3_Extreme": ArtifactDetectionProfile(
-        flatline_minimum_seconds=5.0,
-        ransac_min_correlation=0.75,
-        ransac_candidate_bad_time_fraction=0.40,
-        ransac_auto_exclusion_bad_time_fraction=0.60,
-        asr_burst_criterion=15.0,
-        ica_absolute_amplitude_threshold_uv=200.0,
-    ),
-}
-ACTIVE_PARAMETER_PROFILE = "Pattern1_Initial"
-FLATLINE_MINIMUM_SECONDS = 30.0
-RANSAC_MIN_CORRELATION = 0.80
-RANSAC_CANDIDATE_BAD_TIME_FRACTION = 0.50
-RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION = 0.80
+# Final production values selected from the ID101 parameter comparison.
+# Historical comparison launchers are kept only in the obsolete-script tree.
+FINAL_PARAMETER_SET_NAME = "Final"
+FLATLINE_MINIMUM_SECONDS = 5.0
+RANSAC_MIN_CORRELATION = 0.75
+RANSAC_CANDIDATE_BAD_TIME_FRACTION = 0.40
+RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION = 0.60
 ASR_BURST_CRITERION = 20.0
-ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 500.0
+ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = 400.0
 ICA_ABSOLUTE_AMPLITUDE_PADDING_SECONDS = 1.0
 HTML_ENVELOPE_BIN_SAMPLES = 64
 EEG_PREFIX = "EEG."
@@ -132,9 +96,6 @@ CHANNELS = [
 ]
 ICA_QC_GROUPS = (
     ("QC01_BlinkCheck", ("Fp1", "Fp2")),
-    ("QC02_Frontal", ("Fz", "F3", "F4")),
-    ("QC03_CentralTemporal", ("Cz", "T7", "T8")),
-    ("QC04_ParietalOccipital", ("Pz", "O1", "O2")),
 )
 ICA_EXCLUSION_REVIEW_CODE = "QC05_ICAExclusionReview"
 DISPLAY_CHANNELS = ICA_QC_GROUPS[0][1]
@@ -158,28 +119,6 @@ ICLABEL_CLASSES = [
     "channel noise",
     "other",
 ]
-
-
-def apply_parameter_profile(profile_name: str) -> ArtifactDetectionProfile:
-    """Select one named comparison profile for the current Python process."""
-    if profile_name not in PARAMETER_PROFILES:
-        raise ValueError(f"未定義のパラメータパターンです: {profile_name}")
-    profile = PARAMETER_PROFILES[profile_name]
-    global ACTIVE_PARAMETER_PROFILE
-    global FLATLINE_MINIMUM_SECONDS
-    global RANSAC_MIN_CORRELATION
-    global RANSAC_CANDIDATE_BAD_TIME_FRACTION
-    global RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION
-    global ASR_BURST_CRITERION
-    global ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV
-    ACTIVE_PARAMETER_PROFILE = profile_name
-    FLATLINE_MINIMUM_SECONDS = profile.flatline_minimum_seconds
-    RANSAC_MIN_CORRELATION = profile.ransac_min_correlation
-    RANSAC_CANDIDATE_BAD_TIME_FRACTION = profile.ransac_candidate_bad_time_fraction
-    RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION = profile.ransac_auto_exclusion_bad_time_fraction
-    ASR_BURST_CRITERION = profile.asr_burst_criterion
-    ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV = profile.ica_absolute_amplitude_threshold_uv
-    return profile
 
 
 @dataclass(frozen=True)
@@ -256,13 +195,9 @@ def configure_logging(log_path: Path) -> logging.Logger:
     return logger
 
 
-def participant_output_directory_name(participant_id: str, output_label: str | None = None) -> str:
-    """Return the normal ID directory name or an explicitly labelled comparison run."""
-    if output_label is None:
-        return f"ID{participant_id}"
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", output_label):
-        raise ValueError("output_labelは英数字・ハイフン・アンダースコアだけを使用してください")
-    return f"ID{participant_id}_{output_label}"
+def participant_output_directory_name(participant_id: str) -> str:
+    """Return the fixed production output directory name."""
+    return f"ID{participant_id}"
 
 
 def eligible_ids(paths: ProjectPaths) -> list[str]:
@@ -668,10 +603,10 @@ def select_ica_channel_exclusion_candidates(
 ) -> list[dict[str, Any]]:
     """Restrict automatic ICA-only exclusion to clear record-wide problems.
 
-    The official-derived 4-SD line-noise and selected-profile RANSAC criteria
-    remain exploratory detectors. Automatic ICA-only exclusion is more
-    conservative: a profile-defined exact flatline, very strong line noise
-    (>=6 robust SD), RANSAC failure above the profile-defined record fraction,
+    The official-derived 4-SD line-noise and fixed RANSAC criteria remain
+    candidate detectors. Automatic ICA-only exclusion is more conservative:
+    an exact flatline lasting at least five seconds, very strong line noise
+    (>=6 robust SD), RANSAC failure above the fixed 60% record fraction,
     or agreement of at least two detectors.
     """
     reasons_by_channel: dict[str, set[str]] = {}
@@ -985,21 +920,6 @@ def fit_ica_and_label(
     return ica, raw, probabilities, eye_components, diagnostics
 
 
-def combine_eye_component_selection(
-    threshold_components: list[int],
-    additional_components: list[int] | None,
-    n_components: int,
-) -> tuple[list[int], list[int]]:
-    """Add explicit comparison ICs without changing the ICLabel threshold rule."""
-    additional = sorted(set(additional_components or []))
-    invalid = [component for component in additional if not 0 <= component < n_components]
-    if invalid:
-        raise ValueError(
-            f"追加除去ICがICA成分範囲外です: {invalid}; 有効範囲=0..{n_components - 1}"
-        )
-    return sorted(set(threshold_components) | set(additional)), additional
-
-
 def apply_ica(
     ica: ICA,
     data_v: np.ndarray,
@@ -1256,7 +1176,6 @@ def save_iclabel_outputs(
     training_raw: mne.io.RawArray,
     probabilities: np.ndarray,
     eye_components: list[int],
-    threshold_eye_components: list[int],
 ) -> None:
     qc_dir.mkdir(parents=True, exist_ok=True)
     probability_frame = pd.DataFrame(probabilities, columns=ICLABEL_CLASSES)
@@ -1267,13 +1186,9 @@ def save_iclabel_outputs(
             figure = ica.plot_components(picks=[component], colorbar=True, show=False)
             if isinstance(figure, list):
                 figure = figure[0]
-            selection = (
-                "ICLabel eye blink probability threshold"
-                if component in threshold_eye_components
-                else "additional comparison removal"
-            )
             figure.suptitle(
-                f"ID{participant_id}: removed component IC{component} ({selection})\n"
+                f"ID{participant_id}: removed component IC{component} "
+                "(ICLabel eye blink probability threshold)\n"
                 "Scalp color = ICA spatial weight [a.u.]",
                 fontsize=11,
             )
@@ -1797,10 +1712,9 @@ def regenerate_interactive_html_outputs(
     participant_id: str,
     *,
     logger: logging.Logger,
-    output_label: str | None = None,
 ) -> dict[str, Any]:
     """Rebuild only the interactive QC HTML from the saved ICA solution."""
-    output_directory = participant_output_directory_name(participant_id, output_label)
+    output_directory = participant_output_directory_name(participant_id)
     local_dir = (
         paths.processed_root / "Phase1_脳波前処理" / "No2_AutomatedPreProcessing" / output_directory
     )
@@ -1899,7 +1813,6 @@ def regenerate_interactive_html_outputs(
     logger.info("ID%s: interactive HTML regenerated without refitting ICA", participant_id)
     return {
         "participant_id": participant_id,
-        "output_label": output_label,
         "ica_refitted": False,
         "outputs": outputs,
     }
@@ -1927,14 +1840,21 @@ def preprocess_participant(
     participant_id: str,
     *,
     logger: logging.Logger,
-    output_label: str | None = None,
     save_local_data: bool = True,
-    additional_eye_components: list[int] | None = None,
 ) -> dict[str, Any]:
     logger.info(
-        "parameter_profile=%s values=%s",
-        ACTIVE_PARAMETER_PROFILE,
-        asdict(PARAMETER_PROFILES[ACTIVE_PARAMETER_PROFILE]),
+        "parameter_set=%s values=%s",
+        FINAL_PARAMETER_SET_NAME,
+        {
+            "flatline_minimum_seconds": FLATLINE_MINIMUM_SECONDS,
+            "ransac_min_correlation": RANSAC_MIN_CORRELATION,
+            "ransac_candidate_bad_time_fraction": RANSAC_CANDIDATE_BAD_TIME_FRACTION,
+            "ransac_auto_exclusion_bad_time_fraction": (
+                RANSAC_AUTO_EXCLUSION_BAD_TIME_FRACTION
+            ),
+            "asr_burst_criterion": ASR_BURST_CRITERION,
+            "ica_absolute_amplitude_threshold_uv": ICA_ABSOLUTE_AMPLITUDE_THRESHOLD_UV,
+        },
     )
     audit = audit_participant(paths, participant_id, logger)
     write_audit_outputs(
@@ -1945,7 +1865,7 @@ def preprocess_participant(
     )
     parts: list[EegPart] = audit["parts"]
     boundaries: list[SetBoundary] = audit["boundaries"]
-    output_directory = participant_output_directory_name(participant_id, output_label)
+    output_directory = participant_output_directory_name(participant_id)
     qc_dir = (
         paths.onedrive_root / "Phase1_脳波前処理" / "No2_AutomatedPreProcessing" / output_directory
     )
@@ -2029,11 +1949,7 @@ def preprocess_participant(
     ica, training_raw, probabilities, threshold_eye_components, ica_diagnostics = fit_ica_and_label(
         training_v, keep_channels
     )
-    eye_components, additional_eye_components = combine_eye_component_selection(
-        threshold_eye_components,
-        additional_eye_components,
-        int(ica.n_components_),
-    )
+    eye_components = threshold_eye_components
     save_iclabel_outputs(
         qc_dir,
         participant_id,
@@ -2041,7 +1957,6 @@ def preprocess_participant(
         training_raw,
         probabilities,
         eye_components,
-        threshold_eye_components,
     )
     if save_local_data:
         ica.save(local_dir / f"ID{participant_id}_ica.fif", overwrite=True)
@@ -2183,7 +2098,6 @@ def preprocess_participant(
     summary = {
         "status": "complete" if complete else "needs_review",
         "participant_id": participant_id,
-        "output_label": output_label,
         "execution_scope": (
             "full_with_local_analysis_data"
             if save_local_data
@@ -2191,7 +2105,7 @@ def preprocess_participant(
         ),
         "local_analysis_data_saved": save_local_data,
         "pipeline_spec_version": PIPELINE_SPEC_VERSION,
-        "parameter_profile": ACTIVE_PARAMETER_PROFILE,
+        "parameter_set": FINAL_PARAMETER_SET_NAME,
         "random_seed": RANDOM_SEED,
         "qc_figure_style_version": QC_FIGURE_STYLE_VERSION,
         "fixed_parameters": {
@@ -2237,7 +2151,6 @@ def preprocess_participant(
         "ica_anneal_step": 0.98,
         "removed_eye_components": eye_components,
         "iclabel_threshold_eye_components": threshold_eye_components,
-        "additional_comparison_removed_components": additional_eye_components,
         "removed_eye_probabilities": {
             str(index): float(probabilities[index, ICLABEL_CLASSES.index("eye blink")])
             for index in eye_components
