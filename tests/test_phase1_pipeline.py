@@ -163,6 +163,35 @@ def test_channel_notification_is_more_conservative_than_exploratory_detection() 
     assert [item["channel"] for item in notified] == ["F7"]
 
 
+def test_ica_channel_auto_exclusion_thresholds_are_fixed() -> None:
+    candidates = [
+        {"channel": "Fp1", "reason": "continuous_zero_or_exact_flatline"},
+        {"channel": "F7", "reason": "line_noise_above_4sd", "z_score": 5.99},
+        {"channel": "F3", "reason": "line_noise_above_4sd", "z_score": 6.0},
+        {
+            "channel": "C3",
+            "reason": "ransac_correlation_below_0.75_for_over_40pct",
+            "recording_fraction": 0.59,
+        },
+        {
+            "channel": "C4",
+            "reason": "ransac_correlation_below_0.75_for_over_40pct",
+            "recording_fraction": 0.60,
+        },
+        {"channel": "O1", "reason": "line_noise_above_4sd", "z_score": 4.1},
+        {
+            "channel": "O1",
+            "reason": "ransac_correlation_below_0.75_for_over_40pct",
+            "recording_fraction": 0.41,
+        },
+    ]
+
+    excluded = select_ica_channel_exclusion_candidates(candidates)
+    excluded_channels = {item["channel"] for item in excluded}
+
+    assert excluded_channels == {"Fp1", "F3", "C4", "O1"}
+
+
 def test_updated_artifact_detection_parameters_are_fixed() -> None:
     assert FLATLINE_MINIMUM_SECONDS == 5.0
     assert RANSAC_MIN_CORRELATION == 0.75

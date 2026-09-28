@@ -504,13 +504,14 @@ def detect_flatlines(
 
 
 def detect_line_noise(data_v: np.ndarray, z_threshold: float = 4.0) -> list[dict[str, Any]]:
-    # clean_rawdata/clean_channels.m criterion: robust amplitude above 50 Hz
-    # divided by robust amplitude below 50 Hz, robust-z-scored across channels.
+    # clean_rawdata/clean_channels.m-inspired criterion, using the project's
+    # fixed 45 Hz split: robust amplitude above 45 Hz divided by robust
+    # amplitude below 45 Hz, robust-z-scored across channels.
     fir = signal.firwin(101, 45.0, fs=SFREQ)
-    below_50 = signal.filtfilt(fir, [1.0], data_v, axis=1)
-    above_50 = data_v - below_50
-    channel_mad = np.median(np.abs(above_50 - np.median(above_50, axis=1)[:, None]), axis=1)
-    signal_mad = np.median(np.abs(below_50 - np.median(below_50, axis=1)[:, None]), axis=1)
+    below_45 = signal.filtfilt(fir, [1.0], data_v, axis=1)
+    above_45 = data_v - below_45
+    channel_mad = np.median(np.abs(above_45 - np.median(above_45, axis=1)[:, None]), axis=1)
+    signal_mad = np.median(np.abs(below_45 - np.median(below_45, axis=1)[:, None]), axis=1)
     noisiness = channel_mad / np.maximum(signal_mad, np.finfo(float).eps)
     median = np.median(noisiness)
     mad = 1.4826 * np.median(np.abs(noisiness - median))
@@ -740,7 +741,7 @@ def detect_ica_bad_intervals(
     """Detect burst/window artifacts without reconstructing the final EEG.
 
     The 0.5 s detector applies an ASR-compatible generalized-eigenvalue burst
-    criterion of 15 against robust calibration covariance.  The 1 s detector
+    criterion of 20 against robust calibration covariance.  The 1 s detector
     implements the configured clean-windows tolerances and 25% bad-channel rule.
     Only detected time spans are returned; reconstructed ASR samples are never
     used downstream.
