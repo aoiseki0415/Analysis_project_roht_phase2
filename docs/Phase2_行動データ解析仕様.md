@@ -1,0 +1,99 @@
+# Phase 2 行動データ解析仕様
+
+## 1. 適用範囲
+
+Phase 2では、ガボール課題の行動データから反応時間（RT）とミスタッチを解析します。Cキューブ群とVロートプレミアム群を分け、各群内で同一被験者の目薬あり条件とコントロールを比較します。
+
+本書で確定しているのは、解析1（No1）のRT試行進行解析です。解析2（No2）はミスタッチを扱う予定ですが、詳細仕様は未確定です。
+
+## 2. 解析1（No1）：RTの試行進行解析
+
+### 2.1 入力
+
+- Phase 1のHDF5ではなく、生の行動データにある `*_block1_results.csv` から `*_block6_results.csv` を使用します。
+- 目薬の種類、目薬あり・なしのセッション対応、実施順は、許可されたGoogleスプレッドシートとNotionの被験者・セッションID対応表を正本として確認します。
+- 練習試行は含めません。
+
+### 2.2 RTの算出
+
+RTは、各刺激試行について必ず次式で再計算します。
+
+```text
+RT [ms] = KeyPress(ms) - TiltOnset(ms)
+```
+
+- `TiltOnsetSys(ms)` と `KeyPressSys(ms)` はPhase 2のRT算出に使用しません。
+- 両入力列はミリ秒単位なので、差分もミリ秒です。EEGのサンプリング周波数はこの計算に関係しません。
+- 再計算値とCSVの `RT(ms)` を照合し、不一致数と最大差を品質記録へ残します。
+- ミスタッチ行はRT算出対象に含めません。
+
+### 2.3 試行数の検証
+
+- 各セットについて、刺激試行が320件、Trialが320種類、算出可能なRTが320件であることを別々に確認します。
+- ミスタッチ行が追加されるため、CSV全体の行数は320を超えて構いません。
+- 重複Trial、欠損RT、320件以外の刺激試行、不明なResponseTypeがあれば、そのセッションを自動的に正常扱いせず、結果表へ記録します。
+
+### 2.4 RT外れ値
+
+- 外れ値基準は、1セッションIDの6セットをまとめたRTから求めます。
+- 平均を `mean_RT`、標準偏差を `SD_RT` とし、`mean_RT ± 3 × SD_RT` の範囲外を除外します。
+- 境界値と同じRTは残し、範囲を厳密に下回る、または上回るRTだけを除外します。
+- 除外した試行の位置は詰めず、RT値をNaNに置き換えます。Trial番号と320点の並びは維持します。
+- セッションごとに、平均、SD、下限、上限、除外件数、除外Trial、除外後の有効RT数を記録します。
+
+### 2.5 移動平均
+
+- 各セットを独立に処理し、セット境界をまたいで平滑化しません。
+- 20試行幅のGaussian重み付き移動平均を使用します。
+- GaussianのFWHM（半値全幅）は9試行、対応する標準偏差は `9 / 2.35482 ≒ 3.82` 試行です。
+- 20試行の範囲は、Trial `i` に対して原則 `i-10` から `i+9` とします。Trial 1では1〜10、Trial 2では1〜11、Trial 11で初めて1〜20を使用し、終端側も対称の考え方で利用可能範囲へ短縮します。
+- 端点では存在する試行だけを使い、Gaussian重みの合計が1になるよう再正規化します。
+- 窓内のNaNには重みを与えず、残った有効RTの重みを再正規化して平均します。窓内がすべてNaNの場合だけ出力をNaNにします。
+- 出力位置は各セット320点のまま維持し、欠損除外後のデータを前詰めしません。
+
+持続的注意研究では、複数のgradCPT/CPT研究でGaussian kernelが反復採用され、FWHM 9試行・周辺20試行、7〜7.2秒などの設定が報告されています。固定時間ビンや3〜25試行の単純移動平均も使われますが、目的ごとに幅が異なり、30試行を標準とする一貫した根拠は確認できませんでした。本解析は瞬間的な注意状態の分類ではなく、RT平均の局所推移を可視化する目的であるため、複数研究で主要なGaussian型を採用し、その中で本課題に最も近い20試行・FWHM 9試行を使用します。調査過程と限界は [Phase 2 RT移動平均 文献調査](Phase2_RT移動平均文献調査.md) に残します。
+
+### 2.6 個人別出力
+
+- 各被験者について、目薬ありセッションとコントロールセッションを対応付けます。
+- 横軸は、各セット内のTrial 1〜320と進捗率0〜100%を対応させ、6セットを順に連結します。セット境界を図中に明示します。
+- 縦軸はRT `[ms]` とします。
+- 目薬あり条件とコントロールの移動平均を同一figureへ描きます。
+- figureには、軸名、単位、色・線種の意味、条件、製品群、匿名ID、セット境界を明記します。
+- 個人別解析の後、同じNo1内で製品群別のGrand-averageを作成します。Grand-averageの集約・不確実性表示・統計方法は、実装前に別途確定します。
+
+### 2.7 結果記録
+
+Notionの解析1結果表には、少なくとも次を記録します。
+
+- セッションID
+- 製品群と条件
+- 6セット・各320刺激試行の検証結果
+- RT平均、SD、3SD下限、3SD上限
+- 除外件数と除外後有効RT数
+- RT再計算値と `RT(ms)` の照合結果
+- 長大RT、欠損、重複、試行数不一致などの備考
+- OneDrive出力の完了状態
+
+## 3. ファイル対応
+
+- Python：`解析プログラム/Phase2_行動データ解析/Phase2_No1_ReactionTime.py`
+- OneDrive：`Phase2_行動データ解析/No1_ReactionTime/`
+- Notion：`フェーズ２：行動データの解析 / 解析1（No1）`
+
+OneDriveのNo1配下では、`CCube` と `VRohtoPremium` を分け、各製品群の中に個人別成果物と `GrandAverage` を置きます。
+
+## 4. 文献上の位置づけ
+
+- FortenbaughらのgradCPT再現研究では、試行ごとのRT変動指標をGaussian kernel（FWHM 9試行）で平滑化し、周辺20試行の情報を重み付けしていました。
+- Teramotoらは、持続的注意のVTCにGaussian kernel（FWHM 7秒）を使用しました。
+- van LeeuwenらのSMART法は、trialごとに1点得られる反応データの時間推移に対し、Gaussian kernelと時点ごとの重み正規化を用いる方法を示しています。
+- これらは主としてRT変動や一般的な反応時系列を扱う方法であり、本解析の生RT平均と完全に同一の目的ではありません。そのため、20試行・FWHM 9試行は先行研究に整合する可視化設定として採用し、推測上の唯一解とは扱いません。
+
+網羅的な比較表、代替法、採否理由は [Phase 2 RT移動平均 文献調査](Phase2_RT移動平均文献調査.md) を参照します。
+
+参考文献：
+
+- Fortenbaugh FC, et al. *Tracking behavioral and neural fluctuations during sustained attention: A robust replication and extension.* NeuroImage. 2018. https://pmc.ncbi.nlm.nih.gov/articles/PMC5857436/
+- Teramoto W, et al. *Common principles underlie the fluctuation of auditory and visual sustained attention.* Quarterly Journal of Experimental Psychology. 2021. https://pmc.ncbi.nlm.nih.gov/articles/PMC8044612/
+- van Leeuwen J, et al. *Forget binning and get SMART: Getting more out of the time-course of response data.* Attention, Perception, & Psychophysics. 2019. https://doi.org/10.3758/s13414-019-01788-3
