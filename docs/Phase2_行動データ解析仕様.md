@@ -82,7 +82,7 @@ RT [ms] = KeyPress(ms) - TiltOnset(ms)
 - Grand-averageは、各セッションの外れ値処理とGaussian移動平均が完了した後の個人別320点を、同じセット・同じ進捗位置で被験者間平均します。生RTを被験者間で先に連結・平均してから平滑化しません。
 - Grand-averageの対象者は実行時の非公開manifestに列挙された被験者ペアとします。EEG欠損セットの確定表は全員共通スクリプトへ固定し、該当する被験者ペアでは、分割セッション側だけでなく対応するもう一方の条件も同じセットをNaN化します。個人figureにはこの対称化を適用しません。
 - Grand-averageはCキューブ群とVロートプレミアム群を別々に作成し、目薬あり条件とコントロールを混合しません。各進捗位置で平均、標本SD（`ddof=1`）、有効人数Nを条件別に算出します。欠測値は前詰め・補間せず、その位置の有限値だけで集計します。
-- Grand-average figureは個人figureと同じ0〜600の横軸、固定色、軸・文字仕様を用い、平均線と平均±1 SDの薄い帯を表示します。縦軸は0 msから開始し、両条件の平均+1 SDの最大値がおおむね軸上限の85〜90%となる値を100 ms単位で切り上げます。ただしCキューブ群は上側余白を広げるため、縦軸上限を最低2000 msとします。
+- Grand-average figureは個人figureと同じ0〜600の横軸、固定色、軸・文字仕様を用い、平均線と平均±1 SDの薄い帯を表示します。縦軸は製品群間で統一し、Cキューブ群・Vロートプレミアム群とも **0〜1800 ms** に固定します。
 
 ### 2.7 セット別RT定量化
 
@@ -128,6 +128,8 @@ OneDriveのNo1配下では、`CCube` と `VRohtoPremium` を分け、各製品�
 No1は、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。個人別figure、QC要約、実行ログ、将来のGrand-averageは指定OneDriveだけへ保存します。試行別の `RT_TrialData.csv` は保存しません。
 
 Grand-averageは同じスクリプトへ `--grand-average --skip-invalid-participants` を付けて実行します。製品群ごとの `GrandAverage/` にfigure、同一進捗位置の平均・SD・Nを収めたCSV、実行要約JSONを保存します。No1直下のバッチ実行要約JSONに、完了ペア、除外ペア、除外理由、Grand-average出力を保存します。
+
+既存の個人figureとセット別定量化を変更せずGrand-averageだけを再出力するときは、`--grand-average-only --skip-invalid-participants` を使用します。このモードは全被験者を同じ確定処理で再計算しますが、`GrandAverage/` 以外の成果物を生成・上書きしません。
 
 セット別RT定量化だけを追加実行するときは、同じスクリプトへ `--set-mean-quantification-only --skip-invalid-participants` を付けます。この実行は生の行動results CSVからRT再計算、EEG欠損セットのNaN化、2SD外れ値除外を同じ確定処理で再現しますが、既存の移動平均個人figure、Grand-average、QC、既存バッチ要約を再生成・上書きしません。
 

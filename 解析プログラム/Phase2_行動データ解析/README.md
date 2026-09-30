@@ -27,7 +27,7 @@
 - 出力フォルダ、ファイル名、Notion結果はセッション単独ではなく `ID<1回目>-<2回目>` の被験者ペア単位とする
 - 個人別出力とGrand-averageは同じNo1に属する。全個人の外れ値処理・移動平均が完了してから、個人別の移動平均値を同じセット・同じ進捗位置で被験者間平均し、平均±1 SDを表示する。条件別に標本SDと有効人数Nを保存し、欠測値は前詰め・補間しない
 - Grand-averageでは、EEG欠損セットを持つ被験者ペアについて、対応するもう一方の条件も同じセットをNaN化してから集計する。個人figureではこの対称化を行わない
-- Grand-averageの凡例に `Mean ± 1 SD` というタイトルを付けない。縦軸は0 msから開始し、通常は平均+1 SDの最大値が軸上限の85〜90%付近となるよう100 ms単位で調整する。Cキューブ群は上側余白を広げ、上限を最低2000 msとする
+- Grand-averageの凡例に `Mean ± 1 SD` というタイトルを付けない。縦軸はCキューブ群・Vロートプレミアム群とも0〜1800 msに固定する
 - 同じNo1内でセット別RT定量化を行う。各被験者・各条件・各セットの値は、移動平均値ではなく、EEG欠損セットのNaN化と2SD除外後に残る試行別RTの算術平均とする
 - 定量化では製品群ごとにSet 1〜6の独立6パネルを横一列で作り、各パネルの左にEye Drop、右にControlを配置する。バーは被験者間平均、ドットは被験者値、線は同一被験者の条件対応を示す
 - EEG欠損セットを持つペアはGrand-averageと同様に両条件の同じセットをNaNとし、そのセットのドット・接続線・平均から除外する
@@ -41,6 +41,8 @@
 どちらも同じコード内のループを通り、被験者別にコードを変更しません。EEG欠損セット対応は全員共通スクリプト内の確定表から自動適用します。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。個人別解析ではfigure、セッション別QC、実行要約を指定OneDriveへ保存します。試行別の `RT_TrialData.csv` は保存しません。Grand-averageは全個人別解析の完了後に同じNo1として追加します。
 
 Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average --skip-invalid-participants` を追加します。製品群ごとの `GrandAverage/` へfigure、平均・SD・NのCSV、実行要約JSONを保存します。必要試行を確定できないペアはペア全体を除外し、No1直下のバッチ実行要約JSONに理由を残して他のペアを継続します。
+
+Grand-averageだけを再出力するときは `--grand-average-only --skip-invalid-participants` を使用します。このモードでは個人figure、個人QC、セット別定量化、通常バッチ要約を変更しません。
 
 セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算と確定済みのNaN化・2SD除外だけを再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/` へ、6パネルfigure、被験者別セット値CSV、Set別集計CSV、実行要約JSONを保存します。
 

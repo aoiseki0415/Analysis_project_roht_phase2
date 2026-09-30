@@ -87,17 +87,12 @@ def test_figure_y_upper_limit_places_maximum_near_seventy_percent() -> None:
     assert 0.65 <= 1_350.0 / upper <= 0.70
 
 
-def test_grand_figure_y_upper_limit_places_upper_sd_near_eighty_seven_percent() -> None:
-    upper = phase2.grand_figure_y_upper_limit(
-        np.array([400.0, 1_750.0]), "VRohtoPremium"
-    )
-    assert upper == 2_000.0
-    assert 0.85 <= 1_750.0 / upper <= 0.90
-
-
-def test_ccube_grand_figure_has_at_least_two_thousand_ms_headroom() -> None:
-    upper = phase2.grand_figure_y_upper_limit(np.array([400.0, 1_350.0]), "CCube")
-    assert upper == 2_000.0
+@pytest.mark.parametrize("product", ["CCube", "VRohtoPremium"])
+def test_grand_figure_y_upper_limit_is_fixed_at_eighteen_hundred_ms(
+    product: str,
+) -> None:
+    upper = phase2.grand_figure_y_upper_limit(np.array([400.0, 1_350.0]), product)
+    assert upper == 1_800.0
 
 
 def test_set_mean_figure_layout_is_fixed_and_centered() -> None:
@@ -233,9 +228,7 @@ def test_grand_average_uses_individual_smoothed_values_and_writes_outputs(
         "No1_RT_GrandAverage_VRohtoPremium_Values.csv",
     ]
     summary = pd.read_json(outputs["summary"], typ="series")
-    assert summary["figure_y_axis_upper_ms"] == 900.0
-    # At this deliberately low synthetic scale, 100-ms rounding is coarse.
-    assert 0.80 <= summary["max_upper_sd_band_axis_ratio"] <= 0.90
+    assert summary["figure_y_axis_upper_ms"] == 1_800.0
 
 
 def test_eeg_missing_set_is_masked_before_two_sd_and_smoothing(tmp_path: Path) -> None:

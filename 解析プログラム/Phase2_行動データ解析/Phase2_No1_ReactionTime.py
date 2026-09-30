@@ -26,6 +26,7 @@ FWHM_TRIALS = 9.0
 GAUSSIAN_SIGMA = FWHM_TRIALS / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 OUTLIER_SD = 2.0
 CONTROL_COLOR = "#563A7C"
+GRAND_AVERAGE_Y_LIMIT_MS = 1_800.0
 SET_MEAN_BAR_CENTERS = np.array([-0.32, 0.32])
 SET_MEAN_BAR_WIDTH = 0.42
 SET_MEAN_DOT_SIZE = 150.0
@@ -387,16 +388,11 @@ def figure_y_upper_limit(values: np.ndarray) -> float:
 
 
 def grand_figure_y_upper_limit(values: np.ndarray, product: str) -> float:
-    """Place the largest upper SD bound near 87.5% of a zero-based y-axis."""
+    """Use the same fixed grand-average y-axis for both product groups."""
 
-    finite = np.asarray(values, dtype=float)
-    finite = finite[np.isfinite(finite)]
-    product_dir, _, _ = normalize_product(product)
-    minimum = 2_000.0 if product_dir == "CCube" else 100.0
-    if finite.size == 0:
-        return minimum
-    target = float(np.max(finite)) / 0.875
-    return max(minimum, float(np.ceil(target / 100.0) * 100.0))
+    _ = np.asarray(values, dtype=float)
+    normalize_product(product)
+    return GRAND_AVERAGE_Y_LIMIT_MS
 
 
 def _format_rt_axis(axis: plt.Axes, upper_limit: float) -> None:
@@ -1182,6 +1178,14 @@ def parse_args() -> argparse.Namespace:
         help="After all individual results, create a separate grand-average for each product group",
     )
     parser.add_argument(
+        "--grand-average-only",
+        action="store_true",
+        help=(
+            "Create only product-specific moving-average grand-average outputs; "
+            "preserve individual and set-mean quantification outputs"
+        ),
+    )
+    parser.add_argument(
         "--skip-invalid-participants",
         action="store_true",
         help=(
@@ -1209,9 +1213,18 @@ def main() -> int:
         raise SystemExit("Provide at least one --participant or --manifest")
     if len({spec.pair_id for spec in specs}) != len(specs):
         raise SystemExit("Duplicate participant pair in batch input")
-    if args.set_mean_quantification_only and args.grand_average:
+    selected_output_modes = sum(
+        bool(value)
+        for value in (
+            args.grand_average,
+            args.grand_average_only,
+            args.set_mean_quantification_only,
+        )
+    )
+    if selected_output_modes > 1:
         raise SystemExit(
-            "--set-mean-quantification-only cannot be combined with --grand-average"
+            "--grand-average, --grand-average-only, and "
+            "--set-mean-quantification-only are mutually exclusive"
         )
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -1243,6 +1256,25 @@ def main() -> int:
             quantification_outputs,
         )
         logging.info("Completed quantification batch summary: %s", batch_summary)
+        return 0
+
+    if args.grand_average_only:
+        results, exclusions = run_quantification_batch(
+            args.raw_root,
+            specs,
+            skip_invalid_participants=args.skip_invalid_participants,
+        )
+        if exclusions:
+            raise SystemExit(
+                "Grand-average-only execution excluded participant pairs; "
+                "existing grand-average outputs were not replaced"
+            )
+        products = sorted(
+            {normalize_product(result["participant"].product)[0] for result in results}
+        )
+        for product in products:
+            outputs = write_grand_average_outputs(args.output_root, results, product)
+            logging.info("Completed grand-average %s: %s", product, outputs["directory"])
         return 0
 
     results, exclusions = run_batch(
