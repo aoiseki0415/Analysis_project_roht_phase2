@@ -24,7 +24,7 @@ N_TRIALS = 320
 WINDOW_TRIALS = 20
 FWHM_TRIALS = 9.0
 GAUSSIAN_SIGMA = FWHM_TRIALS / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-OUTLIER_SD = 3.0
+OUTLIER_SD = 2.0
 CONTROL_COLOR = "#563A7C"
 PRODUCTS = {
     "ccube": ("CCube", "C Cube", "#C84A4A"),
@@ -48,10 +48,30 @@ DEFAULT_OUTPUT_ROOT = Path(
 class ParticipantSpec:
     """Mapping confirmed in the de-identified participant spreadsheet."""
 
-    participant_id: str
+    first_session_id: str
+    second_session_id: str
     drops_session_id: str
-    control_session_id: str
     product: str
+
+    def __post_init__(self) -> None:
+        if self.first_session_id == self.second_session_id:
+            raise ValueError("The first and second session IDs must differ")
+        if self.drops_session_id not in {self.first_session_id, self.second_session_id}:
+            raise ValueError("The eye-drop session must be either the first or second session")
+
+    @property
+    def pair_id(self) -> str:
+        return f"{self.first_session_id}-{self.second_session_id}"
+
+    @property
+    def control_session_id(self) -> str:
+        if self.drops_session_id == self.first_session_id:
+            return self.second_session_id
+        return self.first_session_id
+
+    @property
+    def eye_drops_visit(self) -> str:
+        return "1回目" if self.drops_session_id == self.first_session_id else "2回目"
 
 
 @dataclass
@@ -64,8 +84,8 @@ class SessionResult:
     trials: pd.DataFrame
     mean_rt_ms: float
     sd_rt_ms: float
-    lower_3sd_ms: float
-    upper_3sd_ms: float
+    lower_2sd_ms: float
+    upper_2sd_ms: float
     outlier_count: int
     outlier_trials: str
     valid_rt_count: int
@@ -84,12 +104,12 @@ def normalize_product(value: str) -> tuple[str, str, str]:
 
 
 def parse_participant(value: str) -> ParticipantSpec:
-    """Parse participant:drops_session:control_session:product."""
+    """Parse first_session:second_session:drops_session:product."""
 
     parts = [item.strip() for item in value.split(":")]
     if len(parts) != 4 or not all(parts):
         raise argparse.ArgumentTypeError(
-            "--participant must be participant:drops_session:control_session:product"
+            "--participant must be first_session:second_session:drops_session:product"
         )
     normalize_product(parts[3])
     return ParticipantSpec(*parts)
@@ -99,7 +119,7 @@ def load_manifest(path: Path) -> list[ParticipantSpec]:
     """Read a private batch manifest without copying it into the repository."""
 
     frame = pd.read_csv(path, dtype=str)
-    columns = ["participant_id", "drops_session_id", "control_session_id", "product"]
+    columns = ["first_session_id", "second_session_id", "drops_session_id", "product"]
     missing = [column for column in columns if column not in frame.columns]
     if missing:
         raise ValueError(f"Manifest is missing columns: {missing}")
@@ -254,12 +274,15 @@ def process_session(
     upper = mean_rt + OUTLIER_SD * sd_rt
     outlier = (recomputed < lower) | (recomputed > upper)
     trials["RT_raw_ms"] = recomputed
-    trials["Outlier_3SD"] = outlier
+    trials["Outlier_2SD"] = outlier
     trials["RT_clean_ms"] = np.where(outlier, np.nan, recomputed)
     trials["RT_smoothed_ms"] = np.nan
     trials["Progress_within_set_pct"] = (trials["Trial"].astype(float) - 1.0) / (
         N_TRIALS - 1.0
     ) * 100.0
+    trials["Global_progress_pct"] = (
+        (trials["Set"].astype(float) - 1.0) * 100.0 + trials["Progress_within_set_pct"]
+    )
     for set_number in range(1, N_SETS + 1):
         mask = trials["Set"] == set_number
         values = trials.loc[mask, "RT_clean_ms"].to_numpy(dtype=float)
@@ -273,8 +296,9 @@ def process_session(
         "Set",
         "Trial",
         "Progress_within_set_pct",
+        "Global_progress_pct",
         "RT_raw_ms",
-        "Outlier_3SD",
+        "Outlier_2SD",
         "RT_clean_ms",
         "RT_smoothed_ms",
         "RT(ms)",
@@ -294,8 +318,8 @@ def process_session(
         trials=trials,
         mean_rt_ms=mean_rt,
         sd_rt_ms=sd_rt,
-        lower_3sd_ms=lower,
-        upper_3sd_ms=upper,
+        lower_2sd_ms=lower,
+        upper_2sd_ms=upper,
         outlier_count=int(outlier.sum()),
         outlier_trials=outlier_trials or "なし",
         valid_rt_count=int((~outlier).sum()),
@@ -313,8 +337,8 @@ def _qc_row(result: SessionResult) -> dict[str, object]:
         "320_trials_per_set_confirmed": True,
         "mean_rt_ms": result.mean_rt_ms,
         "sd_rt_ms_ddof1": result.sd_rt_ms,
-        "lower_3sd_ms": result.lower_3sd_ms,
-        "upper_3sd_ms": result.upper_3sd_ms,
+        "lower_2sd_ms": result.lower_2sd_ms,
+        "upper_2sd_ms": result.upper_2sd_ms,
         "outlier_count": result.outlier_count,
         "outlier_trials": result.outlier_trials,
         "valid_rt_count": result.valid_rt_count,
@@ -329,51 +353,68 @@ def plot_individual(
     control: SessionResult,
     path: Path,
 ) -> None:
-    """Create the fixed six-set individual figure."""
+    """Create one continuous six-set figure for a participant pair."""
 
     _, product_label, product_color = normalize_product(participant.product)
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
-    figure, axes = plt.subplots(1, N_SETS, figsize=(31, 7.5), sharey=True)
-    for set_number, axis in enumerate(axes, start=1):
-        drops_set = drops.trials.loc[drops.trials["Set"] == set_number]
-        control_set = control.trials.loc[control.trials["Set"] == set_number]
-        axis.plot(
-            control_set["Progress_within_set_pct"],
-            control_set["RT_smoothed_ms"],
-            color=CONTROL_COLOR,
-            linewidth=3,
-            label="Control",
-        )
-        axis.plot(
-            drops_set["Progress_within_set_pct"],
-            drops_set["RT_smoothed_ms"],
-            color=product_color,
-            linewidth=3,
-            label=product_label,
-        )
-        axis.set_title(f"Set {set_number}", fontsize=24, pad=15)
-        axis.set_xlim(0, 100)
-        axis.set_xticks([0, 25, 50, 75, 100])
-        axis.tick_params(axis="both", labelsize=20, width=1.5, length=6)
-        axis.grid(axis="y", color="#D9D9D9", linewidth=0.8, alpha=0.7)
-        axis.spines["top"].set_visible(False)
-        axis.spines["right"].set_visible(False)
-    axes[0].set_ylabel("Reaction Time (ms)", fontsize=28)
-    handles, labels = axes[0].get_legend_handles_labels()
-    figure.legend(
-        handles,
-        labels,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.925),
-        ncol=2,
-        frameon=False,
-        fontsize=20,
+    figure, axis = plt.subplots(figsize=(24, 8))
+    drops_x = drops.trials["Global_progress_pct"].to_numpy(dtype=float)
+    control_x = control.trials["Global_progress_pct"].to_numpy(dtype=float)
+    axis.plot(
+        control_x,
+        control.trials["RT_smoothed_ms"],
+        color=CONTROL_COLOR,
+        linewidth=3,
+        label="Control",
     )
-    figure.supxlabel("Experimental Progress Within Each Set, %", fontsize=28, y=0.02)
-    figure.suptitle(
-        f"Participant {participant.participant_id} | {product_label}", fontsize=26, y=0.99
+    axis.plot(
+        drops_x,
+        drops.trials["RT_smoothed_ms"],
+        color=product_color,
+        linewidth=3,
+        label=f"Eye Drop Condition ({product_label})",
     )
-    figure.subplots_adjust(left=0.07, right=0.99, top=0.80, bottom=0.18, wspace=0.12)
+    for boundary in range(1, N_SETS):
+        axis.axvline(boundary * 100.0, color="#9E9E9E", linestyle="--", linewidth=1.5)
+    for set_number in range(1, N_SETS + 1):
+        axis.text(
+            (set_number - 0.5) * 100.0,
+            0.96,
+            f"Set {set_number}",
+            transform=axis.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            fontsize=22,
+            color="#333333",
+        )
+
+    tick_positions: list[float] = []
+    tick_labels: list[str] = []
+    for set_number in range(N_SETS):
+        tick_positions.extend(set_number * 100.0 + np.array([0.0, 25.0, 50.0, 75.0]))
+        tick_labels.extend(["0", "25", "50", "75"])
+    tick_positions.append(N_SETS * 100.0)
+    tick_labels.append("100")
+
+    displayed = np.concatenate(
+        [
+            drops.trials["RT_smoothed_ms"].to_numpy(dtype=float),
+            control.trials["RT_smoothed_ms"].to_numpy(dtype=float),
+        ]
+    )
+    max_value = float(np.nanmax(displayed))
+    upper_limit = max(100.0, float(np.ceil((max_value * 1.15) / 100.0) * 100.0))
+    axis.set_xlim(0.0, N_SETS * 100.0)
+    axis.set_ylim(0.0, upper_limit)
+    axis.set_xticks(tick_positions, tick_labels)
+    axis.set_xlabel("Experimental Progress Within Each Set, %", fontsize=28, labelpad=18)
+    axis.set_ylabel("Reaction Time (ms)", fontsize=28)
+    axis.tick_params(axis="both", labelsize=18, width=1.5, length=6)
+    axis.grid(axis="y", color="#D9D9D9", linewidth=0.8, alpha=0.7)
+    axis.spines["top"].set_visible(False)
+    axis.spines["right"].set_visible(False)
+    axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.10), ncol=2, frameon=False, fontsize=20)
+    figure.subplots_adjust(left=0.08, right=0.99, top=0.84, bottom=0.20)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
 
@@ -393,22 +434,28 @@ def write_participant_outputs(
         / "No1_ReactionTime"
         / product_dir
         / "Individual"
-        / f"ID{participant.participant_id}"
+        / f"ID{participant.pair_id}"
     )
     participant_dir.mkdir(parents=True, exist_ok=True)
-    figure_path = participant_dir / f"ID{participant.participant_id}_No1_RT_Individual.png"
-    trial_path = participant_dir / f"ID{participant.participant_id}_No1_RT_TrialData.csv"
-    qc_path = participant_dir / f"ID{participant.participant_id}_No1_RT_QC.csv"
-    log_path = participant_dir / f"ID{participant.participant_id}_No1_RT_RunSummary.json"
+    prefix = f"ID{participant.pair_id}_No1_RT"
+    figure_path = participant_dir / f"{prefix}_Individual.png"
+    trial_path = participant_dir / f"{prefix}_TrialData.csv"
+    qc_path = participant_dir / f"{prefix}_QC.csv"
+    log_path = participant_dir / f"{prefix}_RunSummary.json"
 
     plot_individual(participant, drops, control, figure_path)
     pd.concat([drops.trials, control.trials], ignore_index=True).to_csv(trial_path, index=False)
     pd.DataFrame([_qc_row(drops), _qc_row(control)]).to_csv(qc_path, index=False)
     summary = {
-        "participant": asdict(participant),
+        "participant": {
+            **asdict(participant),
+            "pair_id": participant.pair_id,
+            "control_session_id": participant.control_session_id,
+            "eye_drops_visit": participant.eye_drops_visit,
+        },
         "parameters": {
             "rt": "KeyPress(ms) - TiltOnset(ms)",
-            "outlier": "session mean +/- 3 sample SD (ddof=1)",
+            "outlier": "session mean +/- 2 sample SD (ddof=1)",
             "outlier_replacement": "NaN; trial positions retained",
             "moving_average": "Gaussian, local support 20 trials, FWHM 9 trials",
             "gaussian_sigma_trials": float(GAUSSIAN_SIGMA),
@@ -437,7 +484,7 @@ def run_participant(raw_root: Path, output_root: Path, spec: ParticipantSpec) ->
     """Run both conditions for one participant using the shared pipeline."""
 
     product_dir, _, _ = normalize_product(spec.product)
-    logging.info("Participant %s (%s)", spec.participant_id, product_dir)
+    logging.info("Participant pair %s (%s)", spec.pair_id, product_dir)
     drops = process_session(raw_root, spec.drops_session_id, "目薬あり", product_dir)
     control = process_session(raw_root, spec.control_session_id, "コントロール", product_dir)
     outputs = write_participant_outputs(output_root, spec, drops, control)
@@ -455,12 +502,12 @@ def parse_args() -> argparse.Namespace:
         "--participant",
         action="append",
         type=parse_participant,
-        help="participant:drops_session:control_session:product; repeat for a batch",
+        help="first_session:second_session:drops_session:product; repeat for a batch",
     )
     parser.add_argument(
         "--manifest",
         type=Path,
-        help="Private CSV with participant_id,drops_session_id,control_session_id,product",
+        help="Private CSV with first_session_id,second_session_id,drops_session_id,product",
     )
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
@@ -474,8 +521,8 @@ def main() -> int:
         specs.extend(load_manifest(args.manifest))
     if not specs:
         raise SystemExit("Provide at least one --participant or --manifest")
-    if len({spec.participant_id for spec in specs}) != len(specs):
-        raise SystemExit("Duplicate participant_id in batch input")
+    if len({spec.pair_id for spec in specs}) != len(specs):
+        raise SystemExit("Duplicate participant pair in batch input")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     results = []
@@ -485,7 +532,7 @@ def main() -> int:
         outputs = result["outputs"]
         logging.info(
             "Completed participant %s: %s",
-            result["participant"].participant_id,
+            result["participant"].pair_id,
             outputs["directory"],
         )
     return 0

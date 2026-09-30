@@ -72,10 +72,39 @@ def test_process_session_recomputes_rt_and_keeps_outlier_position(tmp_path: Path
     assert np.isnan(target["RT_clean_ms"])
     assert np.isfinite(target["RT_smoothed_ms"])
     assert result.rt_match == "一致"
+    assert phase2.OUTLIER_SD == 2.0
+    assert result.lower_2sd_ms < result.mean_rt_ms < result.upper_2sd_ms
 
 
 def test_parse_participant_and_product_aliases() -> None:
-    spec = phase2.parse_participant("101:101:201:Vロート")
-    assert spec.participant_id == "101"
+    spec = phase2.parse_participant("101:201:101:Vロート")
+    assert spec.first_session_id == "101"
+    assert spec.second_session_id == "201"
+    assert spec.pair_id == "101-201"
     assert spec.drops_session_id == "101"
+    assert spec.control_session_id == "201"
+    assert spec.eye_drops_visit == "1回目"
     assert phase2.normalize_product(spec.product)[0] == "VRohtoPremium"
+
+
+def test_outputs_are_grouped_by_participant_pair(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    for session_id in ("101", "201"):
+        session = raw_root / session_id
+        session.mkdir(parents=True)
+        for set_number in range(1, 7):
+            _write_results(
+                session / f"{session_id}_block{set_number}_results.csv",
+                set_number,
+                np.full(320, 500.0 + int(session_id)),
+            )
+    spec = phase2.parse_participant("101:201:101:VRohtoPremium")
+    result = phase2.run_participant(raw_root, tmp_path / "output", spec)
+    output_dir = Path(result["outputs"]["directory"])
+    assert output_dir.name == "ID101-201"
+    assert sorted(path.name for path in output_dir.iterdir()) == [
+        "ID101-201_No1_RT_Individual.png",
+        "ID101-201_No1_RT_QC.csv",
+        "ID101-201_No1_RT_RunSummary.json",
+        "ID101-201_No1_RT_TrialData.csv",
+    ]

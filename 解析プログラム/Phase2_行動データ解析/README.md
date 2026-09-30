@@ -11,21 +11,23 @@
 - 入力は生の `*_blockN_results.csv` とする
 - RTは非Sys列から `KeyPress(ms) - TiltOnset(ms)` で再計算する
 - 各セット320刺激試行・320 RTを検証する。ミスタッチを含むCSV総行数とは区別する
-- セッション6セット全体の平均±3SD範囲外をNaNへ置換し、試行位置を詰めない
+- セッション6セット全体の平均±2SD範囲外をNaNへ置換し、試行位置を詰めない
 - 各セットを独立に、20試行幅・FWHM 9試行のGaussian重み付き移動平均で320点を出力する
 - 端点とNaNでは有効な重みを再正規化し、セット境界を越えない
 - 分割記録のあるID 109、120、135、225も個人別解析を試み、各セットで重複のない320刺激試行を確定できる場合だけ解析する。重複は二重計上せず、欠損補間はしない
 - Google Driveの匿名共有タブで、被験者の2セッションID、製品群、目薬ありの実施回を実行前に確認し、100番台／200番台から条件を推測しない
 - 同じPythonコード内のループで全被験者を処理し、被験者ごとにコードを複製・変更しない
 - Cキューブ群とVロートプレミアム群を分け、それぞれで目薬あり条件とコントロールを被験者内比較する
-- FigureはArial、英語表記とし、横軸を `Experimental Progress Within Each Set, %`、目盛りを各セット `0, 25, 50, 75, 100`、縦軸を `Reaction Time (ms)` とする
+- FigureはArial、英語表記とし、Set 1〜6を一つの横軸へ連結する。セット境界をグレー点線、セット名を図内上部へ示し、縦軸は0 msから開始する
 - 色はControl `#563A7C`、C Cube `#C84A4A`、V Rohto Premium `#E58A2B` に固定する
+- 凡例は `Control` と `Eye Drop Condition (<製品名>)` とし、被験者タイトルは付けない
+- 出力フォルダ、ファイル名、Notion結果はセッション単独ではなく `ID<1回目>-<2回目>` の被験者ペア単位とする
 - 個人別出力とGrand-averageは同じNo1に属する。全個人の外れ値処理・移動平均が完了してから、個人別の移動平均値を被験者間平均し、平均±1 SDを表示する。分割IDの採否と推測統計は実装前に追加確定する
 
 実行スクリプトは `Phase2_No1_ReactionTime.py` です。被験者対応はコードへ埋め込まず、Googleスプレッドシートで確認した対応を次のいずれかで渡します。
 
-- 1名または少人数：`--participant 101:101:201:VRohtoPremium` のように、`代表ID:目薬ありセッションID:コントロールセッションID:製品群` を指定する
-- 全被験者：`participant_id,drops_session_id,control_session_id,product` の4列を持つ非公開manifest CSVを `--manifest` で指定する
+- 1名または少人数：`--participant 101:201:101:VRohtoPremium` のように、`1回目ID:2回目ID:目薬ありID:製品群` を指定する
+- 全被験者：`first_session_id,second_session_id,drops_session_id,product` の4列を持つ非公開manifest CSVを `--manifest` で指定する
 
 どちらも同じコード内のループを通り、被験者別に処理内容を変更しません。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。個人別解析ではfigure、試行別確認表、セッション別QC、実行要約を指定OneDriveへ保存します。Grand-averageは対象者基準の確定後、全個人別解析の完了後に同じNo1として追加します。
 
