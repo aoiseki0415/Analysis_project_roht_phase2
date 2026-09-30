@@ -24,8 +24,14 @@ N_TRIALS = 320
 WINDOW_TRIALS = 20
 FWHM_TRIALS = 9.0
 GAUSSIAN_SIGMA = FWHM_TRIALS / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-OUTLIER_SD = 3.0
+OUTLIER_SD = 2.0
 CONTROL_COLOR = "#563A7C"
+EEG_MISSING_SET_BY_SESSION = {
+    "109": 1,
+    "120": 6,
+    "135": 2,
+    "225": 4,
+}
 PRODUCTS = {
     "ccube": ("CCube", "C Cube", "#C84A4A"),
     "c_cube": ("CCube", "C Cube", "#C84A4A"),
@@ -84,13 +90,14 @@ class SessionResult:
     trials: pd.DataFrame
     mean_rt_ms: float
     sd_rt_ms: float
-    lower_3sd_ms: float
-    upper_3sd_ms: float
+    lower_2sd_ms: float
+    upper_2sd_ms: float
     outlier_count: int
     outlier_trials: str
     valid_rt_count: int
     rt_match: str
     source_notes: str
+    eeg_missing_set: int | None
 
 
 def normalize_product(value: str) -> tuple[str, str, str]:
@@ -268,14 +275,23 @@ def process_session(
     csv_rt = trials["RT(ms)"].to_numpy(dtype=float)
     rt_match = "一致" if np.allclose(recomputed, csv_rt, rtol=0.0, atol=1e-6) else "不一致"
 
-    mean_rt = float(np.mean(recomputed))
-    sd_rt = float(np.std(recomputed, ddof=1))
+    eeg_missing_set = EEG_MISSING_SET_BY_SESSION.get(session_id)
+    eeg_missing = np.zeros(len(trials), dtype=bool)
+    if eeg_missing_set is not None:
+        eeg_missing = trials["Set"].to_numpy(dtype=int) == eeg_missing_set
+
+    analysis_rt = recomputed.copy()
+    analysis_rt[eeg_missing] = np.nan
+    finite_analysis_rt = analysis_rt[np.isfinite(analysis_rt)]
+    mean_rt = float(np.mean(finite_analysis_rt))
+    sd_rt = float(np.std(finite_analysis_rt, ddof=1))
     lower = mean_rt - OUTLIER_SD * sd_rt
     upper = mean_rt + OUTLIER_SD * sd_rt
-    outlier = (recomputed < lower) | (recomputed > upper)
-    trials["RT_raw_ms"] = recomputed
-    trials["Outlier_3SD"] = outlier
-    trials["RT_clean_ms"] = np.where(outlier, np.nan, recomputed)
+    outlier = np.isfinite(analysis_rt) & ((analysis_rt < lower) | (analysis_rt > upper))
+    trials["EEG_missing_set"] = eeg_missing
+    trials["RT_raw_ms"] = analysis_rt
+    trials["Outlier_2SD"] = outlier
+    trials["RT_clean_ms"] = np.where(outlier, np.nan, analysis_rt)
     trials["RT_smoothed_ms"] = np.nan
     trials["Progress_within_set_pct"] = 1.0 + (
         (trials["Trial"].astype(float) - 1.0) / (N_TRIALS - 1.0) * 99.0
@@ -298,7 +314,8 @@ def process_session(
         "Progress_within_set_pct",
         "Global_progress_pct",
         "RT_raw_ms",
-        "Outlier_3SD",
+        "EEG_missing_set",
+        "Outlier_2SD",
         "RT_clean_ms",
         "RT_smoothed_ms",
         "RT(ms)",
@@ -318,13 +335,14 @@ def process_session(
         trials=trials,
         mean_rt_ms=mean_rt,
         sd_rt_ms=sd_rt,
-        lower_3sd_ms=lower,
-        upper_3sd_ms=upper,
+        lower_2sd_ms=lower,
+        upper_2sd_ms=upper,
         outlier_count=int(outlier.sum()),
         outlier_trials=outlier_trials or "なし",
-        valid_rt_count=int((~outlier).sum()),
+        valid_rt_count=int(np.isfinite(trials["RT_clean_ms"]).sum()),
         rt_match=rt_match,
         source_notes=" | ".join(notes),
+        eeg_missing_set=eeg_missing_set,
     )
 
 
@@ -337,12 +355,17 @@ def _qc_row(result: SessionResult) -> dict[str, object]:
         "320_trials_per_set_confirmed": True,
         "mean_rt_ms": result.mean_rt_ms,
         "sd_rt_ms_ddof1": result.sd_rt_ms,
-        "lower_3sd_ms": result.lower_3sd_ms,
-        "upper_3sd_ms": result.upper_3sd_ms,
+        "lower_2sd_ms": result.lower_2sd_ms,
+        "upper_2sd_ms": result.upper_2sd_ms,
         "outlier_count": result.outlier_count,
         "outlier_trials": result.outlier_trials,
         "valid_rt_count": result.valid_rt_count,
         "rt_match": result.rt_match,
+        "eeg_missing_set": (
+            f"Set{result.eeg_missing_set}" if result.eeg_missing_set is not None else "なし"
+        ),
+        "analysis_set_count": N_SETS - int(result.eeg_missing_set is not None),
+        "eeg_missing_trial_count": N_TRIALS if result.eeg_missing_set is not None else 0,
         "source_notes": result.source_notes,
     }
 
@@ -358,15 +381,17 @@ def figure_y_upper_limit(values: np.ndarray) -> float:
     return max(100.0, float(np.ceil(target / 100.0) * 100.0))
 
 
-def grand_figure_y_upper_limit(values: np.ndarray) -> float:
+def grand_figure_y_upper_limit(values: np.ndarray, product: str) -> float:
     """Place the largest upper SD bound near 87.5% of a zero-based y-axis."""
 
     finite = np.asarray(values, dtype=float)
     finite = finite[np.isfinite(finite)]
+    product_dir, _, _ = normalize_product(product)
+    minimum = 2_000.0 if product_dir == "CCube" else 100.0
     if finite.size == 0:
-        return 100.0
+        return minimum
     target = float(np.max(finite)) / 0.875
-    return max(100.0, float(np.ceil(target / 100.0) * 100.0))
+    return max(minimum, float(np.ceil(target / 100.0) * 100.0))
 
 
 def _format_rt_axis(axis: plt.Axes, upper_limit: float) -> None:
@@ -473,8 +498,12 @@ def write_participant_outputs(
         },
         "parameters": {
             "rt": "KeyPress(ms) - TiltOnset(ms)",
-            "outlier": "session mean +/- 3 sample SD (ddof=1)",
+            "outlier": "session mean +/- 2 sample SD (ddof=1), after EEG-missing set masking",
             "outlier_replacement": "NaN; trial positions retained",
+            "eeg_missing_set_rule": (
+                "Only the affected session is NaN-masked in individual analysis; "
+                "both paired conditions are masked for the same set in grand-average"
+            ),
             "moving_average": "Gaussian, local support 20 trials, FWHM 9 trials",
             "gaussian_sigma_trials": float(GAUSSIAN_SIGMA),
             "grand_average_created": False,
@@ -538,8 +567,26 @@ def build_grand_average(results: list[dict[str, object]], product: str) -> pd.Da
             if not coordinates.equals(reference):
                 pair_id = result["participant"].pair_id
                 raise ValueError(f"Participant {pair_id} has incompatible set/trial coordinates")
-        drops_values.append(result["drops"].trials["RT_smoothed_ms"].to_numpy(dtype=float))
-        control_values.append(result["control"].trials["RT_smoothed_ms"].to_numpy(dtype=float))
+        pairwise_missing_sets = {
+            value
+            for value in (
+                result["drops"].eeg_missing_set,
+                result["control"].eeg_missing_set,
+            )
+            if value is not None
+        }
+        if len(pairwise_missing_sets) > 1:
+            pair_id = result["participant"].pair_id
+            raise ValueError(f"Participant {pair_id} has multiple EEG-missing sets")
+        drops = result["drops"].trials["RT_smoothed_ms"].to_numpy(dtype=float).copy()
+        control = result["control"].trials["RT_smoothed_ms"].to_numpy(dtype=float).copy()
+        if pairwise_missing_sets:
+            missing_set = next(iter(pairwise_missing_sets))
+            missing_mask = reference["Set"].to_numpy(dtype=int) == missing_set
+            drops[missing_mask] = np.nan
+            control[missing_mask] = np.nan
+        drops_values.append(drops)
+        control_values.append(control)
 
     drops_mean, drops_sd, drops_n = _columnwise_mean_sd_n(np.vstack(drops_values))
     control_mean, control_sd, control_n = _columnwise_mean_sd_n(np.vstack(control_values))
@@ -589,7 +636,7 @@ def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> float:
         label=f"Eye Drop ({product_label})",
     )
     displayed = np.concatenate([control_mean + control_sd, drops_mean + drops_sd])
-    upper_limit = grand_figure_y_upper_limit(displayed)
+    upper_limit = grand_figure_y_upper_limit(displayed, product)
     _format_rt_axis(axis, upper_limit)
     axis.legend(
         loc="upper center",
@@ -597,8 +644,6 @@ def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> float:
         ncol=2,
         frameon=False,
         fontsize=20,
-        title="Mean ± 1 SD",
-        title_fontsize=18,
     )
     figure.subplots_adjust(left=0.08, right=0.99, top=0.78, bottom=0.20)
     figure.savefig(path, dpi=180, bbox_inches="tight")
@@ -653,6 +698,22 @@ def write_grand_average_outputs(
         "aggregation": "individual Gaussian-smoothed RT aligned by set and trial",
         "between_participant_variability": "sample SD (ddof=1), shown as mean +/- 1 SD",
         "missing_values": "NaN-aware by position; N stored for each condition and position",
+        "pairwise_eeg_missing_sets": {
+            result["participant"].pair_id: next(
+                (
+                    value
+                    for value in (
+                        result["drops"].eeg_missing_set,
+                        result["control"].eeg_missing_set,
+                    )
+                    if value is not None
+                ),
+                None,
+            )
+            for result in selected
+            if result["drops"].eeg_missing_set is not None
+            or result["control"].eeg_missing_set is not None
+        },
         "manifest_controls_inclusion": True,
         "figure_y_axis_upper_ms": y_axis_upper_ms,
         "max_upper_sd_band_ms": max_upper_sd_band_ms,

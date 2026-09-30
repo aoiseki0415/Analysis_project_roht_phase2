@@ -72,8 +72,8 @@ def test_process_session_recomputes_rt_and_keeps_outlier_position(tmp_path: Path
     assert np.isnan(target["RT_clean_ms"])
     assert np.isfinite(target["RT_smoothed_ms"])
     assert result.rt_match == "一致"
-    assert phase2.OUTLIER_SD == 3.0
-    assert result.lower_3sd_ms < result.mean_rt_ms < result.upper_3sd_ms
+    assert phase2.OUTLIER_SD == 2.0
+    assert result.lower_2sd_ms < result.mean_rt_ms < result.upper_2sd_ms
     first_set = result.trials.loc[result.trials["Set"] == 1]
     sixth_set = result.trials.loc[result.trials["Set"] == 6]
     assert first_set["Progress_within_set_pct"].iloc[0] == pytest.approx(1.0)
@@ -88,9 +88,16 @@ def test_figure_y_upper_limit_places_maximum_near_seventy_percent() -> None:
 
 
 def test_grand_figure_y_upper_limit_places_upper_sd_near_eighty_seven_percent() -> None:
-    upper = phase2.grand_figure_y_upper_limit(np.array([400.0, 1_750.0]))
+    upper = phase2.grand_figure_y_upper_limit(
+        np.array([400.0, 1_750.0]), "VRohtoPremium"
+    )
     assert upper == 2_000.0
     assert 0.85 <= 1_750.0 / upper <= 0.90
+
+
+def test_ccube_grand_figure_has_at_least_two_thousand_ms_headroom() -> None:
+    upper = phase2.grand_figure_y_upper_limit(np.array([400.0, 1_350.0]), "CCube")
+    assert upper == 2_000.0
 
 
 def test_parse_participant_and_product_aliases() -> None:
@@ -171,13 +178,14 @@ def _synthetic_session(session_id: str, condition: str, values: np.ndarray) -> o
         trials=trials,
         mean_rt_ms=float(np.mean(values)),
         sd_rt_ms=float(np.std(values, ddof=1)),
-        lower_3sd_ms=0.0,
-        upper_3sd_ms=0.0,
+        lower_2sd_ms=0.0,
+        upper_2sd_ms=0.0,
         outlier_count=0,
         outlier_trials="なし",
         valid_rt_count=len(values),
         rt_match="一致",
         source_notes="synthetic",
+        eeg_missing_set=None,
     )
 
 
@@ -220,3 +228,50 @@ def test_grand_average_uses_individual_smoothed_values_and_writes_outputs(
     assert summary["figure_y_axis_upper_ms"] == 900.0
     # At this deliberately low synthetic scale, 100-ms rounding is coarse.
     assert 0.80 <= summary["max_upper_sd_band_axis_ratio"] <= 0.90
+
+
+def test_eeg_missing_set_is_masked_before_two_sd_and_smoothing(tmp_path: Path) -> None:
+    session = tmp_path / "109"
+    session.mkdir()
+    for set_number in range(1, 7):
+        rt = np.full(320, 500.0)
+        if set_number == 1:
+            rt[:] = 4_000.0
+        _write_results(session / f"109_block{set_number}_results.csv", set_number, rt)
+
+    result = phase2.process_session(tmp_path, "109", "目薬あり", "VRohtoPremium")
+    missing = result.trials["Set"] == 1
+    retained = result.trials["Set"] != 1
+    assert result.eeg_missing_set == 1
+    assert result.mean_rt_ms == pytest.approx(500.0)
+    assert result.sd_rt_ms == pytest.approx(0.0)
+    assert result.outlier_count == 0
+    assert result.valid_rt_count == 1_600
+    assert result.trials.loc[missing, "EEG_missing_set"].all()
+    assert result.trials.loc[missing, "RT_raw_ms"].isna().all()
+    assert result.trials.loc[missing, "RT_smoothed_ms"].isna().all()
+    assert result.trials.loc[retained, "RT_smoothed_ms"].notna().all()
+
+
+def test_grand_average_masks_both_conditions_for_pairwise_eeg_missing_set() -> None:
+    values_a = np.full(1920, 500.0)
+    values_b = np.full(1920, 700.0)
+    spec_a = phase2.parse_participant("109:209:109:VRohtoPremium")
+    spec_b = phase2.parse_participant("111:211:211:VRohtoPremium")
+    drops_a = _synthetic_session("109", "目薬あり", values_a)
+    control_a = _synthetic_session("209", "コントロール", values_b)
+    drops_a.eeg_missing_set = 1
+    drops_b = _synthetic_session("211", "目薬あり", values_b)
+    control_b = _synthetic_session("111", "コントロール", values_a)
+    results = [
+        {"participant": spec_a, "drops": drops_a, "control": control_a},
+        {"participant": spec_b, "drops": drops_b, "control": control_b},
+    ]
+
+    grand = phase2.build_grand_average(results, "VRohtoPremium")
+    set1 = grand["Set"] == 1
+    set2 = grand["Set"] == 2
+    assert np.all(grand.loc[set1, "EyeDrop_N"] == 1)
+    assert np.all(grand.loc[set1, "Control_N"] == 1)
+    assert np.all(grand.loc[set2, "EyeDrop_N"] == 2)
+    assert np.all(grand.loc[set2, "Control_N"] == 2)
