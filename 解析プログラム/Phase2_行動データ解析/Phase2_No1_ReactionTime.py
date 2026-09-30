@@ -358,6 +358,35 @@ def figure_y_upper_limit(values: np.ndarray) -> float:
     return max(100.0, float(np.ceil(target / 100.0) * 100.0))
 
 
+def _format_rt_axis(axis: plt.Axes, upper_limit: float) -> None:
+    """Apply the fixed No1 axis and set-boundary presentation."""
+
+    for boundary in range(1, N_SETS):
+        boundary_x = boundary * 100.0 + 0.5
+        axis.axvline(boundary_x, color="#9E9E9E", linestyle="--", linewidth=1.5)
+    for set_number in range(1, N_SETS + 1):
+        axis.text(
+            (set_number - 0.5) * 100.0,
+            0.96,
+            f"Set {set_number}",
+            transform=axis.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            fontsize=22,
+            color="#333333",
+        )
+    axis.set_xlim(0.0, N_SETS * 100.0)
+    axis.set_ylim(0.0, upper_limit)
+    axis.set_xticks(np.arange(0.0, N_SETS * 100.0 + 1.0, 50.0))
+    axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
+    axis.set_xlabel("Experimental Progress, %", fontsize=28, labelpad=18)
+    axis.set_ylabel("Reaction Time (ms)", fontsize=28)
+    axis.tick_params(axis="x", labelsize=20, width=1.5, length=6)
+    axis.tick_params(axis="y", labelsize=20, width=1.5, length=6)
+    axis.spines["top"].set_visible(False)
+    axis.spines["right"].set_visible(False)
+
+
 def plot_individual(
     participant: ParticipantSpec,
     drops: SessionResult,
@@ -385,21 +414,6 @@ def plot_individual(
         linewidth=3,
         label="Eye Drop",
     )
-    for boundary in range(1, N_SETS):
-        boundary_x = boundary * 100.0 + 0.5
-        axis.axvline(boundary_x, color="#9E9E9E", linestyle="--", linewidth=1.5)
-    for set_number in range(1, N_SETS + 1):
-        axis.text(
-            (set_number - 0.5) * 100.0,
-            0.96,
-            f"Set {set_number}",
-            transform=axis.get_xaxis_transform(),
-            ha="center",
-            va="top",
-            fontsize=22,
-            color="#333333",
-        )
-
     displayed = np.concatenate(
         [
             drops.trials["RT_smoothed_ms"].to_numpy(dtype=float),
@@ -407,16 +421,7 @@ def plot_individual(
         ]
     )
     upper_limit = figure_y_upper_limit(displayed)
-    axis.set_xlim(0.0, N_SETS * 100.0)
-    axis.set_ylim(0.0, upper_limit)
-    axis.set_xticks(np.arange(0.0, N_SETS * 100.0 + 1.0, 50.0))
-    axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
-    axis.set_xlabel("Experimental Progress, %", fontsize=28, labelpad=18)
-    axis.set_ylabel("Reaction Time (ms)", fontsize=28)
-    axis.tick_params(axis="x", labelsize=20, width=1.5, length=6)
-    axis.tick_params(axis="y", labelsize=20, width=1.5, length=6)
-    axis.spines["top"].set_visible(False)
-    axis.spines["right"].set_visible(False)
+    _format_rt_axis(axis, upper_limit)
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.18), ncol=2, frameon=False, fontsize=20)
     figure.subplots_adjust(left=0.08, right=0.99, top=0.78, bottom=0.20)
     figure.savefig(path, dpi=180, bbox_inches="tight")
@@ -480,6 +485,157 @@ def write_participant_outputs(
     }
 
 
+def _columnwise_mean_sd_n(matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return NaN-aware mean, sample SD, and valid participant count."""
+
+    values = np.asarray(matrix, dtype=float)
+    valid = np.isfinite(values)
+    count = valid.sum(axis=0)
+    total = np.where(valid, values, 0.0).sum(axis=0)
+    mean = np.divide(total, count, out=np.full(values.shape[1], np.nan), where=count > 0)
+    squared = np.where(valid, (values - mean) ** 2, 0.0).sum(axis=0)
+    variance = np.divide(
+        squared,
+        count - 1,
+        out=np.full(values.shape[1], np.nan),
+        where=count > 1,
+    )
+    return mean, np.sqrt(variance), count
+
+
+def build_grand_average(results: list[dict[str, object]], product: str) -> pd.DataFrame:
+    """Aggregate individual smoothed RT at identical set/trial positions."""
+
+    product_dir, _, _ = normalize_product(product)
+    selected = [
+        result
+        for result in results
+        if normalize_product(result["participant"].product)[0] == product_dir
+    ]
+    if len(selected) < 2:
+        raise ValueError(f"Grand-average for {product_dir} requires at least two participants")
+
+    reference = selected[0]["drops"].trials[["Set", "Trial", "Global_progress_pct"]].reset_index(
+        drop=True
+    )
+    drops_values: list[np.ndarray] = []
+    control_values: list[np.ndarray] = []
+    for result in selected:
+        for condition in ("drops", "control"):
+            trials = result[condition].trials.reset_index(drop=True)
+            coordinates = trials[["Set", "Trial", "Global_progress_pct"]]
+            if not coordinates.equals(reference):
+                pair_id = result["participant"].pair_id
+                raise ValueError(f"Participant {pair_id} has incompatible set/trial coordinates")
+        drops_values.append(result["drops"].trials["RT_smoothed_ms"].to_numpy(dtype=float))
+        control_values.append(result["control"].trials["RT_smoothed_ms"].to_numpy(dtype=float))
+
+    drops_mean, drops_sd, drops_n = _columnwise_mean_sd_n(np.vstack(drops_values))
+    control_mean, control_sd, control_n = _columnwise_mean_sd_n(np.vstack(control_values))
+    grand = reference.copy()
+    grand["EyeDrop_mean_RT_ms"] = drops_mean
+    grand["EyeDrop_SD_RT_ms"] = drops_sd
+    grand["EyeDrop_N"] = drops_n
+    grand["Control_mean_RT_ms"] = control_mean
+    grand["Control_SD_RT_ms"] = control_sd
+    grand["Control_N"] = control_n
+    return grand
+
+
+def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> None:
+    """Plot product-specific mean RT and between-participant mean +/- 1 SD."""
+
+    _, _, product_color = normalize_product(product)
+    plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
+    figure, axis = plt.subplots(figsize=(24, 8))
+    x = grand["Global_progress_pct"].to_numpy(dtype=float)
+    control_mean = grand["Control_mean_RT_ms"].to_numpy(dtype=float)
+    control_sd = grand["Control_SD_RT_ms"].to_numpy(dtype=float)
+    drops_mean = grand["EyeDrop_mean_RT_ms"].to_numpy(dtype=float)
+    drops_sd = grand["EyeDrop_SD_RT_ms"].to_numpy(dtype=float)
+    axis.fill_between(
+        x,
+        control_mean - control_sd,
+        control_mean + control_sd,
+        color=CONTROL_COLOR,
+        alpha=0.18,
+        linewidth=0,
+    )
+    axis.fill_between(
+        x,
+        drops_mean - drops_sd,
+        drops_mean + drops_sd,
+        color=product_color,
+        alpha=0.18,
+        linewidth=0,
+    )
+    axis.plot(x, control_mean, color=CONTROL_COLOR, linewidth=3, label="Control")
+    axis.plot(x, drops_mean, color=product_color, linewidth=3, label="Eye Drop")
+    displayed = np.concatenate([control_mean + control_sd, drops_mean + drops_sd])
+    _format_rt_axis(axis, figure_y_upper_limit(displayed))
+    axis.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.18),
+        ncol=2,
+        frameon=False,
+        fontsize=20,
+        title="Mean ± 1 SD",
+        title_fontsize=18,
+    )
+    figure.subplots_adjust(left=0.08, right=0.99, top=0.78, bottom=0.20)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+
+
+def write_grand_average_outputs(
+    output_root: Path,
+    results: list[dict[str, object]],
+    product: str,
+) -> dict[str, str]:
+    """Write the product-specific grand-average figure, values, and run summary."""
+
+    product_dir, _, _ = normalize_product(product)
+    selected = [
+        result
+        for result in results
+        if normalize_product(result["participant"].product)[0] == product_dir
+    ]
+    grand = build_grand_average(results, product_dir)
+    output_dir = (
+        output_root
+        / "Phase2_行動データ解析"
+        / "No1_ReactionTime"
+        / product_dir
+        / "GrandAverage"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    prefix = f"No1_RT_GrandAverage_{product_dir}"
+    figure_path = output_dir / f"{prefix}.png"
+    values_path = output_dir / f"{prefix}_Values.csv"
+    summary_path = output_dir / f"{prefix}_RunSummary.json"
+    plot_grand_average(grand, product_dir, figure_path)
+    grand.to_csv(values_path, index=False)
+    summary = {
+        "product": product_dir,
+        "participant_count": len(selected),
+        "participant_pairs": [result["participant"].pair_id for result in selected],
+        "aggregation": "individual Gaussian-smoothed RT aligned by set and trial",
+        "between_participant_variability": "sample SD (ddof=1), shown as mean +/- 1 SD",
+        "missing_values": "NaN-aware by position; N stored for each condition and position",
+        "manifest_controls_inclusion": True,
+        "local_processed_data_created": False,
+        "outputs": {"figure": str(figure_path), "values": str(values_path)},
+        "completed_at": datetime.now().astimezone().isoformat(),
+    }
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "directory": str(output_dir),
+        "figure": str(figure_path),
+        "values": str(values_path),
+        "summary": str(summary_path),
+    }
+
+
 def run_participant(raw_root: Path, output_root: Path, spec: ParticipantSpec) -> dict[str, object]:
     """Run both conditions for one participant using the shared pipeline."""
 
@@ -511,6 +667,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument(
+        "--grand-average",
+        action="store_true",
+        help="After all individual results, create a separate grand-average for each product group",
+    )
     return parser.parse_args()
 
 
@@ -535,6 +696,11 @@ def main() -> int:
             result["participant"].pair_id,
             outputs["directory"],
         )
+    if args.grand_average:
+        products = sorted({normalize_product(spec.product)[0] for spec in specs})
+        for product in products:
+            outputs = write_grand_average_outputs(args.output_root, results, product)
+            logging.info("Completed grand-average %s: %s", product, outputs["directory"])
     return 0
 
 

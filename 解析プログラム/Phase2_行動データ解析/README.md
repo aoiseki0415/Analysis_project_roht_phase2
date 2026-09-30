@@ -24,7 +24,8 @@
 - 色はControl `#563A7C`、C Cube `#C84A4A`、V Rohto Premium `#E58A2B` に固定する
 - 凡例は `Control` と `Eye Drop` とし、被験者タイトルは付けない
 - 出力フォルダ、ファイル名、Notion結果はセッション単独ではなく `ID<1回目>-<2回目>` の被験者ペア単位とする
-- 個人別出力とGrand-averageは同じNo1に属する。全個人の外れ値処理・移動平均が完了してから、個人別の移動平均値を被験者間平均し、平均±1 SDを表示する。分割IDの採否と推測統計は実装前に追加確定する
+- 個人別出力とGrand-averageは同じNo1に属する。全個人の外れ値処理・移動平均が完了してから、個人別の移動平均値を同じセット・同じ進捗位置で被験者間平均し、平均±1 SDを表示する。条件別に標本SDと有効人数Nを保存し、欠測値は前詰め・補間しない
+- Grand-average対象者は非公開manifestに列挙された被験者ペアだけとし、分割IDの採否をコードへ固定しない。Cキューブ群とVロートプレミアム群を別々に集計する
 
 実行スクリプトは `Phase2_No1_ReactionTime.py` です。被験者対応はコードへ埋め込まず、Googleスプレッドシートで確認した対応を次のいずれかで渡します。
 
@@ -32,6 +33,8 @@
 - 全被験者：`first_session_id,second_session_id,drops_session_id,product` の4列を持つ非公開manifest CSVを `--manifest` で指定する
 
 どちらも同じコード内のループを通り、被験者別に処理内容を変更しません。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。個人別解析ではfigure、セッション別QC、実行要約を指定OneDriveへ保存します。試行別の `RT_TrialData.csv` は保存しません。Grand-averageは対象者基準の確定後、全個人別解析の完了後に同じNo1として追加します。
+
+Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average` を追加します。製品群ごとの `GrandAverage/` へfigure、平均・SD・NのCSV、実行要約JSONを保存します。対象者確定前の実データ実行は行いません。
 
 ## No2
 
