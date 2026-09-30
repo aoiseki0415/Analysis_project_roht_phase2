@@ -22,7 +22,12 @@
 - 色はControl `#563A7C`、C Cube `#C84A4A`、V Rohto Premium `#E58A2B` に固定する
 - 個人別出力とGrand-averageは同じNo1に属する。全個人の外れ値処理・移動平均が完了してから、個人別の移動平均値を被験者間平均し、平均±1 SDを表示する。分割IDの採否と推測統計は実装前に追加確定する
 
-想定スクリプト名は `Phase2_No1_ReactionTime.py` です。スクリプトの作成は解析仕様の残りが確定してから行います。
+実行スクリプトは `Phase2_No1_ReactionTime.py` です。被験者対応はコードへ埋め込まず、Googleスプレッドシートで確認した対応を次のいずれかで渡します。
+
+- 1名または少人数：`--participant 101:101:201:VRohtoPremium` のように、`代表ID:目薬ありセッションID:コントロールセッションID:製品群` を指定する
+- 全被験者：`participant_id,drops_session_id,control_session_id,product` の4列を持つ非公開manifest CSVを `--manifest` で指定する
+
+どちらも同じコード内のループを通り、被験者別に処理内容を変更しません。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。個人別解析ではfigure、試行別確認表、セッション別QC、実行要約を指定OneDriveへ保存します。Grand-averageは対象者基準の確定後、全個人別解析の完了後に同じNo1として追加します。
 
 ## No2
 
