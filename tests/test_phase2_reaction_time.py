@@ -102,7 +102,7 @@ def test_ccube_grand_figure_has_at_least_two_thousand_ms_headroom() -> None:
 
 def test_set_mean_figure_layout_is_fixed_and_centered() -> None:
     assert phase2.SET_MEAN_BAR_WIDTH == pytest.approx(0.42)
-    assert phase2.SET_MEAN_BAR_CENTERS.tolist() == pytest.approx([-0.28, 0.28])
+    assert phase2.SET_MEAN_BAR_CENTERS.tolist() == pytest.approx([-0.32, 0.32])
     assert phase2.SET_MEAN_DOT_SIZE == pytest.approx(150.0)
     assert phase2.SET_MEAN_JITTER_HALF_WIDTH == pytest.approx(0.055)
     assert phase2.SET_MEAN_X_LIMITS == pytest.approx((-0.90, 0.90))

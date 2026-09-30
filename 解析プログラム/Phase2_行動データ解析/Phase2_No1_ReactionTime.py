@@ -26,7 +26,7 @@ FWHM_TRIALS = 9.0
 GAUSSIAN_SIGMA = FWHM_TRIALS / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 OUTLIER_SD = 2.0
 CONTROL_COLOR = "#563A7C"
-SET_MEAN_BAR_CENTERS = np.array([-0.28, 0.28])
+SET_MEAN_BAR_CENTERS = np.array([-0.32, 0.32])
 SET_MEAN_BAR_WIDTH = 0.42
 SET_MEAN_DOT_SIZE = 150.0
 SET_MEAN_JITTER_HALF_WIDTH = 0.055
@@ -940,7 +940,17 @@ def plot_set_mean_quantification(
             fontsize=26,
         )
         axis.set_xticks(SET_MEAN_BAR_CENTERS)
-        axis.set_xticklabels([f"Eye Drop\n({product_label})", "Control"], fontsize=22)
+        axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
+        axis.text(
+            SET_MEAN_BAR_CENTERS[0],
+            -0.105,
+            f"({product_label})",
+            transform=axis.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            fontsize=18,
+            clip_on=False,
+        )
         axis.set_xlim(*SET_MEAN_X_LIMITS)
         axis.set_ylim(0.0, upper_limit)
         axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
