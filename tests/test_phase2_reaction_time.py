@@ -275,3 +275,153 @@ def test_grand_average_masks_both_conditions_for_pairwise_eeg_missing_set() -> N
     assert np.all(grand.loc[set1, "Control_N"] == 1)
     assert np.all(grand.loc[set2, "EyeDrop_N"] == 2)
     assert np.all(grand.loc[set2, "Control_N"] == 2)
+
+
+def _synthetic_clean_session(
+    session_id: str,
+    condition: str,
+    clean_values: np.ndarray,
+    *,
+    product: str = "VRohtoPremium",
+    eeg_missing_set: int | None = None,
+) -> object:
+    trials = pd.DataFrame(
+        {
+            "Set": np.repeat(np.arange(1, 7), 320),
+            "Trial": np.tile(np.arange(1, 321), 6),
+            "RT_clean_ms": clean_values,
+            "RT_smoothed_ms": np.full(1920, 9_999.0),
+        }
+    )
+    return phase2.SessionResult(
+        session_id=session_id,
+        condition=condition,
+        product=product,
+        trials=trials,
+        mean_rt_ms=float(np.nanmean(clean_values)),
+        sd_rt_ms=float(np.nanstd(clean_values, ddof=1)),
+        lower_2sd_ms=0.0,
+        upper_2sd_ms=0.0,
+        outlier_count=int(np.isnan(clean_values).sum()),
+        outlier_trials="synthetic",
+        valid_rt_count=int(np.isfinite(clean_values).sum()),
+        rt_match="一致",
+        source_notes="synthetic",
+        eeg_missing_set=eeg_missing_set,
+    )
+
+
+def test_set_mean_quantification_uses_clean_trial_rt_not_smoothed_rt() -> None:
+    drops_values = np.repeat(np.arange(1, 7, dtype=float) * 100.0, 320)
+    control_values = drops_values + 50.0
+    spec = phase2.parse_participant("101:201:101:VRohtoPremium")
+    results = [
+        {
+            "participant": spec,
+            "drops": _synthetic_clean_session("101", "目薬あり", drops_values),
+            "control": _synthetic_clean_session("201", "コントロール", control_values),
+        }
+    ]
+
+    participant_values, summary = phase2.build_set_mean_quantification(
+        results, "VRohtoPremium"
+    )
+    assert participant_values.loc[
+        participant_values["Set"] == 3, "EyeDrop_set_mean_RT_ms"
+    ].iloc[0] == pytest.approx(300.0)
+    assert participant_values.loc[
+        participant_values["Set"] == 3, "Control_set_mean_RT_ms"
+    ].iloc[0] == pytest.approx(350.0)
+    assert summary.loc[summary["Set"] == 3, "EyeDrop_N"].iloc[0] == 1
+    assert not np.isclose(
+        participant_values["EyeDrop_set_mean_RT_ms"].iloc[0], 9_999.0
+    )
+
+
+def test_set_mean_quantification_masks_both_conditions_for_missing_set() -> None:
+    values = np.full(1920, 500.0)
+    spec_missing = phase2.parse_participant("109:209:109:VRohtoPremium")
+    spec_complete = phase2.parse_participant("111:211:211:VRohtoPremium")
+    results = [
+        {
+            "participant": spec_missing,
+            "drops": _synthetic_clean_session(
+                "109", "目薬あり", values, eeg_missing_set=1
+            ),
+            "control": _synthetic_clean_session("209", "コントロール", values),
+        },
+        {
+            "participant": spec_complete,
+            "drops": _synthetic_clean_session("211", "目薬あり", values),
+            "control": _synthetic_clean_session("111", "コントロール", values),
+        },
+    ]
+
+    participant_values, summary = phase2.build_set_mean_quantification(
+        results, "VRohtoPremium"
+    )
+    missing_pair_set1 = (participant_values["Pair_ID"] == "109-209") & (
+        participant_values["Set"] == 1
+    )
+    assert participant_values.loc[
+        missing_pair_set1, "EyeDrop_set_mean_RT_ms"
+    ].isna().all()
+    assert participant_values.loc[
+        missing_pair_set1, "Control_set_mean_RT_ms"
+    ].isna().all()
+    assert summary.loc[summary["Set"] == 1, "EyeDrop_N"].iloc[0] == 1
+    assert summary.loc[summary["Set"] == 1, "Control_N"].iloc[0] == 1
+    assert summary.loc[summary["Set"] == 2, "EyeDrop_N"].iloc[0] == 2
+
+
+def test_quantification_outputs_do_not_replace_existing_no1_outputs(
+    tmp_path: Path,
+) -> None:
+    values_a = np.full(1920, 500.0)
+    values_b = np.full(1920, 700.0)
+    specs = [
+        phase2.parse_participant("101:201:101:CCube"),
+        phase2.parse_participant("102:202:102:CCube"),
+    ]
+    results = [
+        {
+            "participant": specs[0],
+            "drops": _synthetic_clean_session(
+                "101", "目薬あり", values_a, product="CCube"
+            ),
+            "control": _synthetic_clean_session(
+                "201", "コントロール", values_b, product="CCube"
+            ),
+        },
+        {
+            "participant": specs[1],
+            "drops": _synthetic_clean_session(
+                "102", "目薬あり", values_b, product="CCube"
+            ),
+            "control": _synthetic_clean_session(
+                "202", "コントロール", values_a, product="CCube"
+            ),
+        },
+    ]
+    no1 = tmp_path / "Phase2_行動データ解析" / "No1_ReactionTime" / "CCube"
+    individual = no1 / "Individual"
+    grand = no1 / "GrandAverage"
+    individual.mkdir(parents=True)
+    grand.mkdir()
+    individual_sentinel = individual / "existing.txt"
+    grand_sentinel = grand / "existing.txt"
+    individual_sentinel.write_text("keep", encoding="utf-8")
+    grand_sentinel.write_text("keep", encoding="utf-8")
+
+    outputs = phase2.write_set_mean_quantification_outputs(tmp_path, results, "CCube")
+
+    assert individual_sentinel.read_text(encoding="utf-8") == "keep"
+    assert grand_sentinel.read_text(encoding="utf-8") == "keep"
+    output_dir = Path(outputs["directory"])
+    assert output_dir.name == "SetMeanQuantification"
+    assert sorted(path.name for path in output_dir.iterdir()) == [
+        "No1_RT_SetMeanQuantification_CCube.png",
+        "No1_RT_SetMeanQuantification_CCube_ParticipantValues.csv",
+        "No1_RT_SetMeanQuantification_CCube_RunSummary.json",
+        "No1_RT_SetMeanQuantification_CCube_SetSummary.csv",
+    ]

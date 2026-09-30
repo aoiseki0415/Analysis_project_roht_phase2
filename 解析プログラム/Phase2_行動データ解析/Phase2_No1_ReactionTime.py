@@ -731,6 +731,328 @@ def write_grand_average_outputs(
     }
 
 
+def build_set_mean_quantification(
+    results: list[dict[str, object]], product: str
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build paired set means from cleaned trial-level RT, never smoothed RT."""
+
+    product_dir, _, _ = normalize_product(product)
+    selected = sorted(
+        (
+            result
+            for result in results
+            if normalize_product(result["participant"].product)[0] == product_dir
+        ),
+        key=lambda result: result["participant"].pair_id,
+    )
+    if not selected:
+        raise ValueError(f"No participants available for {product_dir}")
+
+    rows: list[dict[str, object]] = []
+    for result in selected:
+        participant = result["participant"]
+        pairwise_missing_sets = {
+            value
+            for value in (
+                result["drops"].eeg_missing_set,
+                result["control"].eeg_missing_set,
+            )
+            if value is not None
+        }
+        if len(pairwise_missing_sets) > 1:
+            raise ValueError(
+                f"Participant {participant.pair_id} has multiple EEG-missing sets"
+            )
+        pairwise_missing_set = next(iter(pairwise_missing_sets), None)
+        for set_number in range(1, N_SETS + 1):
+            drops_values = result["drops"].trials.loc[
+                result["drops"].trials["Set"] == set_number, "RT_clean_ms"
+            ].to_numpy(dtype=float)
+            control_values = result["control"].trials.loc[
+                result["control"].trials["Set"] == set_number, "RT_clean_ms"
+            ].to_numpy(dtype=float)
+            if pairwise_missing_set == set_number:
+                drops_values = np.full(drops_values.shape, np.nan)
+                control_values = np.full(control_values.shape, np.nan)
+            drops_valid = np.isfinite(drops_values)
+            control_valid = np.isfinite(control_values)
+            drops_mean = (
+                float(np.mean(drops_values[drops_valid])) if drops_valid.any() else np.nan
+            )
+            control_mean = (
+                float(np.mean(control_values[control_valid])) if control_valid.any() else np.nan
+            )
+            rows.append(
+                {
+                    "Product": product_dir,
+                    "Pair_ID": participant.pair_id,
+                    "First_session_ID": participant.first_session_id,
+                    "Second_session_ID": participant.second_session_id,
+                    "EyeDrop_session_ID": participant.drops_session_id,
+                    "Control_session_ID": participant.control_session_id,
+                    "Set": set_number,
+                    "EyeDrop_set_mean_RT_ms": drops_mean,
+                    "Control_set_mean_RT_ms": control_mean,
+                    "EyeDrop_valid_trial_count": int(drops_valid.sum()),
+                    "Control_valid_trial_count": int(control_valid.sum()),
+                    "Pairwise_EEG_missing_set": (
+                        f"Set{pairwise_missing_set}"
+                        if pairwise_missing_set is not None
+                        else "なし"
+                    ),
+                }
+            )
+
+    participant_values = pd.DataFrame(rows)
+    summaries: list[dict[str, object]] = []
+    for set_number in range(1, N_SETS + 1):
+        set_values = participant_values.loc[participant_values["Set"] == set_number]
+        drops = set_values["EyeDrop_set_mean_RT_ms"].to_numpy(dtype=float)
+        control = set_values["Control_set_mean_RT_ms"].to_numpy(dtype=float)
+        paired = np.isfinite(drops) & np.isfinite(control)
+        paired_n = int(paired.sum())
+        drops_sd = float(np.std(drops[paired], ddof=1)) if paired_n > 1 else np.nan
+        control_sd = float(np.std(control[paired], ddof=1)) if paired_n > 1 else np.nan
+        summaries.append(
+            {
+                "Product": product_dir,
+                "Set": set_number,
+                "EyeDrop_between_participant_mean_RT_ms": float(np.mean(drops[paired])),
+                "EyeDrop_between_participant_SD_ms": drops_sd,
+                "EyeDrop_N": paired_n,
+                "Control_between_participant_mean_RT_ms": float(np.mean(control[paired])),
+                "Control_between_participant_SD_ms": control_sd,
+                "Control_N": paired_n,
+                "Mean_paired_difference_EyeDrop_minus_Control_ms": float(
+                    np.mean(drops[paired] - control[paired])
+                ),
+                "Statistics": "Not performed",
+            }
+        )
+    return participant_values, pd.DataFrame(summaries)
+
+
+def set_mean_figure_y_upper_limit(values: np.ndarray) -> float:
+    """Use one zero-based y-axis for all six quantification panels."""
+
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return 500.0
+    target = float(np.max(finite)) / 0.80
+    return max(500.0, float(np.ceil(target / 100.0) * 100.0))
+
+
+def plot_set_mean_quantification(
+    participant_values: pd.DataFrame,
+    summary: pd.DataFrame,
+    product: str,
+    path: Path,
+) -> float:
+    """Plot six independent paired bar-and-dot panels for one product group."""
+
+    _, product_label, product_color = normalize_product(product)
+    displayed = participant_values[
+        ["EyeDrop_set_mean_RT_ms", "Control_set_mean_RT_ms"]
+    ].to_numpy(dtype=float)
+    upper_limit = set_mean_figure_y_upper_limit(displayed)
+    plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
+    figure, axes = plt.subplots(1, N_SETS, figsize=(32, 8), sharey=True)
+    for set_number, axis in enumerate(axes, start=1):
+        values = participant_values.loc[
+            participant_values["Set"] == set_number
+        ].sort_values("Pair_ID")
+        drops = values["EyeDrop_set_mean_RT_ms"].to_numpy(dtype=float)
+        control = values["Control_set_mean_RT_ms"].to_numpy(dtype=float)
+        paired = np.isfinite(drops) & np.isfinite(control)
+        drops = drops[paired]
+        control = control[paired]
+        set_summary = summary.loc[summary["Set"] == set_number].iloc[0]
+        axis.bar(
+            [0.0, 1.0],
+            [
+                set_summary["EyeDrop_between_participant_mean_RT_ms"],
+                set_summary["Control_between_participant_mean_RT_ms"],
+            ],
+            width=0.62,
+            color=[product_color, CONTROL_COLOR],
+            alpha=0.82,
+            edgecolor="#222222",
+            linewidth=1.0,
+            zorder=1,
+        )
+        offsets = np.linspace(-0.09, 0.09, drops.size) if drops.size > 1 else np.zeros(1)
+        for offset, drops_value, control_value in zip(offsets, drops, control, strict=True):
+            axis.plot(
+                [offset, 1.0 + offset],
+                [drops_value, control_value],
+                color="#777777",
+                alpha=0.34,
+                linewidth=1.2,
+                zorder=2,
+            )
+        axis.scatter(
+            offsets,
+            drops,
+            s=58,
+            color=product_color,
+            alpha=0.68,
+            edgecolor="white",
+            linewidth=1.0,
+            zorder=3,
+        )
+        axis.scatter(
+            1.0 + offsets,
+            control,
+            s=58,
+            color=CONTROL_COLOR,
+            alpha=0.68,
+            edgecolor="white",
+            linewidth=1.0,
+            zorder=3,
+        )
+        axis.set_title(f"Set {set_number}", fontsize=22, pad=18)
+        axis.set_xticks([0.0, 1.0])
+        axis.set_xticklabels([f"Eye Drop\n({product_label})", "Control"], fontsize=17)
+        axis.set_ylim(0.0, upper_limit)
+        axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
+        axis.tick_params(axis="x", width=1.5, length=6, pad=10)
+        axis.tick_params(axis="y", labelsize=20, width=1.5, length=6)
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+        axis.grid(False)
+    axes[0].set_ylabel("Reaction Time (ms)", fontsize=28)
+    figure.subplots_adjust(left=0.06, right=0.995, top=0.86, bottom=0.22, wspace=0.18)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    return upper_limit
+
+
+def write_set_mean_quantification_outputs(
+    output_root: Path,
+    results: list[dict[str, object]],
+    product: str,
+) -> dict[str, str]:
+    """Write only the new set-mean outputs, preserving existing No1 products."""
+
+    product_dir, _, _ = normalize_product(product)
+    participant_values, summary = build_set_mean_quantification(results, product_dir)
+    output_dir = (
+        output_root
+        / "Phase2_行動データ解析"
+        / "No1_ReactionTime"
+        / product_dir
+        / "SetMeanQuantification"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    prefix = f"No1_RT_SetMeanQuantification_{product_dir}"
+    figure_path = output_dir / f"{prefix}.png"
+    participant_values_path = output_dir / f"{prefix}_ParticipantValues.csv"
+    summary_path = output_dir / f"{prefix}_SetSummary.csv"
+    run_summary_path = output_dir / f"{prefix}_RunSummary.json"
+    y_axis_upper_ms = plot_set_mean_quantification(
+        participant_values, summary, product_dir, figure_path
+    )
+    participant_values.to_csv(participant_values_path, index=False)
+    summary.to_csv(summary_path, index=False)
+    run_summary = {
+        "product": product_dir,
+        "participant_count": int(participant_values["Pair_ID"].nunique()),
+        "quantification": (
+            "arithmetic mean of trial-level RT_clean_ms within each participant, "
+            "condition, and set; Gaussian-smoothed RT is not used"
+        ),
+        "pairing": "Eye Drop and Control values are paired within participant",
+        "eeg_missing_set_rule": (
+            "For affected pairs, both conditions are NaN for the same set before "
+            "participant and group summaries"
+        ),
+        "statistics": "Not performed",
+        "figure_y_axis_upper_ms": y_axis_upper_ms,
+        "existing_individual_and_grand_average_outputs_modified": False,
+        "outputs": {
+            "figure": str(figure_path),
+            "participant_values": str(participant_values_path),
+            "set_summary": str(summary_path),
+        },
+        "completed_at": datetime.now().astimezone().isoformat(),
+    }
+    run_summary_path.write_text(
+        json.dumps(run_summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {
+        "directory": str(output_dir),
+        "figure": str(figure_path),
+        "participant_values": str(participant_values_path),
+        "set_summary": str(summary_path),
+        "summary": str(run_summary_path),
+    }
+
+
+def run_quantification_batch(
+    raw_root: Path,
+    specs: list[ParticipantSpec],
+    *,
+    skip_invalid_participants: bool,
+) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
+    """Process trial RT for quantification without writing existing No1 outputs."""
+
+    results: list[dict[str, object]] = []
+    exclusions: list[dict[str, str]] = []
+    for spec in specs:
+        try:
+            product_dir, _, _ = normalize_product(spec.product)
+            drops = process_session(
+                raw_root, spec.drops_session_id, "目薬あり", product_dir
+            )
+            control = process_session(
+                raw_root, spec.control_session_id, "コントロール", product_dir
+            )
+            results.append(
+                {"participant": spec, "drops": drops, "control": control}
+            )
+        except (FileNotFoundError, ValueError) as error:
+            if not skip_invalid_participants:
+                raise
+            exclusions.append(
+                {
+                    "pair_id": spec.pair_id,
+                    "first_session_id": spec.first_session_id,
+                    "second_session_id": spec.second_session_id,
+                    "reason": str(error),
+                }
+            )
+            logging.error("Excluded participant %s: %s", spec.pair_id, error)
+    return results, exclusions
+
+
+def write_set_mean_quantification_batch_summary(
+    output_root: Path,
+    specs: list[ParticipantSpec],
+    results: list[dict[str, object]],
+    exclusions: list[dict[str, str]],
+    outputs: list[dict[str, str]],
+) -> Path:
+    """Write a dedicated batch record without replacing the existing No1 summary."""
+
+    output_dir = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "No1_RT_SetMeanQuantification_BatchSummary.json"
+    summary = {
+        "requested_participant_count": len(specs),
+        "completed_participant_count": len(results),
+        "completed_pairs": [result["participant"].pair_id for result in results],
+        "excluded_participant_count": len(exclusions),
+        "excluded_participants": exclusions,
+        "product_outputs": outputs,
+        "same_shared_pipeline_for_all_participants": True,
+        "existing_individual_and_grand_average_outputs_modified": False,
+        "completed_at": datetime.now().astimezone().isoformat(),
+    }
+    path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def run_participant(raw_root: Path, output_root: Path, spec: ParticipantSpec) -> dict[str, object]:
     """Run both conditions for one participant using the shared pipeline."""
 
@@ -829,6 +1151,14 @@ def parse_args() -> argparse.Namespace:
             "then continue the batch"
         ),
     )
+    parser.add_argument(
+        "--set-mean-quantification-only",
+        action="store_true",
+        help=(
+            "Create only set-level paired RT quantification outputs; preserve existing "
+            "individual moving-average and grand-average outputs"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -841,8 +1171,42 @@ def main() -> int:
         raise SystemExit("Provide at least one --participant or --manifest")
     if len({spec.pair_id for spec in specs}) != len(specs):
         raise SystemExit("Duplicate participant pair in batch input")
+    if args.set_mean_quantification_only and args.grand_average:
+        raise SystemExit(
+            "--set-mean-quantification-only cannot be combined with --grand-average"
+        )
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if args.set_mean_quantification_only:
+        results, exclusions = run_quantification_batch(
+            args.raw_root,
+            specs,
+            skip_invalid_participants=args.skip_invalid_participants,
+        )
+        quantification_outputs: list[dict[str, str]] = []
+        products = sorted(
+            {normalize_product(result["participant"].product)[0] for result in results}
+        )
+        for product in products:
+            outputs = write_set_mean_quantification_outputs(
+                args.output_root, results, product
+            )
+            quantification_outputs.append(outputs)
+            logging.info(
+                "Completed set-mean quantification %s: %s",
+                product,
+                outputs["directory"],
+            )
+        batch_summary = write_set_mean_quantification_batch_summary(
+            args.output_root,
+            specs,
+            results,
+            exclusions,
+            quantification_outputs,
+        )
+        logging.info("Completed quantification batch summary: %s", batch_summary)
+        return 0
+
     results, exclusions = run_batch(
         args.raw_root,
         args.output_root,
