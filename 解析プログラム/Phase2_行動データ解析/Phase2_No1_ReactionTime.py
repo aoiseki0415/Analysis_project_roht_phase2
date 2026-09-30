@@ -388,28 +388,6 @@ def plot_individual(
     for boundary in range(1, N_SETS):
         boundary_x = boundary * 100.0 + 0.5
         axis.axvline(boundary_x, color="#9E9E9E", linestyle="--", linewidth=1.5)
-        axis.annotate(
-            "100",
-            xy=(boundary_x, 0.0),
-            xycoords=axis.get_xaxis_transform(),
-            xytext=(-8, -14),
-            textcoords="offset points",
-            ha="right",
-            va="top",
-            fontsize=18,
-            annotation_clip=False,
-        )
-        axis.annotate(
-            "1",
-            xy=(boundary_x, 0.0),
-            xycoords=axis.get_xaxis_transform(),
-            xytext=(8, -14),
-            textcoords="offset points",
-            ha="left",
-            va="top",
-            fontsize=18,
-            annotation_clip=False,
-        )
     for set_number in range(1, N_SETS + 1):
         axis.text(
             (set_number - 0.5) * 100.0,
@@ -427,8 +405,13 @@ def plot_individual(
     for set_number in range(N_SETS):
         tick_positions.extend(set_number * 100.0 + np.array([25.0, 50.0, 75.0]))
         tick_labels.extend(["25", "50", "75"])
-    tick_positions.append(N_SETS * 100.0)
-    tick_labels.append("100")
+        if set_number < N_SETS - 1:
+            boundary_x = (set_number + 1) * 100.0 + 0.5
+            tick_positions.extend([boundary_x - 7.0, boundary_x + 7.0])
+            tick_labels.extend(["100", "1"])
+        else:
+            tick_positions.append(N_SETS * 100.0)
+            tick_labels.append("100")
 
     displayed = np.concatenate(
         [
