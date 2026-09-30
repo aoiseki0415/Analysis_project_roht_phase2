@@ -100,6 +100,14 @@ def test_ccube_grand_figure_has_at_least_two_thousand_ms_headroom() -> None:
     assert upper == 2_000.0
 
 
+def test_set_mean_figure_layout_is_fixed_and_centered() -> None:
+    assert phase2.SET_MEAN_BAR_WIDTH == pytest.approx(0.42)
+    assert phase2.SET_MEAN_BAR_CENTERS.tolist() == pytest.approx([-0.28, 0.28])
+    assert phase2.SET_MEAN_DOT_SIZE == pytest.approx(150.0)
+    assert phase2.SET_MEAN_JITTER_HALF_WIDTH == pytest.approx(0.055)
+    assert phase2.SET_MEAN_X_LIMITS == pytest.approx((-0.90, 0.90))
+
+
 def test_parse_participant_and_product_aliases() -> None:
     spec = phase2.parse_participant("101:201:101:Vロート")
     assert spec.first_session_id == "101"

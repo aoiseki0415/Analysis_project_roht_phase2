@@ -26,6 +26,11 @@ FWHM_TRIALS = 9.0
 GAUSSIAN_SIGMA = FWHM_TRIALS / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 OUTLIER_SD = 2.0
 CONTROL_COLOR = "#563A7C"
+SET_MEAN_BAR_CENTERS = np.array([-0.28, 0.28])
+SET_MEAN_BAR_WIDTH = 0.42
+SET_MEAN_DOT_SIZE = 150.0
+SET_MEAN_JITTER_HALF_WIDTH = 0.055
+SET_MEAN_X_LIMITS = (-0.90, 0.90)
 EEG_MISSING_SET_BY_SESSION = {
     "109": 1,
     "120": 6,
@@ -856,8 +861,14 @@ def plot_set_mean_quantification(
         ["EyeDrop_set_mean_RT_ms", "Control_set_mean_RT_ms"]
     ].to_numpy(dtype=float)
     upper_limit = set_mean_figure_y_upper_limit(displayed)
-    plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
-    figure, axes = plt.subplots(1, N_SETS, figsize=(32, 8), sharey=True)
+    plt.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial"],
+            "axes.linewidth": 1.5,
+        }
+    )
+    figure, axes = plt.subplots(1, N_SETS, figsize=(34, 9), sharey=True)
     for set_number, axis in enumerate(axes, start=1):
         values = participant_values.loc[
             participant_values["Set"] == set_number
@@ -869,22 +880,30 @@ def plot_set_mean_quantification(
         control = control[paired]
         set_summary = summary.loc[summary["Set"] == set_number].iloc[0]
         axis.bar(
-            [0.0, 1.0],
+            SET_MEAN_BAR_CENTERS,
             [
                 set_summary["EyeDrop_between_participant_mean_RT_ms"],
                 set_summary["Control_between_participant_mean_RT_ms"],
             ],
-            width=0.62,
+            width=SET_MEAN_BAR_WIDTH,
             color=[product_color, CONTROL_COLOR],
             alpha=0.82,
             edgecolor="#222222",
             linewidth=1.0,
             zorder=1,
         )
-        offsets = np.linspace(-0.09, 0.09, drops.size) if drops.size > 1 else np.zeros(1)
+        offsets = (
+            np.linspace(
+                -SET_MEAN_JITTER_HALF_WIDTH,
+                SET_MEAN_JITTER_HALF_WIDTH,
+                drops.size,
+            )
+            if drops.size > 1
+            else np.zeros(1)
+        )
         for offset, drops_value, control_value in zip(offsets, drops, control, strict=True):
             axis.plot(
-                [offset, 1.0 + offset],
+                SET_MEAN_BAR_CENTERS + offset,
                 [drops_value, control_value],
                 color="#777777",
                 alpha=0.34,
@@ -892,9 +911,9 @@ def plot_set_mean_quantification(
                 zorder=2,
             )
         axis.scatter(
-            offsets,
+            SET_MEAN_BAR_CENTERS[0] + offsets,
             drops,
-            s=58,
+            s=SET_MEAN_DOT_SIZE,
             color=product_color,
             alpha=0.68,
             edgecolor="white",
@@ -902,27 +921,36 @@ def plot_set_mean_quantification(
             zorder=3,
         )
         axis.scatter(
-            1.0 + offsets,
+            SET_MEAN_BAR_CENTERS[1] + offsets,
             control,
-            s=58,
+            s=SET_MEAN_DOT_SIZE,
             color=CONTROL_COLOR,
             alpha=0.68,
             edgecolor="white",
             linewidth=1.0,
             zorder=3,
         )
-        axis.set_title(f"Set {set_number}", fontsize=22, pad=18)
-        axis.set_xticks([0.0, 1.0])
-        axis.set_xticklabels([f"Eye Drop\n({product_label})", "Control"], fontsize=17)
+        axis.text(
+            0.5,
+            0.94,
+            f"Set {set_number}",
+            transform=axis.transAxes,
+            ha="center",
+            va="top",
+            fontsize=26,
+        )
+        axis.set_xticks(SET_MEAN_BAR_CENTERS)
+        axis.set_xticklabels([f"Eye Drop\n({product_label})", "Control"], fontsize=22)
+        axis.set_xlim(*SET_MEAN_X_LIMITS)
         axis.set_ylim(0.0, upper_limit)
         axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
-        axis.tick_params(axis="x", width=1.5, length=6, pad=10)
-        axis.tick_params(axis="y", labelsize=20, width=1.5, length=6)
+        axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
+        axis.tick_params(axis="y", labelsize=23, labelleft=True, width=1.5, length=6)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         axis.grid(False)
-    axes[0].set_ylabel("Reaction Time (ms)", fontsize=28)
-    figure.subplots_adjust(left=0.06, right=0.995, top=0.86, bottom=0.22, wspace=0.18)
+    axes[0].set_ylabel("Reaction Time (ms)", fontsize=30, labelpad=12)
+    figure.subplots_adjust(left=0.06, right=0.995, top=0.94, bottom=0.25, wspace=0.24)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
     return upper_limit
