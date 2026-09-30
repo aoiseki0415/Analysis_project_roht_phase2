@@ -24,7 +24,7 @@ N_TRIALS = 320
 WINDOW_TRIALS = 20
 FWHM_TRIALS = 9.0
 GAUSSIAN_SIGMA = FWHM_TRIALS / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-OUTLIER_SD = 2.0
+OUTLIER_SD = 3.0
 CONTROL_COLOR = "#563A7C"
 PRODUCTS = {
     "ccube": ("CCube", "C Cube", "#C84A4A"),
@@ -84,8 +84,8 @@ class SessionResult:
     trials: pd.DataFrame
     mean_rt_ms: float
     sd_rt_ms: float
-    lower_2sd_ms: float
-    upper_2sd_ms: float
+    lower_3sd_ms: float
+    upper_3sd_ms: float
     outlier_count: int
     outlier_trials: str
     valid_rt_count: int
@@ -274,7 +274,7 @@ def process_session(
     upper = mean_rt + OUTLIER_SD * sd_rt
     outlier = (recomputed < lower) | (recomputed > upper)
     trials["RT_raw_ms"] = recomputed
-    trials["Outlier_2SD"] = outlier
+    trials["Outlier_3SD"] = outlier
     trials["RT_clean_ms"] = np.where(outlier, np.nan, recomputed)
     trials["RT_smoothed_ms"] = np.nan
     trials["Progress_within_set_pct"] = (trials["Trial"].astype(float) - 1.0) / (
@@ -298,7 +298,7 @@ def process_session(
         "Progress_within_set_pct",
         "Global_progress_pct",
         "RT_raw_ms",
-        "Outlier_2SD",
+        "Outlier_3SD",
         "RT_clean_ms",
         "RT_smoothed_ms",
         "RT(ms)",
@@ -318,8 +318,8 @@ def process_session(
         trials=trials,
         mean_rt_ms=mean_rt,
         sd_rt_ms=sd_rt,
-        lower_2sd_ms=lower,
-        upper_2sd_ms=upper,
+        lower_3sd_ms=lower,
+        upper_3sd_ms=upper,
         outlier_count=int(outlier.sum()),
         outlier_trials=outlier_trials or "なし",
         valid_rt_count=int((~outlier).sum()),
@@ -337,14 +337,25 @@ def _qc_row(result: SessionResult) -> dict[str, object]:
         "320_trials_per_set_confirmed": True,
         "mean_rt_ms": result.mean_rt_ms,
         "sd_rt_ms_ddof1": result.sd_rt_ms,
-        "lower_2sd_ms": result.lower_2sd_ms,
-        "upper_2sd_ms": result.upper_2sd_ms,
+        "lower_3sd_ms": result.lower_3sd_ms,
+        "upper_3sd_ms": result.upper_3sd_ms,
         "outlier_count": result.outlier_count,
         "outlier_trials": result.outlier_trials,
         "valid_rt_count": result.valid_rt_count,
         "rt_match": result.rt_match,
         "source_notes": result.source_notes,
     }
+
+
+def figure_y_upper_limit(values: np.ndarray) -> float:
+    """Place the largest smoothed RT near 70% of a zero-based y-axis."""
+
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return 100.0
+    target = float(np.max(finite)) / 0.70
+    return max(100.0, float(np.ceil(target / 100.0) * 100.0))
 
 
 def plot_individual(
@@ -402,19 +413,17 @@ def plot_individual(
             control.trials["RT_smoothed_ms"].to_numpy(dtype=float),
         ]
     )
-    max_value = float(np.nanmax(displayed))
-    upper_limit = max(100.0, float(np.ceil((max_value * 1.15) / 100.0) * 100.0))
+    upper_limit = figure_y_upper_limit(displayed)
     axis.set_xlim(0.0, N_SETS * 100.0)
     axis.set_ylim(0.0, upper_limit)
     axis.set_xticks(tick_positions, tick_labels)
     axis.set_xlabel("Experimental Progress Within Each Set, %", fontsize=28, labelpad=18)
     axis.set_ylabel("Reaction Time (ms)", fontsize=28)
     axis.tick_params(axis="both", labelsize=18, width=1.5, length=6)
-    axis.grid(axis="y", color="#D9D9D9", linewidth=0.8, alpha=0.7)
     axis.spines["top"].set_visible(False)
     axis.spines["right"].set_visible(False)
-    axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.10), ncol=2, frameon=False, fontsize=20)
-    figure.subplots_adjust(left=0.08, right=0.99, top=0.84, bottom=0.20)
+    axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.18), ncol=2, frameon=False, fontsize=20)
+    figure.subplots_adjust(left=0.08, right=0.99, top=0.78, bottom=0.20)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
 
@@ -455,7 +464,7 @@ def write_participant_outputs(
         },
         "parameters": {
             "rt": "KeyPress(ms) - TiltOnset(ms)",
-            "outlier": "session mean +/- 2 sample SD (ddof=1)",
+            "outlier": "session mean +/- 3 sample SD (ddof=1)",
             "outlier_replacement": "NaN; trial positions retained",
             "moving_average": "Gaussian, local support 20 trials, FWHM 9 trials",
             "gaussian_sigma_trials": float(GAUSSIAN_SIGMA),

@@ -72,8 +72,14 @@ def test_process_session_recomputes_rt_and_keeps_outlier_position(tmp_path: Path
     assert np.isnan(target["RT_clean_ms"])
     assert np.isfinite(target["RT_smoothed_ms"])
     assert result.rt_match == "一致"
-    assert phase2.OUTLIER_SD == 2.0
-    assert result.lower_2sd_ms < result.mean_rt_ms < result.upper_2sd_ms
+    assert phase2.OUTLIER_SD == 3.0
+    assert result.lower_3sd_ms < result.mean_rt_ms < result.upper_3sd_ms
+
+
+def test_figure_y_upper_limit_places_maximum_near_seventy_percent() -> None:
+    upper = phase2.figure_y_upper_limit(np.array([400.0, 1_350.0]))
+    assert upper == 2_000.0
+    assert 0.65 <= 1_350.0 / upper <= 0.70
 
 
 def test_parse_participant_and_product_aliases() -> None:
