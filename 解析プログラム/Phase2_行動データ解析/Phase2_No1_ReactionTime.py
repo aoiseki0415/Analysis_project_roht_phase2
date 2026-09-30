@@ -277,9 +277,9 @@ def process_session(
     trials["Outlier_3SD"] = outlier
     trials["RT_clean_ms"] = np.where(outlier, np.nan, recomputed)
     trials["RT_smoothed_ms"] = np.nan
-    trials["Progress_within_set_pct"] = (trials["Trial"].astype(float) - 1.0) / (
-        N_TRIALS - 1.0
-    ) * 100.0
+    trials["Progress_within_set_pct"] = 1.0 + (
+        (trials["Trial"].astype(float) - 1.0) / (N_TRIALS - 1.0) * 99.0
+    )
     trials["Global_progress_pct"] = (
         (trials["Set"].astype(float) - 1.0) * 100.0 + trials["Progress_within_set_pct"]
     )
@@ -366,7 +366,7 @@ def plot_individual(
 ) -> None:
     """Create one continuous six-set figure for a participant pair."""
 
-    _, product_label, product_color = normalize_product(participant.product)
+    _, _, product_color = normalize_product(participant.product)
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
     figure, axis = plt.subplots(figsize=(24, 8))
     drops_x = drops.trials["Global_progress_pct"].to_numpy(dtype=float)
@@ -383,10 +383,33 @@ def plot_individual(
         drops.trials["RT_smoothed_ms"],
         color=product_color,
         linewidth=3,
-        label=f"Eye Drop Condition ({product_label})",
+        label="Eye Drop",
     )
     for boundary in range(1, N_SETS):
-        axis.axvline(boundary * 100.0, color="#9E9E9E", linestyle="--", linewidth=1.5)
+        boundary_x = boundary * 100.0 + 0.5
+        axis.axvline(boundary_x, color="#9E9E9E", linestyle="--", linewidth=1.5)
+        axis.annotate(
+            "100",
+            xy=(boundary_x, 0.0),
+            xycoords=axis.get_xaxis_transform(),
+            xytext=(-8, -14),
+            textcoords="offset points",
+            ha="right",
+            va="top",
+            fontsize=18,
+            annotation_clip=False,
+        )
+        axis.annotate(
+            "1",
+            xy=(boundary_x, 0.0),
+            xycoords=axis.get_xaxis_transform(),
+            xytext=(8, -14),
+            textcoords="offset points",
+            ha="left",
+            va="top",
+            fontsize=18,
+            annotation_clip=False,
+        )
     for set_number in range(1, N_SETS + 1):
         axis.text(
             (set_number - 0.5) * 100.0,
@@ -399,11 +422,11 @@ def plot_individual(
             color="#333333",
         )
 
-    tick_positions: list[float] = []
-    tick_labels: list[str] = []
+    tick_positions: list[float] = [1.0]
+    tick_labels: list[str] = ["1"]
     for set_number in range(N_SETS):
-        tick_positions.extend(set_number * 100.0 + np.array([0.0, 25.0, 50.0, 75.0]))
-        tick_labels.extend(["0", "25", "50", "75"])
+        tick_positions.extend(set_number * 100.0 + np.array([25.0, 50.0, 75.0]))
+        tick_labels.extend(["25", "50", "75"])
     tick_positions.append(N_SETS * 100.0)
     tick_labels.append("100")
 
@@ -414,9 +437,10 @@ def plot_individual(
         ]
     )
     upper_limit = figure_y_upper_limit(displayed)
-    axis.set_xlim(0.0, N_SETS * 100.0)
+    axis.set_xlim(1.0, N_SETS * 100.0)
     axis.set_ylim(0.0, upper_limit)
     axis.set_xticks(tick_positions, tick_labels)
+    axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
     axis.set_xlabel("Experimental Progress Within Each Set, %", fontsize=28, labelpad=18)
     axis.set_ylabel("Reaction Time (ms)", fontsize=28)
     axis.tick_params(axis="both", labelsize=18, width=1.5, length=6)
@@ -448,12 +472,10 @@ def write_participant_outputs(
     participant_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"ID{participant.pair_id}_No1_RT"
     figure_path = participant_dir / f"{prefix}_Individual.png"
-    trial_path = participant_dir / f"{prefix}_TrialData.csv"
     qc_path = participant_dir / f"{prefix}_QC.csv"
     log_path = participant_dir / f"{prefix}_RunSummary.json"
 
     plot_individual(participant, drops, control, figure_path)
-    pd.concat([drops.trials, control.trials], ignore_index=True).to_csv(trial_path, index=False)
     pd.DataFrame([_qc_row(drops), _qc_row(control)]).to_csv(qc_path, index=False)
     summary = {
         "participant": {
@@ -474,7 +496,6 @@ def write_participant_outputs(
         "sessions": [_qc_row(drops), _qc_row(control)],
         "outputs": {
             "figure": str(figure_path),
-            "trial_data": str(trial_path),
             "qc": str(qc_path),
         },
         "completed_at": datetime.now().astimezone().isoformat(),
@@ -483,7 +504,6 @@ def write_participant_outputs(
     return {
         "directory": str(participant_dir),
         "figure": str(figure_path),
-        "trial_data": str(trial_path),
         "qc": str(qc_path),
         "summary": str(log_path),
     }

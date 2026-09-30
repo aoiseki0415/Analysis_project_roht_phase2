@@ -74,6 +74,11 @@ def test_process_session_recomputes_rt_and_keeps_outlier_position(tmp_path: Path
     assert result.rt_match == "一致"
     assert phase2.OUTLIER_SD == 3.0
     assert result.lower_3sd_ms < result.mean_rt_ms < result.upper_3sd_ms
+    first_set = result.trials.loc[result.trials["Set"] == 1]
+    sixth_set = result.trials.loc[result.trials["Set"] == 6]
+    assert first_set["Progress_within_set_pct"].iloc[0] == pytest.approx(1.0)
+    assert first_set["Progress_within_set_pct"].iloc[-1] == pytest.approx(100.0)
+    assert sixth_set["Global_progress_pct"].iloc[-1] == pytest.approx(600.0)
 
 
 def test_figure_y_upper_limit_places_maximum_near_seventy_percent() -> None:
@@ -112,5 +117,4 @@ def test_outputs_are_grouped_by_participant_pair(tmp_path: Path) -> None:
         "ID101-201_No1_RT_Individual.png",
         "ID101-201_No1_RT_QC.csv",
         "ID101-201_No1_RT_RunSummary.json",
-        "ID101-201_No1_RT_TrialData.csv",
     ]
