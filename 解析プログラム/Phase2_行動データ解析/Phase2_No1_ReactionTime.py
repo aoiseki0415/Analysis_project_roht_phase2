@@ -400,22 +400,6 @@ def plot_individual(
             color="#333333",
         )
 
-    # Keep every set-start label at the same offset from its left boundary.
-    # The labels remain normal major ticks so their baseline and font stay aligned.
-    set_start_label_offset = 5.0
-    tick_positions: list[float] = [0.5 + set_start_label_offset]
-    tick_labels: list[str] = ["1"]
-    for set_number in range(N_SETS):
-        tick_positions.extend(set_number * 100.0 + np.array([25.0, 50.0, 75.0]))
-        tick_labels.extend(["25", "50", "75"])
-        if set_number < N_SETS - 1:
-            boundary_x = (set_number + 1) * 100.0 + 0.5
-            tick_positions.extend([boundary_x - 7.0, boundary_x + set_start_label_offset])
-            tick_labels.extend(["100", "1"])
-        else:
-            tick_positions.append(N_SETS * 100.0)
-            tick_labels.append("100")
-
     displayed = np.concatenate(
         [
             drops.trials["RT_smoothed_ms"].to_numpy(dtype=float),
@@ -423,17 +407,14 @@ def plot_individual(
         ]
     )
     upper_limit = figure_y_upper_limit(displayed)
-    axis.set_xlim(1.0, N_SETS * 100.0)
+    axis.set_xlim(0.0, N_SETS * 100.0)
     axis.set_ylim(0.0, upper_limit)
-    axis.set_xticks(tick_positions, tick_labels)
+    axis.set_xticks(np.arange(0.0, N_SETS * 100.0 + 1.0, 50.0))
     axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
-    axis.set_xlabel("Experimental Progress Within Each Set, %", fontsize=28, labelpad=18)
+    axis.set_xlabel("Experimental Progress, %", fontsize=28, labelpad=18)
     axis.set_ylabel("Reaction Time (ms)", fontsize=28)
-    axis.tick_params(axis="both", labelsize=18, width=1.5, length=6)
-    for tick, label in zip(axis.xaxis.get_major_ticks(), tick_labels, strict=True):
-        if label in {"1", "100"}:
-            tick.tick1line.set_visible(False)
-            tick.tick2line.set_visible(False)
+    axis.tick_params(axis="x", labelsize=20, width=1.5, length=6)
+    axis.tick_params(axis="y", labelsize=20, width=1.5, length=6)
     axis.spines["top"].set_visible(False)
     axis.spines["right"].set_visible(False)
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.18), ncol=2, frameon=False, fontsize=20)
