@@ -358,6 +358,17 @@ def figure_y_upper_limit(values: np.ndarray) -> float:
     return max(100.0, float(np.ceil(target / 100.0) * 100.0))
 
 
+def grand_figure_y_upper_limit(values: np.ndarray) -> float:
+    """Place the largest upper SD bound near 87.5% of a zero-based y-axis."""
+
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return 100.0
+    target = float(np.max(finite)) / 0.875
+    return max(100.0, float(np.ceil(target / 100.0) * 100.0))
+
+
 def _format_rt_axis(axis: plt.Axes, upper_limit: float) -> None:
     """Apply the fixed No1 axis and set-boundary presentation."""
 
@@ -395,7 +406,7 @@ def plot_individual(
 ) -> None:
     """Create one continuous six-set figure for a participant pair."""
 
-    _, _, product_color = normalize_product(participant.product)
+    _, product_label, product_color = normalize_product(participant.product)
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
     figure, axis = plt.subplots(figsize=(24, 8))
     drops_x = drops.trials["Global_progress_pct"].to_numpy(dtype=float)
@@ -412,7 +423,7 @@ def plot_individual(
         drops.trials["RT_smoothed_ms"],
         color=product_color,
         linewidth=3,
-        label="Eye Drop",
+        label=f"Eye Drop ({product_label})",
     )
     displayed = np.concatenate(
         [
@@ -542,10 +553,10 @@ def build_grand_average(results: list[dict[str, object]], product: str) -> pd.Da
     return grand
 
 
-def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> None:
+def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> float:
     """Plot product-specific mean RT and between-participant mean +/- 1 SD."""
 
-    _, _, product_color = normalize_product(product)
+    _, product_label, product_color = normalize_product(product)
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
     figure, axis = plt.subplots(figsize=(24, 8))
     x = grand["Global_progress_pct"].to_numpy(dtype=float)
@@ -570,9 +581,16 @@ def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> None:
         linewidth=0,
     )
     axis.plot(x, control_mean, color=CONTROL_COLOR, linewidth=3, label="Control")
-    axis.plot(x, drops_mean, color=product_color, linewidth=3, label="Eye Drop")
+    axis.plot(
+        x,
+        drops_mean,
+        color=product_color,
+        linewidth=3,
+        label=f"Eye Drop ({product_label})",
+    )
     displayed = np.concatenate([control_mean + control_sd, drops_mean + drops_sd])
-    _format_rt_axis(axis, figure_y_upper_limit(displayed))
+    upper_limit = grand_figure_y_upper_limit(displayed)
+    _format_rt_axis(axis, upper_limit)
     axis.legend(
         loc="upper center",
         bbox_to_anchor=(0.5, 1.18),
@@ -585,6 +603,7 @@ def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> None:
     figure.subplots_adjust(left=0.08, right=0.99, top=0.78, bottom=0.20)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
+    return upper_limit
 
 
 def write_grand_average_outputs(
@@ -613,8 +632,20 @@ def write_grand_average_outputs(
     figure_path = output_dir / f"{prefix}.png"
     values_path = output_dir / f"{prefix}_Values.csv"
     summary_path = output_dir / f"{prefix}_RunSummary.json"
-    plot_grand_average(grand, product_dir, figure_path)
+    y_axis_upper_ms = plot_grand_average(grand, product_dir, figure_path)
     grand.to_csv(values_path, index=False)
+    max_upper_sd_band_ms = float(
+        np.nanmax(
+            np.concatenate(
+                [
+                    grand["Control_mean_RT_ms"].to_numpy(dtype=float)
+                    + grand["Control_SD_RT_ms"].to_numpy(dtype=float),
+                    grand["EyeDrop_mean_RT_ms"].to_numpy(dtype=float)
+                    + grand["EyeDrop_SD_RT_ms"].to_numpy(dtype=float),
+                ]
+            )
+        )
+    )
     summary = {
         "product": product_dir,
         "participant_count": len(selected),
@@ -623,6 +654,9 @@ def write_grand_average_outputs(
         "between_participant_variability": "sample SD (ddof=1), shown as mean +/- 1 SD",
         "missing_values": "NaN-aware by position; N stored for each condition and position",
         "manifest_controls_inclusion": True,
+        "figure_y_axis_upper_ms": y_axis_upper_ms,
+        "max_upper_sd_band_ms": max_upper_sd_band_ms,
+        "max_upper_sd_band_axis_ratio": max_upper_sd_band_ms / y_axis_upper_ms,
         "local_processed_data_created": False,
         "outputs": {"figure": str(figure_path), "values": str(values_path)},
         "completed_at": datetime.now().astimezone().isoformat(),
@@ -652,6 +686,60 @@ def run_participant(raw_root: Path, output_root: Path, spec: ParticipantSpec) ->
     }
 
 
+def run_batch(
+    raw_root: Path,
+    output_root: Path,
+    specs: list[ParticipantSpec],
+    *,
+    skip_invalid_participants: bool,
+) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
+    """Run the shared participant pipeline and optionally record invalid pairs."""
+
+    results: list[dict[str, object]] = []
+    exclusions: list[dict[str, str]] = []
+    for spec in specs:
+        try:
+            results.append(run_participant(raw_root, output_root, spec))
+        except (FileNotFoundError, ValueError) as error:
+            if not skip_invalid_participants:
+                raise
+            exclusion = {
+                "pair_id": spec.pair_id,
+                "first_session_id": spec.first_session_id,
+                "second_session_id": spec.second_session_id,
+                "reason": str(error),
+            }
+            exclusions.append(exclusion)
+            logging.error("Excluded participant %s: %s", spec.pair_id, error)
+    return results, exclusions
+
+
+def write_batch_summary(
+    output_root: Path,
+    specs: list[ParticipantSpec],
+    results: list[dict[str, object]],
+    exclusions: list[dict[str, str]],
+    grand_outputs: list[dict[str, str]],
+) -> Path:
+    """Write the batch completion and exclusion record to the authorized output root."""
+
+    output_dir = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "No1_RT_BatchSummary.json"
+    summary = {
+        "requested_participant_count": len(specs),
+        "completed_participant_count": len(results),
+        "completed_pairs": [result["participant"].pair_id for result in results],
+        "excluded_participant_count": len(exclusions),
+        "excluded_participants": exclusions,
+        "grand_average_outputs": grand_outputs,
+        "same_shared_pipeline_for_all_participants": True,
+        "completed_at": datetime.now().astimezone().isoformat(),
+    }
+    path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -672,6 +760,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="After all individual results, create a separate grand-average for each product group",
     )
+    parser.add_argument(
+        "--skip-invalid-participants",
+        action="store_true",
+        help=(
+            "Record and exclude participant pairs with missing or invalid required trials, "
+            "then continue the batch"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -686,9 +782,12 @@ def main() -> int:
         raise SystemExit("Duplicate participant pair in batch input")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    results = []
-    for spec in specs:
-        results.append(run_participant(args.raw_root, args.output_root, spec))
+    results, exclusions = run_batch(
+        args.raw_root,
+        args.output_root,
+        specs,
+        skip_invalid_participants=args.skip_invalid_participants,
+    )
     for result in results:
         outputs = result["outputs"]
         logging.info(
@@ -696,11 +795,23 @@ def main() -> int:
             result["participant"].pair_id,
             outputs["directory"],
         )
+    grand_outputs: list[dict[str, str]] = []
     if args.grand_average:
-        products = sorted({normalize_product(spec.product)[0] for spec in specs})
+        products = sorted(
+            {normalize_product(result["participant"].product)[0] for result in results}
+        )
         for product in products:
             outputs = write_grand_average_outputs(args.output_root, results, product)
+            grand_outputs.append(outputs)
             logging.info("Completed grand-average %s: %s", product, outputs["directory"])
+    batch_summary = write_batch_summary(
+        args.output_root,
+        specs,
+        results,
+        exclusions,
+        grand_outputs,
+    )
+    logging.info("Completed batch summary: %s", batch_summary)
     return 0
 
 

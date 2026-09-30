@@ -87,6 +87,12 @@ def test_figure_y_upper_limit_places_maximum_near_seventy_percent() -> None:
     assert 0.65 <= 1_350.0 / upper <= 0.70
 
 
+def test_grand_figure_y_upper_limit_places_upper_sd_near_eighty_seven_percent() -> None:
+    upper = phase2.grand_figure_y_upper_limit(np.array([400.0, 1_750.0]))
+    assert upper == 2_000.0
+    assert 0.85 <= 1_750.0 / upper <= 0.90
+
+
 def test_parse_participant_and_product_aliases() -> None:
     spec = phase2.parse_participant("101:201:101:Vロート")
     assert spec.first_session_id == "101"
@@ -118,6 +124,30 @@ def test_outputs_are_grouped_by_participant_pair(tmp_path: Path) -> None:
         "ID101-201_No1_RT_QC.csv",
         "ID101-201_No1_RT_RunSummary.json",
     ]
+
+
+def test_run_batch_can_record_and_skip_invalid_participant(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    valid = phase2.parse_participant("101:201:101:CCube")
+    invalid = phase2.parse_participant("102:202:102:CCube")
+    for session_id in ("101", "201"):
+        session = raw_root / session_id
+        session.mkdir(parents=True)
+        for set_number in range(1, 7):
+            _write_results(
+                session / f"{session_id}_block{set_number}_results.csv",
+                set_number,
+                np.full(320, 500.0),
+            )
+    results, exclusions = phase2.run_batch(
+        raw_root,
+        tmp_path / "output",
+        [valid, invalid],
+        skip_invalid_participants=True,
+    )
+    assert [result["participant"].pair_id for result in results] == ["101-201"]
+    assert exclusions[0]["pair_id"] == "102-202"
+    assert "Behavior directory not found" in exclusions[0]["reason"]
 
 
 def _synthetic_session(session_id: str, condition: str, values: np.ndarray) -> object:
@@ -186,3 +216,7 @@ def test_grand_average_uses_individual_smoothed_values_and_writes_outputs(
         "No1_RT_GrandAverage_VRohtoPremium_RunSummary.json",
         "No1_RT_GrandAverage_VRohtoPremium_Values.csv",
     ]
+    summary = pd.read_json(outputs["summary"], typ="series")
+    assert summary["figure_y_axis_upper_ms"] == 900.0
+    # At this deliberately low synthetic scale, 100-ms rounding is coarse.
+    assert 0.80 <= summary["max_upper_sd_band_axis_ratio"] <= 0.90
