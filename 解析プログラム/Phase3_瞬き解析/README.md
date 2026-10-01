@@ -22,6 +22,16 @@
 - Phase 3ではローカルデスクトップへ新しい中間データを保存しない
 - Notionの結果表へID・Set別の平均信号／Fp1／Fp2検出数、セット時間、Blink Rate、閾値、欠測・備考を記録
 
+実行スクリプトは `Phase3_No1_BlinkRate.py` です。被験者ペアは、条件表で確認した1回目ID・2回目ID・目薬ありID・製品を明示します。
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
+  '解析プログラム/Phase3_瞬き解析/Phase3_No1_BlinkRate.py' \
+  --participant '101:201:101:VRohtoPremium'
+```
+
+複数被験者は `--participant` を繰り返すか、`first_session_id`、`second_session_id`、`drops_session_id`、`product` の4列を持つ非公開manifestを `--manifest` で指定します。ID番号帯から条件を推測しません。
+
 ## 実装・実行の完了条件
 
 1. ルートREADME、運用ルール、解析上の注意事項、Phase 3仕様、NotionのPhase 3ページを確認する
