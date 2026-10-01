@@ -9,7 +9,7 @@
 - 入力はPhase 1のセット別 `IDxxx_SetN_blink_signal.h5`
 - 主解析信号は `Fp1_Fp2_mean`、Fp1・Fp2単独はセット別検出数の補助QCのみ
 - 検出用フィルタは1–10 Hz、ピーク検出は `scipy.signal.find_peaks`
-- 同一セッションの使用可能な全セットからpeak height 96パーセンタイル、prominence 95パーセンタイルを求め、全セットへ共通適用
+- Peak height基準は設けず、同一セッションの使用可能な全セットからprominence 95パーセンタイルを求め、全セットへ共通適用
 - minimum peak distanceは設定しない。パイロットHTMLで多重検出を確認する
 - 検出確認HTMLはセッションIDごとにprominence 95%版と90%版を作る。90%版は比較確認専用で、解析値には使わない
 - Blink Rate時間変化は60秒中心化窓、1秒刻み、端点は実際の窓長で補正する。さらにセット内だけで15秒中心化単純移動平均を適用し、その後0〜600へ変換する

@@ -26,7 +26,6 @@ SFREQ = 256.0
 FILTER_LOW_HZ = 1.0
 FILTER_HIGH_HZ = 10.0
 FILTER_ORDER = 4
-HEIGHT_PERCENTILE = 96.0
 MAIN_PROMINENCE_PERCENTILE = 95.0
 HTML_COMPARISON_PROMINENCE_PERCENTILE = 90.0
 RATE_WINDOW_SECONDS = 60.0
@@ -100,7 +99,7 @@ class SetSignal:
 class SessionResult:
     session_id: str
     condition: str
-    thresholds: dict[str, dict[str, float]]
+    thresholds: dict[str, dict[str, float | None]]
     sets: dict[int, SetSignal]
 
 
@@ -182,23 +181,20 @@ def input_path(root: Path, session_id: str, set_number: int) -> Path:
 def calculate_session_thresholds(
     sets: dict[int, SetSignal],
     prominence_percentile: float = MAIN_PROMINENCE_PERCENTILE,
-) -> dict[str, dict[str, float]]:
-    thresholds: dict[str, dict[str, float]] = {}
+) -> dict[str, dict[str, float | None]]:
+    thresholds: dict[str, dict[str, float | None]] = {}
     for channel in ("Fp1", "Fp2", "Fp1_Fp2_mean"):
-        candidate_heights: list[np.ndarray] = []
         candidate_prominences: list[np.ndarray] = []
         for set_signal in sets.values():
             values = set_signal.filtered_uv[channel]
             candidates, _ = find_peaks(values)
             if candidates.size:
-                candidate_heights.append(values[candidates])
                 candidate_prominences.append(peak_prominences(values, candidates)[0])
-        if not candidate_heights:
+        if not candidate_prominences:
             raise ValueError(f"No local maxima available for {channel}")
-        heights = np.concatenate(candidate_heights)
         prominences = np.concatenate(candidate_prominences)
         thresholds[channel] = {
-            "height_uv": float(np.percentile(heights, HEIGHT_PERCENTILE)),
+            "height_uv": None,
             "prominence_uv": float(np.percentile(prominences, prominence_percentile)),
         }
     return thresholds
@@ -225,7 +221,6 @@ def detect_session(
             threshold = thresholds[channel]
             peaks, _ = find_peaks(
                 values,
-                height=threshold["height_uv"],
                 prominence=threshold["prominence_uv"],
             )
             set_signal.peaks[channel] = peaks.astype(np.int64)
@@ -595,7 +590,7 @@ def process_participant(spec: ParticipantSpec, input_root: Path, output_root: Pa
             "bandpass_hz": [FILTER_LOW_HZ, FILTER_HIGH_HZ],
             "filter_order": FILTER_ORDER,
             "filter": "Butterworth SOS, zero-phase sosfiltfilt",
-            "height_percentile": HEIGHT_PERCENTILE,
+            "height_percentile": None,
             "main_prominence_percentile": MAIN_PROMINENCE_PERCENTILE,
             "html_comparison_prominence_percentile": HTML_COMPARISON_PROMINENCE_PERCENTILE,
             "minimum_peak_distance": None,

@@ -83,6 +83,20 @@ def test_no_minimum_peak_distance_is_applied():
     assert peaks.tolist() == [40, 42]
 
 
+def test_peak_detection_uses_prominence_without_height_threshold():
+    signal = _set_signal(1, [])
+    values = np.array([-10.0, -8.0, -10.0, -9.0, -10.0])
+    for channel in signal.filtered_uv:
+        signal.filtered_uv[channel] = values.copy()
+    thresholds = MODULE.calculate_session_thresholds({1: signal}, 0)
+    assert thresholds["Fp1_Fp2_mean"]["height_uv"] is None
+    peaks, _ = MODULE.find_peaks(
+        values,
+        prominence=thresholds["Fp1_Fp2_mean"]["prominence_uv"],
+    )
+    assert peaks.tolist() == [1, 3]
+
+
 def test_rate_smoothing_is_centered_and_keeps_raw_rate():
     signal = _set_signal(120, [5, 10, 20, 40, 90])
     frame = MODULE.calculate_blink_rate(signal)
