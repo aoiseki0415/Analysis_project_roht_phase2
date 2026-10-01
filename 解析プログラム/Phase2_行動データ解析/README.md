@@ -61,6 +61,6 @@ Grand-averageだけを再出力するときは `--grand-average-only --skip-inva
 - Cキューブ群とVロートプレミアム群を分け、各群内で同一被験者の目薬あり条件とコントロールを比較する
 - FigureはNo1セット別RT定量化と同じ6パネルの対応あり構成とし、縦軸を `Mistouch (count)` とする
 - No2の固定色はNo1より暗くし、Control `#402B5D`、C Cube `#963838`、Vロートプレミアム `#AC6820` とする
-- 推測統計とPhase 1 EEG欠損セットの適用は未確定であり、実装前に決定する
+- 推測統計は実施しない。Phase 1でEEG欠損と確定した4セットは、No1の群集計と同様に被験者内対応を保つため両条件とも同じSetをNaNとし、ドット・接続線・平均から除外する
 
-予定スクリプトは `Phase2_No2_Mistouch.py`、出力先は指定OneDriveの `Phase2_行動データ解析/No2_Mistouch/` です。No2の実装・実行はまだ行いません。
+実行スクリプトは `Phase2_No2_Mistouch.py`、出力先は指定OneDriveの `Phase2_行動データ解析/No2_Mistouch/` です。非公開manifestを入力し、全被験者を同一コードのループで処理します。

@@ -1,0 +1,414 @@
+#!/usr/bin/env python3
+"""Phase 2 No2: count paired mistouch events and plot set-wise summaries."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import logging
+import sys
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.ticker import MaxNLocator
+
+HERE = Path(__file__).resolve().parent
+NO1_PATH = HERE / "Phase2_No1_ReactionTime.py"
+SPEC = importlib.util.spec_from_file_location("phase2_no1_shared", NO1_PATH)
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError(f"Cannot load shared Phase2 module: {NO1_PATH}")
+no1 = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = no1
+SPEC.loader.exec_module(no1)
+
+N_SETS = 6
+CONTROL_COLOR = "#402B5D"
+PRODUCTS = {
+    "CCube": ("C Cube", "#963838"),
+    "VRohtoPremium": ("V Rohto Premium", "#AC6820"),
+}
+BAR_CENTERS = np.array([-0.32, 0.32])
+BAR_WIDTH = 0.42
+DOT_SIZE = 150.0
+JITTER_HALF_WIDTH = 0.055
+X_LIMITS = (-0.90, 0.90)
+
+
+@dataclass
+class SetCount:
+    set_number: int
+    raw_mistouch_rows: int
+    mistouch_count: float
+    consecutive_links_50ms: int
+    correct_bridge_links_100ms: int
+    missing_keypress_rows: int
+    source_note: str
+    eeg_missing: bool
+
+
+def _read_raw(path: Path, set_number: int) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    required = {"ResponseType", "KeyPress(ms)", "TiltOnset(ms)", "Block"}
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise ValueError(f"{path.name}: missing columns {missing}")
+    block = pd.to_numeric(frame["Block"], errors="coerce")
+    frame = frame.loc[block == set_number].copy().reset_index(drop=True)
+    frame["ResponseType_norm"] = frame["ResponseType"].astype(str).str.strip().str.lower()
+    frame["KeyPress_num"] = pd.to_numeric(frame["KeyPress(ms)"], errors="coerce")
+    frame["TiltOnset_num"] = pd.to_numeric(frame["TiltOnset(ms)"], errors="coerce")
+    frame["Correct_RT_ms"] = frame["KeyPress_num"] - frame["TiltOnset_num"]
+    return frame
+
+
+def select_raw_set(session_dir: Path, set_number: int) -> tuple[pd.DataFrame, str]:
+    """Use the same completed-file choice as No1, while retaining mistouch rows."""
+
+    selected_stimulus, note = no1._select_set(session_dir, set_number)
+    selected_sources = [Path(value) for value in selected_stimulus["source_file"].unique()]
+    if len(selected_sources) == 1:
+        return _read_raw(selected_sources[0], set_number), note
+    raise ValueError(
+        f"ID{session_dir.name} Set{set_number}: reconstructed stimulus trials span "
+        "multiple files, so mistouch chronology cannot be reconstructed safely"
+    )
+
+
+def count_mistouch_events(frame: pd.DataFrame) -> dict[str, int]:
+    """Count mistouches using the fixed 50-ms and correct-bridge 100-ms rules."""
+
+    types = frame["ResponseType_norm"].to_numpy(dtype=object)
+    times = frame["KeyPress_num"].to_numpy(dtype=float)
+    correct_rt = frame["Correct_RT_ms"].to_numpy(dtype=float)
+    mistouch_positions = np.flatnonzero(types == "mistouch")
+    raw_count = int(mistouch_positions.size)
+    missing = int(np.isnan(times[mistouch_positions]).sum())
+    assigned: set[int] = set()
+    event_count = 0
+    consecutive_links = 0
+    bridge_links = 0
+
+    for start in mistouch_positions:
+        start = int(start)
+        if start in assigned:
+            continue
+        event_count += 1
+        assigned.add(start)
+        current = start
+        while True:
+            if current + 1 < len(frame) and types[current + 1] == "mistouch":
+                gap = times[current + 1] - times[current]
+                if np.isfinite(gap) and 0.0 <= gap <= 50.0:
+                    current += 1
+                    assigned.add(current)
+                    consecutive_links += 1
+                    continue
+            if (
+                current + 2 < len(frame)
+                and types[current + 1] == "correct"
+                and types[current + 2] == "mistouch"
+            ):
+                gap = times[current + 2] - times[current]
+                rt = correct_rt[current + 1]
+                if np.isfinite(gap) and 0.0 <= gap <= 100.0 and np.isfinite(rt) and rt <= 50.0:
+                    current += 2
+                    assigned.add(current)
+                    bridge_links += 1
+                    continue
+            break
+    return {
+        "raw_mistouch_rows": raw_count,
+        "mistouch_count": event_count,
+        "consecutive_links_50ms": consecutive_links,
+        "correct_bridge_links_100ms": bridge_links,
+        "missing_keypress_rows": missing,
+    }
+
+
+def process_session(raw_root: Path, session_id: str) -> list[SetCount]:
+    session_dir = raw_root / session_id
+    if not session_dir.is_dir():
+        raise FileNotFoundError(f"Behavior directory not found: {session_dir}")
+    missing_set = no1.EEG_MISSING_SET_BY_SESSION.get(session_id)
+    results: list[SetCount] = []
+    for set_number in range(1, N_SETS + 1):
+        frame, note = select_raw_set(session_dir, set_number)
+        counted = count_mistouch_events(frame)
+        results.append(
+            SetCount(
+                set_number=set_number,
+                raw_mistouch_rows=counted["raw_mistouch_rows"],
+                mistouch_count=float(counted["mistouch_count"]),
+                consecutive_links_50ms=counted["consecutive_links_50ms"],
+                correct_bridge_links_100ms=counted["correct_bridge_links_100ms"],
+                missing_keypress_rows=counted["missing_keypress_rows"],
+                source_note=note,
+                eeg_missing=missing_set == set_number,
+            )
+        )
+    return results
+
+
+def analyse_participant(raw_root: Path, participant: object) -> list[dict[str, object]]:
+    drops = process_session(raw_root, participant.drops_session_id)
+    control = process_session(raw_root, participant.control_session_id)
+    pairwise_missing = {item.set_number for item in drops + control if item.eeg_missing}
+    if len(pairwise_missing) > 1:
+        raise ValueError(f"ID{participant.pair_id}: multiple EEG-missing sets")
+    missing_set = next(iter(pairwise_missing), None)
+    product_dir = no1.normalize_product(participant.product)[0]
+    rows: list[dict[str, object]] = []
+    for drops_set, control_set in zip(drops, control, strict=True):
+        masked = drops_set.set_number == missing_set
+        rows.append(
+            {
+                "Product": product_dir,
+                "Pair_ID": participant.pair_id,
+                "First_session_ID": participant.first_session_id,
+                "Second_session_ID": participant.second_session_id,
+                "EyeDrop_session_ID": participant.drops_session_id,
+                "Control_session_ID": participant.control_session_id,
+                "EyeDrop_visit": participant.eye_drops_visit,
+                "Set": drops_set.set_number,
+                "EyeDrop_mistouch_count": np.nan if masked else drops_set.mistouch_count,
+                "Control_mistouch_count": np.nan if masked else control_set.mistouch_count,
+                "EyeDrop_raw_rows": drops_set.raw_mistouch_rows,
+                "Control_raw_rows": control_set.raw_mistouch_rows,
+                "EyeDrop_50ms_links": drops_set.consecutive_links_50ms,
+                "Control_50ms_links": control_set.consecutive_links_50ms,
+                "EyeDrop_100ms_correct_bridge_links": drops_set.correct_bridge_links_100ms,
+                "Control_100ms_correct_bridge_links": control_set.correct_bridge_links_100ms,
+                "EyeDrop_missing_keypress_rows": drops_set.missing_keypress_rows,
+                "Control_missing_keypress_rows": control_set.missing_keypress_rows,
+                "Pairwise_EEG_missing_set": f"Set{missing_set}" if missing_set else "なし",
+                "EyeDrop_source": drops_set.source_note,
+                "Control_source": control_set.source_note,
+            }
+        )
+    return rows
+
+
+def build_summary(values: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for product in PRODUCTS:
+        for set_number in range(1, N_SETS + 1):
+            selected = values.loc[(values["Product"] == product) & (values["Set"] == set_number)]
+            drops = selected["EyeDrop_mistouch_count"].to_numpy(float)
+            control = selected["Control_mistouch_count"].to_numpy(float)
+            paired = np.isfinite(drops) & np.isfinite(control)
+            n = int(paired.sum())
+            rows.append(
+                {
+                    "Product": product,
+                    "Set": set_number,
+                    "EyeDrop_mean_count": float(np.mean(drops[paired])),
+                    "EyeDrop_SD_count": float(np.std(drops[paired], ddof=1)) if n > 1 else np.nan,
+                    "Control_mean_count": float(np.mean(control[paired])),
+                    "Control_SD_count": float(np.std(control[paired], ddof=1)) if n > 1 else np.nan,
+                    "Paired_N": n,
+                    "Mean_paired_difference_EyeDrop_minus_Control": float(
+                        np.mean(drops[paired] - control[paired])
+                    ),
+                    "Statistics": "Not performed",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _upper_limit(values: np.ndarray) -> int:
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return 5
+    return max(5, int(np.ceil(float(np.max(finite)) / 0.8)))
+
+
+def plot_product(values: pd.DataFrame, summary: pd.DataFrame, product: str, path: Path) -> int:
+    label, color = PRODUCTS[product]
+    product_values = values.loc[values["Product"] == product]
+    upper = _upper_limit(
+        product_values[["EyeDrop_mistouch_count", "Control_mistouch_count"]].to_numpy(float)
+    )
+    plt.rcParams.update(
+        {"font.family": "sans-serif", "font.sans-serif": ["Arial"], "axes.linewidth": 1.5}
+    )
+    figure, axes = plt.subplots(1, N_SETS, figsize=(34, 9), sharey=True)
+    for set_number, axis in enumerate(axes, start=1):
+        current = product_values.loc[product_values["Set"] == set_number].sort_values("Pair_ID")
+        drops = current["EyeDrop_mistouch_count"].to_numpy(float)
+        control = current["Control_mistouch_count"].to_numpy(float)
+        paired = np.isfinite(drops) & np.isfinite(control)
+        drops, control = drops[paired], control[paired]
+        row = summary.loc[(summary["Product"] == product) & (summary["Set"] == set_number)].iloc[0]
+        axis.bar(
+            BAR_CENTERS,
+            [row["EyeDrop_mean_count"], row["Control_mean_count"]],
+            width=BAR_WIDTH,
+            color=[color, CONTROL_COLOR],
+            alpha=0.86,
+            edgecolor="#222222",
+            linewidth=1.0,
+            zorder=1,
+        )
+        offsets = (
+            np.linspace(-JITTER_HALF_WIDTH, JITTER_HALF_WIDTH, drops.size)
+            if drops.size > 1
+            else np.zeros(drops.size)
+        )
+        for offset, dval, cval in zip(offsets, drops, control, strict=True):
+            axis.plot(
+                BAR_CENTERS + offset,
+                [dval, cval],
+                color="#777777",
+                alpha=0.34,
+                linewidth=1.2,
+                zorder=2,
+            )
+        axis.scatter(
+            BAR_CENTERS[0] + offsets,
+            drops,
+            s=DOT_SIZE,
+            color=color,
+            alpha=0.68,
+            edgecolor="white",
+            linewidth=1.0,
+            zorder=3,
+        )
+        axis.scatter(
+            BAR_CENTERS[1] + offsets,
+            control,
+            s=DOT_SIZE,
+            color=CONTROL_COLOR,
+            alpha=0.68,
+            edgecolor="white",
+            linewidth=1.0,
+            zorder=3,
+        )
+        axis.text(
+            0.5,
+            0.94,
+            f"Set {set_number}",
+            transform=axis.transAxes,
+            ha="center",
+            va="top",
+            fontsize=26,
+        )
+        axis.set_xticks(BAR_CENTERS, ["Eye Drop", "Control"], fontsize=22)
+        axis.text(
+            BAR_CENTERS[0],
+            -0.105,
+            f"({label})",
+            transform=axis.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            fontsize=18,
+            clip_on=False,
+        )
+        axis.set_xlim(*X_LIMITS)
+        axis.set_ylim(0, upper)
+        axis.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+        axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
+        axis.tick_params(axis="y", labelsize=23, labelleft=True, width=1.5, length=6)
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+        axis.grid(False)
+    axes[0].set_ylabel("Mistouch (count)", fontsize=30, labelpad=12)
+    figure.subplots_adjust(left=0.06, right=0.995, top=0.94, bottom=0.25, wspace=0.24)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    return upper
+
+
+def write_outputs(
+    output_root: Path, values: pd.DataFrame, summary: pd.DataFrame
+) -> list[dict[str, object]]:
+    root = output_root / "Phase2_行動データ解析" / "No2_Mistouch"
+    root.mkdir(parents=True, exist_ok=True)
+    outputs: list[dict[str, object]] = []
+    for product in PRODUCTS:
+        product_dir = root / product
+        product_dir.mkdir(parents=True, exist_ok=True)
+        prefix = f"No2_Mistouch_{product}"
+        figure_path = product_dir / f"{prefix}.png"
+        values_path = product_dir / f"{prefix}_ParticipantValues.csv"
+        summary_path = product_dir / f"{prefix}_SetSummary.csv"
+        run_path = product_dir / f"{prefix}_RunSummary.json"
+        selected_values = values.loc[values["Product"] == product].copy()
+        selected_summary = summary.loc[summary["Product"] == product].copy()
+        upper = plot_product(selected_values, selected_summary, product, figure_path)
+        selected_values.to_csv(values_path, index=False)
+        selected_summary.to_csv(summary_path, index=False)
+        run = {
+            "product": product,
+            "participant_count": int(selected_values["Pair_ID"].nunique()),
+            "definition": {
+                "basic": "one mistouch row equals one mistouch event",
+                "consecutive": "adjacent mistouch rows with KeyPress gap <= 50 ms are merged",
+                "correct_bridge": (
+                    "mistouch-correct-mistouch with outer gap <= 100 ms and "
+                    "correct RT <= 50 ms is merged"
+                ),
+                "boundaries": "never merge across sets or files",
+            },
+            "eeg_missing_set_rule": "both paired conditions are NaN for the same affected set",
+            "figure_y_axis_upper_count": upper,
+            "local_processed_data_created": False,
+            "outputs": {
+                "figure": str(figure_path),
+                "participant_values": str(values_path),
+                "set_summary": str(summary_path),
+            },
+            "completed_at": datetime.now().astimezone().isoformat(),
+        }
+        run_path.write_text(json.dumps(run, ensure_ascii=False, indent=2), encoding="utf-8")
+        outputs.append({**run["outputs"], "run_summary": str(run_path)})
+    batch_path = root / "No2_Mistouch_BatchSummary.json"
+    batch_path.write_text(
+        json.dumps(
+            {
+                "completed_participant_count": int(values["Pair_ID"].nunique()),
+                "completed_pairs": sorted(values["Pair_ID"].unique().tolist()),
+                "same_shared_pipeline_for_all_participants": True,
+                "outputs": outputs,
+                "completed_at": datetime.now().astimezone().isoformat(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return outputs
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--raw-root", type=Path, default=no1.DEFAULT_RAW_ROOT)
+    parser.add_argument("--output-root", type=Path, default=no1.DEFAULT_OUTPUT_ROOT)
+    parser.add_argument("--manifest", type=Path, required=True)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    specs = no1.load_manifest(args.manifest)
+    rows: list[dict[str, object]] = []
+    for participant in specs:
+        logging.info("Processing ID%s", participant.pair_id)
+        rows.extend(analyse_participant(args.raw_root, participant))
+    values = pd.DataFrame(rows)
+    summary = build_summary(values)
+    outputs = write_outputs(args.output_root, values, summary)
+    logging.info("Completed %d participants: %s", len(specs), outputs)
+    return 0
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    raise SystemExit(main())
