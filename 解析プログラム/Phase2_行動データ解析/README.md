@@ -58,6 +58,7 @@ Grand-averageだけを再出力するときは `--grand-average-only --skip-inva
 - 基本は `ResponseType = mistouch` の1行を1回とする
 - 他イベントを挟まない隣接mistouchは、間隔が50 ms以下なら同じ操作として1回にまとめる
 - mistouch間にcorrectがちょうど1行あり、mistouch間が100 ms以下かつcorrect RTが50 ms以下なら、3行全体を1回にまとめる
+- No1のRT 200 ms未満除外はNo2へ適用せず、`correct` をRTの短さだけでmistouchへ再分類しない。50 ms以下のcorrectは、上記の連続押し例外を判定する材料としてだけ使用する
 - 50 msは、全17,796隣接間隔中17,107件（96.1%）が50 ms以内だった実測結果に基づく
 - correctを挟む例外規則は、実測453例がすべてcorrect 1行、RT 0〜48 msだったことに基づく
 - 上記以外は別のミスタッチとし、セット境界・ファイル境界をまたいで結合しない
