@@ -6,6 +6,10 @@ Phase 2では、ガボール課題の行動データから反応時間（RT）�
 
 本書は、解析1（No1）のRT試行進行解析・セット別RT定量化と、解析2（No2）のミスタッチ解析の確定仕様を示します。推測統計は実施せず、No2でもPhase 1のEEG欠損セットを被験者内で対応付けます。
 
+### 実行状態
+
+No1・No2は、2026年10月1日に解析対象40被験者ペアへ同一の確定スクリプトを適用して完了しました。No1の個人解析・Grand-average・2種類のセット別RT定量化、No2の主解析・Cキューブ感度分析、OneDrive成果物、Notion結果記録を確認済みです。本書の以下の内容を現行確定仕様とします。
+
 ## 2. 解析1（No1）：RTの試行進行解析
 
 ### 2.1 入力
@@ -193,7 +197,7 @@ Cキューブ群の同じフォルダには、主解析成果物を上書きせ�
 
 OneDriveのNo1配下では、`CCube` と `VRohtoPremium` を分け、各製品群の中に被験者別成果物、`GrandAverage`、`SetMeanQuantification`を置きます。被験者別フォルダとファイル名は、単独IDではなく `ID<1回目>-<2回目>` を使用します。
 
-No1は、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。個人別figure、QC要約、実行ログ、将来のGrand-averageは指定OneDriveだけへ保存します。試行別の `RT_TrialData.csv` は保存しません。
+No1は、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。個人別figure、QC要約、実行ログ、Grand-averageは指定OneDriveだけへ保存します。試行別の `RT_TrialData.csv` は保存しません。
 
 Grand-averageは同じスクリプトへ `--grand-average --skip-invalid-participants` を付けて実行します。製品群ごとの `GrandAverage/` にfigure、同一進捗位置の平均・SD・Nを収めたCSV、実行要約JSONを保存します。No1直下のバッチ実行要約JSONに、完了ペア、除外ペア、除外理由、Grand-average出力を保存します。
 
