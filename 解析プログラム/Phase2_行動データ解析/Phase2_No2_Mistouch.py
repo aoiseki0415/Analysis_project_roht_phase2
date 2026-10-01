@@ -40,6 +40,8 @@ BAR_WIDTH = 0.42
 DOT_SIZE = 150.0
 JITTER_HALF_WIDTH = 0.055
 X_LIMITS = (-0.90, 0.90)
+SENSITIVITY_PAIR_ID = "132-232"
+SENSITIVITY_SET = 1
 
 
 @dataclass
@@ -205,7 +207,7 @@ def analyse_participant(raw_root: Path, participant: object) -> list[dict[str, o
 
 def build_summary(values: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
-    for product in PRODUCTS:
+    for product in sorted(values["Product"].unique()):
         for set_number in range(1, N_SETS + 1):
             selected = values.loc[(values["Product"] == product) & (values["Set"] == set_number)]
             drops = selected["EyeDrop_mistouch_count"].to_numpy(float)
@@ -228,6 +230,23 @@ def build_summary(values: pd.DataFrame) -> pd.DataFrame:
                 }
             )
     return pd.DataFrame(rows)
+
+
+def build_ccube_sensitivity_values(values: pd.DataFrame) -> pd.DataFrame:
+    """Mask both conditions for ID132-232 Set 1 without changing main results."""
+
+    sensitivity = values.copy()
+    target = (
+        sensitivity["Product"].eq("CCube")
+        & sensitivity["Pair_ID"].eq(SENSITIVITY_PAIR_ID)
+        & sensitivity["Set"].eq(SENSITIVITY_SET)
+    )
+    if int(target.sum()) != 1:
+        raise ValueError(
+            f"Sensitivity target ID132-232 Set 1 must occur exactly once; found {int(target.sum())}"
+        )
+    sensitivity.loc[target, ["EyeDrop_mistouch_count", "Control_mistouch_count"]] = np.nan
+    return sensitivity
 
 
 def _upper_limit(values: np.ndarray) -> int:
@@ -376,6 +395,51 @@ def write_outputs(
         }
         run_path.write_text(json.dumps(run, ensure_ascii=False, indent=2), encoding="utf-8")
         outputs.append({**run["outputs"], "run_summary": str(run_path)})
+
+        if product == "CCube":
+            sensitivity_values = build_ccube_sensitivity_values(selected_values)
+            sensitivity_summary = build_summary(sensitivity_values)
+            sensitivity_summary = sensitivity_summary.loc[
+                sensitivity_summary["Product"] == "CCube"
+            ].copy()
+            sensitivity_prefix = "No2_Mistouch_CCube_SensitivityAnalysis_ExcludeID132-232_Set1"
+            sensitivity_figure = product_dir / f"{sensitivity_prefix}.png"
+            sensitivity_csv = product_dir / f"{sensitivity_prefix}_SetSummary.csv"
+            sensitivity_run = product_dir / f"{sensitivity_prefix}_RunSummary.json"
+            sensitivity_upper = plot_product(
+                sensitivity_values,
+                sensitivity_summary,
+                "CCube",
+                sensitivity_figure,
+            )
+            sensitivity_summary.to_csv(sensitivity_csv, index=False)
+            sensitivity_record = {
+                "analysis_role": "sensitivity analysis; main analysis is unchanged",
+                "product": "CCube",
+                "excluded_pair": SENSITIVITY_PAIR_ID,
+                "excluded_set": SENSITIVITY_SET,
+                "exclusion_scope": "both Eye Drop and Control conditions",
+                "other_sets_and_participants_changed": False,
+                "set1_paired_n": int(
+                    sensitivity_summary.loc[sensitivity_summary["Set"] == 1, "Paired_N"].iloc[0]
+                ),
+                "figure_y_axis_upper_count": sensitivity_upper,
+                "outputs": {
+                    "figure": str(sensitivity_figure),
+                    "set_summary": str(sensitivity_csv),
+                },
+                "completed_at": datetime.now().astimezone().isoformat(),
+            }
+            sensitivity_run.write_text(
+                json.dumps(sensitivity_record, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            outputs.append(
+                {
+                    **sensitivity_record["outputs"],
+                    "run_summary": str(sensitivity_run),
+                }
+            )
     batch_path = root / "No2_Mistouch_BatchSummary.json"
     batch_path.write_text(
         json.dumps(

@@ -83,3 +83,25 @@ def test_fixed_figure_style() -> None:
     assert phase2.DOT_SIZE == 150.0
     assert phase2.CONTROL_COLOR == "#402B5D"
     assert phase2.PRODUCTS["CCube"][1] == "#963838"
+
+
+def test_ccube_sensitivity_masks_only_target_pair_and_set() -> None:
+    rows = []
+    for pair_id in ("132-232", "134-234"):
+        for set_number in range(1, 7):
+            rows.append(
+                {
+                    "Product": "CCube",
+                    "Pair_ID": pair_id,
+                    "Set": set_number,
+                    "EyeDrop_mistouch_count": 10.0,
+                    "Control_mistouch_count": 20.0,
+                }
+            )
+    values = pd.DataFrame(rows)
+    sensitivity = phase2.build_ccube_sensitivity_values(values)
+    target = sensitivity["Pair_ID"].eq("132-232") & sensitivity["Set"].eq(1)
+    assert sensitivity.loc[target, "EyeDrop_mistouch_count"].isna().all()
+    assert sensitivity.loc[target, "Control_mistouch_count"].isna().all()
+    assert sensitivity.loc[~target, "EyeDrop_mistouch_count"].eq(10.0).all()
+    assert sensitivity.loc[~target, "Control_mistouch_count"].eq(20.0).all()

@@ -62,5 +62,7 @@ Grand-averageだけを再出力するときは `--grand-average-only --skip-inva
 - FigureはNo1セット別RT定量化と同じ6パネルの対応あり構成とし、縦軸を `Mistouch (count)` とする
 - No2の固定色はNo1より暗くし、Control `#402B5D`、C Cube `#963838`、Vロートプレミアム `#AC6820` とする
 - 推測統計は実施しない。Phase 1でEEG欠損と確定した4セットは、No1の群集計と同様に被験者内対応を保つため両条件とも同じSetをNaNとし、ドット・接続線・平均から除外する
+- 主解析ではID132-232のCキューブ目薬ありSet 1（375回）を含める。追加の感度分析だけ、ID132-232のSet 1を目薬あり・Controlの両条件ともNaN化し、Set 2〜6は変更しない
+- Cキューブ群は主解析Figureに加えて感度分析Figure・Set集計CSV・実行要約JSONを別名で保存する。Vロートプレミアム群には適用せず、主解析成果物を上書きしない
 
 実行スクリプトは `Phase2_No2_Mistouch.py`、出力先は指定OneDriveの `Phase2_行動データ解析/No2_Mistouch/` です。非公開manifestを入力し、全被験者を同一コードのループで処理します。
