@@ -29,6 +29,10 @@ SET_MEAN_BAR_WIDTH = 0.42
 SET_MEAN_DOT_SIZE = 150.0
 SET_MEAN_JITTER_HALF_WIDTH = 0.055
 SET_MEAN_X_LIMITS = (-0.90, 0.90)
+SET_MEAN_VARIANTS = {
+    "AllTrials": (1, N_TRIALS),
+    "Last80Trials": (N_TRIALS - 79, N_TRIALS),
+}
 EEG_MISSING_SET_BY_SESSION = {
     "109": 1,
     "120": 6,
@@ -705,9 +709,20 @@ def write_grand_average_outputs(
 
 
 def build_set_mean_quantification(
-    results: list[dict[str, object]], product: str
+    results: list[dict[str, object]],
+    product: str,
+    *,
+    trial_start: int = 1,
+    trial_end: int = N_TRIALS,
+    variant: str = "AllTrials",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build paired set means from cleaned trial-level RT, never smoothed RT."""
+
+    if not 1 <= trial_start <= trial_end <= N_TRIALS:
+        raise ValueError(
+            f"Invalid quantification trial range: {trial_start}-{trial_end}; "
+            f"expected 1-{N_TRIALS}"
+        )
 
     product_dir, _, _ = normalize_product(product)
     selected = sorted(
@@ -738,12 +753,20 @@ def build_set_mean_quantification(
         for set_number in range(1, N_SETS + 1):
             drops_values = (
                 result["drops"]
-                .trials.loc[result["drops"].trials["Set"] == set_number, "RT_clean_ms"]
+                .trials.loc[
+                    (result["drops"].trials["Set"] == set_number)
+                    & result["drops"].trials["Trial"].between(trial_start, trial_end),
+                    "RT_clean_ms",
+                ]
                 .to_numpy(dtype=float)
             )
             control_values = (
                 result["control"]
-                .trials.loc[result["control"].trials["Set"] == set_number, "RT_clean_ms"]
+                .trials.loc[
+                    (result["control"].trials["Set"] == set_number)
+                    & result["control"].trials["Trial"].between(trial_start, trial_end),
+                    "RT_clean_ms",
+                ]
                 .to_numpy(dtype=float)
             )
             if pairwise_missing_set == set_number:
@@ -758,6 +781,9 @@ def build_set_mean_quantification(
             rows.append(
                 {
                     "Product": product_dir,
+                    "Quantification_variant": variant,
+                    "Trial_start": trial_start,
+                    "Trial_end": trial_end,
                     "Pair_ID": participant.pair_id,
                     "First_session_ID": participant.first_session_id,
                     "Second_session_ID": participant.second_session_id,
@@ -787,6 +813,9 @@ def build_set_mean_quantification(
         summaries.append(
             {
                 "Product": product_dir,
+                "Quantification_variant": variant,
+                "Trial_start": trial_start,
+                "Trial_end": trial_end,
                 "Set": set_number,
                 "EyeDrop_between_participant_mean_RT_ms": float(np.mean(drops[paired])),
                 "EyeDrop_between_participant_SD_ms": drops_sd,
@@ -936,60 +965,76 @@ def write_set_mean_quantification_outputs(
     output_root: Path,
     results: list[dict[str, object]],
     product: str,
-) -> dict[str, str]:
-    """Write only the new set-mean outputs, preserving existing No1 products."""
+) -> dict[str, object]:
+    """Write both set-mean variants while preserving existing No1 products."""
 
     product_dir, _, _ = normalize_product(product)
-    participant_values, summary = build_set_mean_quantification(results, product_dir)
-    output_dir = (
+    quantification_root = (
         output_root
         / "Phase2_行動データ解析"
         / "No1_ReactionTime"
         / product_dir
         / "SetMeanQuantification"
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    prefix = f"No1_RT_SetMeanQuantification_{product_dir}"
-    figure_path = output_dir / f"{prefix}.png"
-    participant_values_path = output_dir / f"{prefix}_ParticipantValues.csv"
-    summary_path = output_dir / f"{prefix}_SetSummary.csv"
-    run_summary_path = output_dir / f"{prefix}_RunSummary.json"
-    y_axis_upper_ms = plot_set_mean_quantification(
-        participant_values, summary, product_dir, figure_path
-    )
-    participant_values.to_csv(participant_values_path, index=False)
-    summary.to_csv(summary_path, index=False)
-    run_summary = {
-        "product": product_dir,
-        "participant_count": int(participant_values["Pair_ID"].nunique()),
-        "quantification": (
-            "arithmetic mean of trial-level RT_clean_ms within each participant, "
-            "condition, and set; smoothed RT is not used"
-        ),
-        "pairing": "Eye Drop and Control values are paired within participant",
-        "eeg_missing_set_rule": (
-            "For affected pairs, both conditions are NaN for the same set before "
-            "participant and group summaries"
-        ),
-        "statistics": "Not performed",
-        "figure_y_axis_upper_ms": y_axis_upper_ms,
-        "existing_individual_and_grand_average_outputs_modified": False,
-        "outputs": {
+    quantification_root.mkdir(parents=True, exist_ok=True)
+    variant_outputs: dict[str, dict[str, str]] = {}
+    for variant, (trial_start, trial_end) in SET_MEAN_VARIANTS.items():
+        participant_values, summary = build_set_mean_quantification(
+            results,
+            product_dir,
+            trial_start=trial_start,
+            trial_end=trial_end,
+            variant=variant,
+        )
+        output_dir = quantification_root / variant
+        output_dir.mkdir(parents=True, exist_ok=True)
+        prefix = f"No1_RT_SetMeanQuantification_{product_dir}_{variant}"
+        figure_path = output_dir / f"{prefix}.png"
+        participant_values_path = output_dir / f"{prefix}_ParticipantValues.csv"
+        summary_path = output_dir / f"{prefix}_SetSummary.csv"
+        run_summary_path = output_dir / f"{prefix}_RunSummary.json"
+        y_axis_upper_ms = plot_set_mean_quantification(
+            participant_values, summary, product_dir, figure_path
+        )
+        participant_values.to_csv(participant_values_path, index=False)
+        summary.to_csv(summary_path, index=False)
+        run_summary = {
+            "product": product_dir,
+            "quantification_variant": variant,
+            "trial_range_inclusive": [trial_start, trial_end],
+            "participant_count": int(participant_values["Pair_ID"].nunique()),
+            "quantification": (
+                "arithmetic mean of trial-level RT_clean_ms within the selected trial "
+                "range for each participant, condition, and set; smoothed RT is not used"
+            ),
+            "pairing": "Eye Drop and Control values are paired within participant",
+            "eeg_missing_set_rule": (
+                "For affected pairs, both conditions are NaN for the same set before "
+                "participant and group summaries"
+            ),
+            "statistics": "Not performed",
+            "figure_y_axis_upper_ms": y_axis_upper_ms,
+            "existing_individual_and_grand_average_outputs_modified": False,
+            "outputs": {
+                "figure": str(figure_path),
+                "participant_values": str(participant_values_path),
+                "set_summary": str(summary_path),
+            },
+            "completed_at": datetime.now().astimezone().isoformat(),
+        }
+        run_summary_path.write_text(
+            json.dumps(run_summary, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        variant_outputs[variant] = {
+            "directory": str(output_dir),
             "figure": str(figure_path),
             "participant_values": str(participant_values_path),
             "set_summary": str(summary_path),
-        },
-        "completed_at": datetime.now().astimezone().isoformat(),
-    }
-    run_summary_path.write_text(
-        json.dumps(run_summary, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+            "summary": str(run_summary_path),
+        }
     return {
-        "directory": str(output_dir),
-        "figure": str(figure_path),
-        "participant_values": str(participant_values_path),
-        "set_summary": str(summary_path),
-        "summary": str(run_summary_path),
+        "directory": str(quantification_root),
+        "variants": variant_outputs,
     }
 
 
@@ -1031,7 +1076,7 @@ def write_set_mean_quantification_batch_summary(
     specs: list[ParticipantSpec],
     results: list[dict[str, object]],
     exclusions: list[dict[str, str]],
-    outputs: list[dict[str, str]],
+    outputs: list[dict[str, object]],
 ) -> Path:
     """Write a dedicated batch record without replacing the existing No1 summary."""
 
@@ -1200,7 +1245,7 @@ def main() -> int:
             specs,
             skip_invalid_participants=args.skip_invalid_participants,
         )
-        quantification_outputs: list[dict[str, str]] = []
+        quantification_outputs: list[dict[str, object]] = []
         products = sorted(
             {normalize_product(result["participant"].product)[0] for result in results}
         )

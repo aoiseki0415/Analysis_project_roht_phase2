@@ -28,7 +28,7 @@
 - 個人別出力とGrand-averageは同じNo1に属する。全個人の移動平均が完了してから、個人別の移動平均値を同じセット・同じ進捗位置で被験者間平均し、平均±1 SDを表示する。条件別に標本SDと有効人数Nを保存し、欠測値は前詰め・補間しない
 - Grand-averageでは、EEG欠損セットを持つ被験者ペアについて、対応するもう一方の条件も同じセットをNaN化してから集計する。個人figureではこの対称化を行わない
 - Grand-averageの凡例に `Mean ± 1 SD` というタイトルを付けない。縦軸はCキューブ群・Vロートプレミアム群とも0〜1800 msに固定する
-- 同じNo1内でセット別RT定量化を行う。各被験者・各条件・各セットの値は、移動平均値ではなく、EEG欠損セットのNaN化後に残る全試行RTの算術平均とする
+- 同じNo1内でセット別RT定量化を行う。各被験者・各条件・各セットについて、移動平均値ではなくEEG欠損セットのNaN化後の試行別RTから、`AllTrials`（Trial 1〜320）と `Last80Trials`（Trial 241〜320）の2種類の算術平均を必ず作成する
 - 定量化では製品群ごとにSet 1〜6の独立6パネルを横一列で作り、各パネルの左にEye Drop、右にControlを配置する。バーは被験者間平均、ドットは被験者値、線は同一被験者の条件対応を示す
 - EEG欠損セットを持つペアはGrand-averageと同様に両条件の同じセットをNaNとし、そのセットのドット・接続線・平均から除外する
 - 定量化の縦軸は6パネル共通の `Reaction Time (ms)` とし、数字を全パネルに表示する。バーは中央付近（中心-0.32／0.32、幅0.42）、横軸範囲は-0.90〜0.90、ドットサイズは150とし、左右端へ余白を取る。横軸の条件名は22 pt、括弧内の目薬名だけ18 ptとする。Set名は縦軸上限より内側へ置き、Arialと既存No1の固定色を用いる。推測統計は未実施とする
@@ -44,7 +44,7 @@ Grand-averageを作成するときは、対象者を確定したmanifestを指�
 
 Grand-averageだけを再出力するときは `--grand-average-only --skip-invalid-participants` を使用します。このモードでは個人figure、個人QC、セット別定量化、通常バッチ要約を変更しません。
 
-セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算と確定済みのEEG欠損セットNaN化だけを再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/` へ、6パネルfigure、被験者別セット値CSV、Set別集計CSV、実行要約JSONを保存します。
+セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算と確定済みのEEG欠損セットNaN化だけを再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/AllTrials/` と `SetMeanQuantification/Last80Trials/` へ、それぞれ6パネルfigure、被験者別セット値CSV、Set別集計CSV、実行要約JSONを保存します。
 
 ## No2
 

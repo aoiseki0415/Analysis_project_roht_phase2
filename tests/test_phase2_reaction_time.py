@@ -322,6 +322,35 @@ def test_set_mean_quantification_uses_clean_trial_rt_not_smoothed_rt() -> None:
     assert not np.isclose(participant_values["EyeDrop_set_mean_RT_ms"].iloc[0], 9_999.0)
 
 
+def test_set_mean_quantification_can_use_last_eighty_trials_only() -> None:
+    one_set = np.concatenate([np.full(240, 500.0), np.full(80, 900.0)])
+    drops_values = np.tile(one_set, 6)
+    control_values = np.tile(one_set + 100.0, 6)
+    spec = phase2.parse_participant("101:201:101:VRohtoPremium")
+    results = [
+        {
+            "participant": spec,
+            "drops": _synthetic_clean_session("101", "目薬あり", drops_values),
+            "control": _synthetic_clean_session("201", "コントロール", control_values),
+        }
+    ]
+
+    participant_values, summary = phase2.build_set_mean_quantification(
+        results,
+        "VRohtoPremium",
+        trial_start=241,
+        trial_end=320,
+        variant="Last80Trials",
+    )
+    assert np.allclose(participant_values["EyeDrop_set_mean_RT_ms"], 900.0)
+    assert np.allclose(participant_values["Control_set_mean_RT_ms"], 1_000.0)
+    assert np.all(participant_values["EyeDrop_valid_trial_count"] == 80)
+    assert np.all(participant_values["Control_valid_trial_count"] == 80)
+    assert set(participant_values["Quantification_variant"]) == {"Last80Trials"}
+    assert set(summary["Trial_start"]) == {241}
+    assert set(summary["Trial_end"]) == {320}
+
+
 def test_set_mean_quantification_masks_both_conditions_for_missing_set() -> None:
     values = np.full(1920, 500.0)
     spec_missing = phase2.parse_participant("109:209:109:VRohtoPremium")
@@ -387,9 +416,16 @@ def test_quantification_outputs_do_not_replace_existing_no1_outputs(
     assert grand_sentinel.read_text(encoding="utf-8") == "keep"
     output_dir = Path(outputs["directory"])
     assert output_dir.name == "SetMeanQuantification"
-    assert sorted(path.name for path in output_dir.iterdir()) == [
-        "No1_RT_SetMeanQuantification_CCube.png",
-        "No1_RT_SetMeanQuantification_CCube_ParticipantValues.csv",
-        "No1_RT_SetMeanQuantification_CCube_RunSummary.json",
-        "No1_RT_SetMeanQuantification_CCube_SetSummary.csv",
+    assert sorted(path.name for path in output_dir.iterdir()) == ["AllTrials", "Last80Trials"]
+    assert sorted(path.name for path in (output_dir / "AllTrials").iterdir()) == [
+        "No1_RT_SetMeanQuantification_CCube_AllTrials.png",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_ParticipantValues.csv",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_RunSummary.json",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_SetSummary.csv",
+    ]
+    assert sorted(path.name for path in (output_dir / "Last80Trials").iterdir()) == [
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials.png",
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_ParticipantValues.csv",
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_RunSummary.json",
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_SetSummary.csv",
     ]

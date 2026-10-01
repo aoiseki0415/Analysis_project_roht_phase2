@@ -17,7 +17,7 @@ No1では、次の3種類の結果を作成する。
 
 1. 被験者別のRT推移：セット内で平滑化したRTを、6セット連続の時間推移として表示する。
 2. 製品群別のGrand-average：被験者別の平滑化RTを、同じセット・同じ進捗位置で被験者間平均する。
-3. セット別RT定量化：平滑化前の全試行RTから、各セットの平均RTを算出し、Eye DropとControlを被験者内で比較する。
+3. セット別RT定量化：平滑化前の試行別RTから、各セットの全320試行平均と最後80試行平均の2種類を算出し、Eye DropとControlを被験者内で比較する。
 
 ## 3. 解析の流れと確定設定
 
@@ -139,7 +139,13 @@ Trial 1ではTrial 1～15、Trial 2ではTrial 1～16を使用し、Trial 16で�
 
 ### 3.10 セット別RT定量化
 
-各被験者・各条件・各セットについて、移動平均後の値ではなく、EEG欠損処理後に残る全試行RTの算術平均を被験者のセット代表値とする。
+各被験者・各条件・各セットについて、移動平均後の値ではなく、EEG欠損処理後の試行別RTから次の2種類の被験者値を作成する。
+
+- `AllTrials`：Trial 1〜320の全試行の算術平均
+- `Last80Trials`：各Setの最後1/4に当たるTrial 241〜320の算術平均
+- RT長による試行除外はどちらでも行わず、NaNだけを平均から除外する。
+- EEG欠損セットはどちらの定量化でも両条件をNaNとする。
+- 2種類それぞれに同じ6パネルfigure、被験者別CSV、Set別集計CSV、実行要約を作成する。
 
 - 製品群ごとに、Set 1～6の独立した6パネルを横一列で表示する。
 - 各パネルは左をEye Drop、右をControlとする。
@@ -174,15 +180,19 @@ Phase2_行動データ解析/
     │   ├── Individual/ID<1回目>-<2回目>/
     │   ├── GrandAverage/
     │   └── SetMeanQuantification/
+    │       ├── AllTrials/
+    │       └── Last80Trials/
     └── VRohtoPremium/
         ├── Individual/ID<1回目>-<2回目>/
         ├── GrandAverage/
         └── SetMeanQuantification/
+            ├── AllTrials/
+            └── Last80Trials/
 ```
 
 - 個人別：RT推移figure、セッション別QC、実行要約
 - Grand-average：figure、各位置の平均・SD・有効人数NのCSV、実行要約
-- セット別RT定量化：6パネルfigure、被験者別セット値CSV、製品群×Set集計CSV、実行要約
+- セット別RT定量化：`AllTrials` と `Last80Trials` のそれぞれに、6パネルfigure、被験者別セット値CSV、製品群×Set集計CSV、実行要約
 - 試行別の `RT_TrialData.csv` は保存しない。
 - ローカルデスクトップの `解析に必要なデータたち/` には保存しない。
 
