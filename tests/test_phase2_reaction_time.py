@@ -21,24 +21,20 @@ sys.modules[SPEC.name] = phase2
 SPEC.loader.exec_module(phase2)
 
 
-def test_gaussian_moving_average_preserves_length_and_constant_values() -> None:
+def test_simple_moving_average_preserves_length_and_constant_values() -> None:
     values = np.full(320, 500.0)
     values[100] = np.nan
-    smoothed = phase2.gaussian_moving_average(values)
+    smoothed = phase2.simple_moving_average(values)
     assert len(smoothed) == 320
     assert np.allclose(smoothed, 500.0)
 
 
-def test_gaussian_moving_average_uses_fixed_edge_support() -> None:
+def test_simple_moving_average_uses_fixed_edge_support() -> None:
     values = np.arange(1.0, 321.0)
-    sigma = phase2.GAUSSIAN_SIGMA
-    expected_first = np.average(values[:10], weights=np.exp(-0.5 * (np.arange(10) / sigma) ** 2))
-    expected_eleventh = np.average(
-        values[:20], weights=np.exp(-0.5 * ((np.arange(20) - 10) / sigma) ** 2)
-    )
-    result = phase2.gaussian_moving_average(values)
-    assert result[0] == pytest.approx(expected_first)
-    assert result[10] == pytest.approx(expected_eleventh)
+    result = phase2.simple_moving_average(values)
+    assert result[0] == pytest.approx(np.mean(values[:15]))
+    assert result[14] == pytest.approx(np.mean(values[:29]))
+    assert result[15] == pytest.approx(np.mean(values[:30]))
 
 
 def _write_results(path: Path, set_number: int, rt: np.ndarray) -> None:
@@ -56,7 +52,7 @@ def _write_results(path: Path, set_number: int, rt: np.ndarray) -> None:
     frame.to_csv(path, index=False)
 
 
-def test_process_session_recomputes_rt_and_keeps_outlier_position(tmp_path: Path) -> None:
+def test_process_session_recomputes_rt_and_retains_long_rt(tmp_path: Path) -> None:
     session = tmp_path / "101"
     session.mkdir()
     for set_number in range(1, 7):
@@ -67,13 +63,13 @@ def test_process_session_recomputes_rt_and_keeps_outlier_position(tmp_path: Path
 
     result = phase2.process_session(tmp_path, "101", "目薬あり", "VRohtoPremium")
     assert len(result.trials) == 1920
-    assert result.outlier_count == 1
+    assert result.trial_exclusion_count == 0
     target = result.trials.loc[(result.trials["Set"] == 3) & (result.trials["Trial"] == 50)].iloc[0]
-    assert np.isnan(target["RT_clean_ms"])
+    assert target["RT_clean_ms"] == pytest.approx(5_000.0)
+    assert not bool(target["Trial_excluded"])
     assert np.isfinite(target["RT_smoothed_ms"])
     assert result.rt_match == "一致"
-    assert phase2.OUTLIER_SD == 2.0
-    assert result.lower_2sd_ms < result.mean_rt_ms < result.upper_2sd_ms
+    assert phase2.WINDOW_TRIALS == 30
     first_set = result.trials.loc[result.trials["Set"] == 1]
     sixth_set = result.trials.loc[result.trials["Set"] == 6]
     assert first_set["Progress_within_set_pct"].iloc[0] == pytest.approx(1.0)
@@ -166,10 +162,7 @@ def _synthetic_session(session_id: str, condition: str, values: np.ndarray) -> o
             "Set": np.repeat(np.arange(1, 7), 320),
             "Trial": np.tile(np.arange(1, 321), 6),
             "Global_progress_pct": np.concatenate(
-                [
-                    set_number * 100.0 + np.linspace(1.0, 100.0, 320)
-                    for set_number in range(6)
-                ]
+                [set_number * 100.0 + np.linspace(1.0, 100.0, 320) for set_number in range(6)]
             ),
             "RT_smoothed_ms": values,
         }
@@ -181,10 +174,7 @@ def _synthetic_session(session_id: str, condition: str, values: np.ndarray) -> o
         trials=trials,
         mean_rt_ms=float(np.mean(values)),
         sd_rt_ms=float(np.std(values, ddof=1)),
-        lower_2sd_ms=0.0,
-        upper_2sd_ms=0.0,
-        outlier_count=0,
-        outlier_trials="なし",
+        trial_exclusion_count=0,
         valid_rt_count=len(values),
         rt_match="一致",
         source_notes="synthetic",
@@ -231,7 +221,7 @@ def test_grand_average_uses_individual_smoothed_values_and_writes_outputs(
     assert summary["figure_y_axis_upper_ms"] == 1_800.0
 
 
-def test_eeg_missing_set_is_masked_before_two_sd_and_smoothing(tmp_path: Path) -> None:
+def test_eeg_missing_set_is_masked_before_smoothing(tmp_path: Path) -> None:
     session = tmp_path / "109"
     session.mkdir()
     for set_number in range(1, 7):
@@ -246,7 +236,7 @@ def test_eeg_missing_set_is_masked_before_two_sd_and_smoothing(tmp_path: Path) -
     assert result.eeg_missing_set == 1
     assert result.mean_rt_ms == pytest.approx(500.0)
     assert result.sd_rt_ms == pytest.approx(0.0)
-    assert result.outlier_count == 0
+    assert result.trial_exclusion_count == 0
     assert result.valid_rt_count == 1_600
     assert result.trials.loc[missing, "EEG_missing_set"].all()
     assert result.trials.loc[missing, "RT_raw_ms"].isna().all()
@@ -301,10 +291,7 @@ def _synthetic_clean_session(
         trials=trials,
         mean_rt_ms=float(np.nanmean(clean_values)),
         sd_rt_ms=float(np.nanstd(clean_values, ddof=1)),
-        lower_2sd_ms=0.0,
-        upper_2sd_ms=0.0,
-        outlier_count=int(np.isnan(clean_values).sum()),
-        outlier_trials="synthetic",
+        trial_exclusion_count=0,
         valid_rt_count=int(np.isfinite(clean_values).sum()),
         rt_match="一致",
         source_notes="synthetic",
@@ -324,19 +311,15 @@ def test_set_mean_quantification_uses_clean_trial_rt_not_smoothed_rt() -> None:
         }
     ]
 
-    participant_values, summary = phase2.build_set_mean_quantification(
-        results, "VRohtoPremium"
-    )
-    assert participant_values.loc[
-        participant_values["Set"] == 3, "EyeDrop_set_mean_RT_ms"
-    ].iloc[0] == pytest.approx(300.0)
-    assert participant_values.loc[
-        participant_values["Set"] == 3, "Control_set_mean_RT_ms"
-    ].iloc[0] == pytest.approx(350.0)
+    participant_values, summary = phase2.build_set_mean_quantification(results, "VRohtoPremium")
+    assert participant_values.loc[participant_values["Set"] == 3, "EyeDrop_set_mean_RT_ms"].iloc[
+        0
+    ] == pytest.approx(300.0)
+    assert participant_values.loc[participant_values["Set"] == 3, "Control_set_mean_RT_ms"].iloc[
+        0
+    ] == pytest.approx(350.0)
     assert summary.loc[summary["Set"] == 3, "EyeDrop_N"].iloc[0] == 1
-    assert not np.isclose(
-        participant_values["EyeDrop_set_mean_RT_ms"].iloc[0], 9_999.0
-    )
+    assert not np.isclose(participant_values["EyeDrop_set_mean_RT_ms"].iloc[0], 9_999.0)
 
 
 def test_set_mean_quantification_masks_both_conditions_for_missing_set() -> None:
@@ -346,9 +329,7 @@ def test_set_mean_quantification_masks_both_conditions_for_missing_set() -> None
     results = [
         {
             "participant": spec_missing,
-            "drops": _synthetic_clean_session(
-                "109", "目薬あり", values, eeg_missing_set=1
-            ),
+            "drops": _synthetic_clean_session("109", "目薬あり", values, eeg_missing_set=1),
             "control": _synthetic_clean_session("209", "コントロール", values),
         },
         {
@@ -358,18 +339,12 @@ def test_set_mean_quantification_masks_both_conditions_for_missing_set() -> None
         },
     ]
 
-    participant_values, summary = phase2.build_set_mean_quantification(
-        results, "VRohtoPremium"
-    )
+    participant_values, summary = phase2.build_set_mean_quantification(results, "VRohtoPremium")
     missing_pair_set1 = (participant_values["Pair_ID"] == "109-209") & (
         participant_values["Set"] == 1
     )
-    assert participant_values.loc[
-        missing_pair_set1, "EyeDrop_set_mean_RT_ms"
-    ].isna().all()
-    assert participant_values.loc[
-        missing_pair_set1, "Control_set_mean_RT_ms"
-    ].isna().all()
+    assert participant_values.loc[missing_pair_set1, "EyeDrop_set_mean_RT_ms"].isna().all()
+    assert participant_values.loc[missing_pair_set1, "Control_set_mean_RT_ms"].isna().all()
     assert summary.loc[summary["Set"] == 1, "EyeDrop_N"].iloc[0] == 1
     assert summary.loc[summary["Set"] == 1, "Control_N"].iloc[0] == 1
     assert summary.loc[summary["Set"] == 2, "EyeDrop_N"].iloc[0] == 2
@@ -387,21 +362,13 @@ def test_quantification_outputs_do_not_replace_existing_no1_outputs(
     results = [
         {
             "participant": specs[0],
-            "drops": _synthetic_clean_session(
-                "101", "目薬あり", values_a, product="CCube"
-            ),
-            "control": _synthetic_clean_session(
-                "201", "コントロール", values_b, product="CCube"
-            ),
+            "drops": _synthetic_clean_session("101", "目薬あり", values_a, product="CCube"),
+            "control": _synthetic_clean_session("201", "コントロール", values_b, product="CCube"),
         },
         {
             "participant": specs[1],
-            "drops": _synthetic_clean_session(
-                "102", "目薬あり", values_b, product="CCube"
-            ),
-            "control": _synthetic_clean_session(
-                "202", "コントロール", values_a, product="CCube"
-            ),
+            "drops": _synthetic_clean_session("102", "目薬あり", values_b, product="CCube"),
+            "control": _synthetic_clean_session("202", "コントロール", values_a, product="CCube"),
         },
     ]
     no1 = tmp_path / "Phase2_行動データ解析" / "No1_ReactionTime" / "CCube"

@@ -21,10 +21,7 @@ import pandas as pd
 
 N_SETS = 6
 N_TRIALS = 320
-WINDOW_TRIALS = 20
-FWHM_TRIALS = 9.0
-GAUSSIAN_SIGMA = FWHM_TRIALS / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-OUTLIER_SD = 2.0
+WINDOW_TRIALS = 30
 CONTROL_COLOR = "#563A7C"
 GRAND_AVERAGE_Y_LIMIT_MS = 1_800.0
 SET_MEAN_BAR_CENTERS = np.array([-0.32, 0.32])
@@ -47,9 +44,7 @@ PRODUCTS = {
     "vロート": ("VRohtoPremium", "V Rohto Premium", "#E58A2B"),
     "vロートプレミアム": ("VRohtoPremium", "V Rohto Premium", "#E58A2B"),
 }
-DEFAULT_RAW_ROOT = Path(
-    "/Users/aoiseki/Desktop/SandBox_ロート案件（データ）/行動データ"
-)
+DEFAULT_RAW_ROOT = Path("/Users/aoiseki/Desktop/SandBox_ロート案件（データ）/行動データ")
 DEFAULT_OUTPUT_ROOT = Path(
     "/Users/aoiseki/Library/CloudStorage/OneDrive-個人用/デスクトップ/"
     "SandBoxプロジェクト/ロート製薬フェーズ2 2026.5/実験本番_本解析"
@@ -96,10 +91,7 @@ class SessionResult:
     trials: pd.DataFrame
     mean_rt_ms: float
     sd_rt_ms: float
-    lower_2sd_ms: float
-    upper_2sd_ms: float
-    outlier_count: int
-    outlier_trials: str
+    trial_exclusion_count: int
     valid_rt_count: int
     rt_match: str
     source_notes: str
@@ -145,25 +137,23 @@ def load_manifest(path: Path) -> list[ParticipantSpec]:
     return specs
 
 
-def gaussian_moving_average(values: np.ndarray) -> np.ndarray:
-    """Smooth one 320-trial set without crossing a set boundary.
+def simple_moving_average(values: np.ndarray) -> np.ndarray:
+    """Apply an equal-weight 30-trial mean without crossing a set boundary.
 
-    The 20-position local support follows the fixed convention i-10 through
-    i+9. At an edge, and for NaNs, only available weights are renormalised.
+    The support follows the fixed convention i-15 through i+14. At an edge,
+    and for NaNs, the mean uses only available finite values.
     """
 
     values = np.asarray(values, dtype=float)
     result = np.full(values.shape, np.nan, dtype=float)
+    half_window = WINDOW_TRIALS // 2
     for index in range(values.size):
-        start = max(0, index - 10)
-        stop = min(values.size, index + 10)
-        positions = np.arange(start, stop)
+        start = max(0, index - half_window)
+        stop = min(values.size, index + (WINDOW_TRIALS - half_window))
         valid = np.isfinite(values[start:stop])
         if not valid.any():
             continue
-        weights = np.exp(-0.5 * ((positions - index) / GAUSSIAN_SIGMA) ** 2)
-        weights = weights[valid]
-        result[index] = np.sum(values[start:stop][valid] * weights) / np.sum(weights)
+        result[index] = float(np.mean(values[start:stop][valid]))
     return result
 
 
@@ -291,29 +281,21 @@ def process_session(
     finite_analysis_rt = analysis_rt[np.isfinite(analysis_rt)]
     mean_rt = float(np.mean(finite_analysis_rt))
     sd_rt = float(np.std(finite_analysis_rt, ddof=1))
-    lower = mean_rt - OUTLIER_SD * sd_rt
-    upper = mean_rt + OUTLIER_SD * sd_rt
-    outlier = np.isfinite(analysis_rt) & ((analysis_rt < lower) | (analysis_rt > upper))
     trials["EEG_missing_set"] = eeg_missing
     trials["RT_raw_ms"] = analysis_rt
-    trials["Outlier_2SD"] = outlier
-    trials["RT_clean_ms"] = np.where(outlier, np.nan, analysis_rt)
+    trials["Trial_excluded"] = False
+    trials["RT_clean_ms"] = analysis_rt
     trials["RT_smoothed_ms"] = np.nan
     trials["Progress_within_set_pct"] = 1.0 + (
         (trials["Trial"].astype(float) - 1.0) / (N_TRIALS - 1.0) * 99.0
     )
-    trials["Global_progress_pct"] = (
-        (trials["Set"].astype(float) - 1.0) * 100.0 + trials["Progress_within_set_pct"]
-    )
+    trials["Global_progress_pct"] = (trials["Set"].astype(float) - 1.0) * 100.0 + trials[
+        "Progress_within_set_pct"
+    ]
     for set_number in range(1, N_SETS + 1):
         mask = trials["Set"] == set_number
         values = trials.loc[mask, "RT_clean_ms"].to_numpy(dtype=float)
-        trials.loc[mask, "RT_smoothed_ms"] = gaussian_moving_average(values)
-
-    outlier_trials = "; ".join(
-        f"Set{int(row.Set)}-Trial{int(row.Trial)}"
-        for row in trials.loc[outlier, ["Set", "Trial"]].itertuples(index=False)
-    )
+        trials.loc[mask, "RT_smoothed_ms"] = simple_moving_average(values)
     keep = [
         "Set",
         "Trial",
@@ -321,7 +303,7 @@ def process_session(
         "Global_progress_pct",
         "RT_raw_ms",
         "EEG_missing_set",
-        "Outlier_2SD",
+        "Trial_excluded",
         "RT_clean_ms",
         "RT_smoothed_ms",
         "RT(ms)",
@@ -341,10 +323,7 @@ def process_session(
         trials=trials,
         mean_rt_ms=mean_rt,
         sd_rt_ms=sd_rt,
-        lower_2sd_ms=lower,
-        upper_2sd_ms=upper,
-        outlier_count=int(outlier.sum()),
-        outlier_trials=outlier_trials or "なし",
+        trial_exclusion_count=0,
         valid_rt_count=int(np.isfinite(trials["RT_clean_ms"]).sum()),
         rt_match=rt_match,
         source_notes=" | ".join(notes),
@@ -361,10 +340,8 @@ def _qc_row(result: SessionResult) -> dict[str, object]:
         "320_trials_per_set_confirmed": True,
         "mean_rt_ms": result.mean_rt_ms,
         "sd_rt_ms_ddof1": result.sd_rt_ms,
-        "lower_2sd_ms": result.lower_2sd_ms,
-        "upper_2sd_ms": result.upper_2sd_ms,
-        "outlier_count": result.outlier_count,
-        "outlier_trials": result.outlier_trials,
+        "trial_exclusion": "none; retain long RTs to preserve attentional lapses",
+        "trial_exclusion_count": result.trial_exclusion_count,
         "valid_rt_count": result.valid_rt_count,
         "rt_match": result.rt_match,
         "eeg_missing_set": (
@@ -499,14 +476,13 @@ def write_participant_outputs(
         },
         "parameters": {
             "rt": "KeyPress(ms) - TiltOnset(ms)",
-            "outlier": "session mean +/- 2 sample SD (ddof=1), after EEG-missing set masking",
-            "outlier_replacement": "NaN; trial positions retained",
+            "trial_exclusion": "none; retain long RTs to preserve attentional lapses",
             "eeg_missing_set_rule": (
                 "Only the affected session is NaN-masked in individual analysis; "
                 "both paired conditions are masked for the same set in grand-average"
             ),
-            "moving_average": "Gaussian, local support 20 trials, FWHM 9 trials",
-            "gaussian_sigma_trials": float(GAUSSIAN_SIGMA),
+            "moving_average": "simple equal-weight mean, local support 30 trials",
+            "moving_average_support": "i-15 through i+14; finite values only at edges/NaNs",
             "grand_average_created": False,
             "local_processed_data_created": False,
         },
@@ -556,8 +532,8 @@ def build_grand_average(results: list[dict[str, object]], product: str) -> pd.Da
     if len(selected) < 2:
         raise ValueError(f"Grand-average for {product_dir} requires at least two participants")
 
-    reference = selected[0]["drops"].trials[["Set", "Trial", "Global_progress_pct"]].reset_index(
-        drop=True
+    reference = (
+        selected[0]["drops"].trials[["Set", "Trial", "Global_progress_pct"]].reset_index(drop=True)
     )
     drops_values: list[np.ndarray] = []
     control_values: list[np.ndarray] = []
@@ -667,11 +643,7 @@ def write_grand_average_outputs(
     ]
     grand = build_grand_average(results, product_dir)
     output_dir = (
-        output_root
-        / "Phase2_行動データ解析"
-        / "No1_ReactionTime"
-        / product_dir
-        / "GrandAverage"
+        output_root / "Phase2_行動データ解析" / "No1_ReactionTime" / product_dir / "GrandAverage"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"No1_RT_GrandAverage_{product_dir}"
@@ -696,7 +668,7 @@ def write_grand_average_outputs(
         "product": product_dir,
         "participant_count": len(selected),
         "participant_pairs": [result["participant"].pair_id for result in selected],
-        "aggregation": "individual Gaussian-smoothed RT aligned by set and trial",
+        "aggregation": "individual 30-trial simple-moving-average RT aligned by set and trial",
         "between_participant_variability": "sample SD (ddof=1), shown as mean +/- 1 SD",
         "missing_values": "NaN-aware by position; N stored for each condition and position",
         "pairwise_eeg_missing_sets": {
@@ -761,25 +733,25 @@ def build_set_mean_quantification(
             if value is not None
         }
         if len(pairwise_missing_sets) > 1:
-            raise ValueError(
-                f"Participant {participant.pair_id} has multiple EEG-missing sets"
-            )
+            raise ValueError(f"Participant {participant.pair_id} has multiple EEG-missing sets")
         pairwise_missing_set = next(iter(pairwise_missing_sets), None)
         for set_number in range(1, N_SETS + 1):
-            drops_values = result["drops"].trials.loc[
-                result["drops"].trials["Set"] == set_number, "RT_clean_ms"
-            ].to_numpy(dtype=float)
-            control_values = result["control"].trials.loc[
-                result["control"].trials["Set"] == set_number, "RT_clean_ms"
-            ].to_numpy(dtype=float)
+            drops_values = (
+                result["drops"]
+                .trials.loc[result["drops"].trials["Set"] == set_number, "RT_clean_ms"]
+                .to_numpy(dtype=float)
+            )
+            control_values = (
+                result["control"]
+                .trials.loc[result["control"].trials["Set"] == set_number, "RT_clean_ms"]
+                .to_numpy(dtype=float)
+            )
             if pairwise_missing_set == set_number:
                 drops_values = np.full(drops_values.shape, np.nan)
                 control_values = np.full(control_values.shape, np.nan)
             drops_valid = np.isfinite(drops_values)
             control_valid = np.isfinite(control_values)
-            drops_mean = (
-                float(np.mean(drops_values[drops_valid])) if drops_valid.any() else np.nan
-            )
+            drops_mean = float(np.mean(drops_values[drops_valid])) if drops_valid.any() else np.nan
             control_mean = (
                 float(np.mean(control_values[control_valid])) if control_valid.any() else np.nan
             )
@@ -797,9 +769,7 @@ def build_set_mean_quantification(
                     "EyeDrop_valid_trial_count": int(drops_valid.sum()),
                     "Control_valid_trial_count": int(control_valid.sum()),
                     "Pairwise_EEG_missing_set": (
-                        f"Set{pairwise_missing_set}"
-                        if pairwise_missing_set is not None
-                        else "なし"
+                        f"Set{pairwise_missing_set}" if pairwise_missing_set is not None else "なし"
                     ),
                 }
             )
@@ -853,9 +823,9 @@ def plot_set_mean_quantification(
     """Plot six independent paired bar-and-dot panels for one product group."""
 
     _, product_label, product_color = normalize_product(product)
-    displayed = participant_values[
-        ["EyeDrop_set_mean_RT_ms", "Control_set_mean_RT_ms"]
-    ].to_numpy(dtype=float)
+    displayed = participant_values[["EyeDrop_set_mean_RT_ms", "Control_set_mean_RT_ms"]].to_numpy(
+        dtype=float
+    )
     upper_limit = set_mean_figure_y_upper_limit(displayed)
     plt.rcParams.update(
         {
@@ -866,9 +836,9 @@ def plot_set_mean_quantification(
     )
     figure, axes = plt.subplots(1, N_SETS, figsize=(34, 9), sharey=True)
     for set_number, axis in enumerate(axes, start=1):
-        values = participant_values.loc[
-            participant_values["Set"] == set_number
-        ].sort_values("Pair_ID")
+        values = participant_values.loc[participant_values["Set"] == set_number].sort_values(
+            "Pair_ID"
+        )
         drops = values["EyeDrop_set_mean_RT_ms"].to_numpy(dtype=float)
         control = values["Control_set_mean_RT_ms"].to_numpy(dtype=float)
         paired = np.isfinite(drops) & np.isfinite(control)
@@ -994,7 +964,7 @@ def write_set_mean_quantification_outputs(
         "participant_count": int(participant_values["Pair_ID"].nunique()),
         "quantification": (
             "arithmetic mean of trial-level RT_clean_ms within each participant, "
-            "condition, and set; Gaussian-smoothed RT is not used"
+            "condition, and set; smoothed RT is not used"
         ),
         "pairing": "Eye Drop and Control values are paired within participant",
         "eeg_missing_set_rule": (
@@ -1036,15 +1006,11 @@ def run_quantification_batch(
     for spec in specs:
         try:
             product_dir, _, _ = normalize_product(spec.product)
-            drops = process_session(
-                raw_root, spec.drops_session_id, "目薬あり", product_dir
-            )
+            drops = process_session(raw_root, spec.drops_session_id, "目薬あり", product_dir)
             control = process_session(
                 raw_root, spec.control_session_id, "コントロール", product_dir
             )
-            results.append(
-                {"participant": spec, "drops": drops, "control": control}
-            )
+            results.append({"participant": spec, "drops": drops, "control": control})
         except (FileNotFoundError, ValueError) as error:
             if not skip_invalid_participants:
                 raise
@@ -1239,9 +1205,7 @@ def main() -> int:
             {normalize_product(result["participant"].product)[0] for result in results}
         )
         for product in products:
-            outputs = write_set_mean_quantification_outputs(
-                args.output_root, results, product
-            )
+            outputs = write_set_mean_quantification_outputs(args.output_root, results, product)
             quantification_outputs.append(outputs)
             logging.info(
                 "Completed set-mean quantification %s: %s",
