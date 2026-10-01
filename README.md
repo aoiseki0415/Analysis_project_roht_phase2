@@ -88,7 +88,7 @@ Phase 1は、ID101によるパイロット検証と絶対振幅400 µVの確定�
 
 ## Phase 2行動データ解析の完了状態
 
-Phase 2のNo1（RT解析）とNo2（ミスタッチ解析）は、2026年10月1日に解析対象40被験者ペアへ同一の確定Pythonスクリプトを適用し、指定OneDrive成果物とNotion結果記録まで完了しました。No1は個人RT推移、製品群別Grand-average、`AllTrials`・`Last80Trials`のセット別RT定量化、No2は主解析とCキューブ群の感度分析を含みます。以後の再実行は、合意済みの仕様変更または成果物不具合がある場合に限ります。
+Phase 2のNo1（RT解析）とNo2（ミスタッチ解析）は、解析対象40被験者ペアへ同一の確定Pythonスクリプトを適用します。No1は200 ms未満のRTだけを除外し、個人RT推移、30試行幅・50試行幅の製品群別Grand-average（平均±SEM）、`AllTrials`・`Last80Trials`のセット別RT定量化を作成します。Figure用フォルダはPNGだけとし、補助表とログは `tables/`・`logs/` へ分離します。このPNG-onlyのfigure運用はNo2とPhase 3にも適用します。再実行は、合意済みの仕様変更または成果物不具合がある場合に限ります。
 
 ## Phase 3瞬き解析の確定方針
 

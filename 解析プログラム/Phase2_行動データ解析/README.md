@@ -16,7 +16,7 @@ No1・No2は、2026年10月1日に解析対象40被験者ペアへ同一の確�
 - RTは非Sys列から `KeyPress(ms) - TiltOnset(ms)` で再計算する
 - 各セット320刺激試行・320 RTを検証する。ミスタッチを含むCSV総行数とは区別する
 - EEG欠損セットは個人解析では該当セッション側だけ全320試行をNaN化する。対象はID 109 Set 1、ID 120 Set 6、ID 135 Set 2、ID 225 Set 4
-- EEG欠損セット以外は、RT長による試行除外を行わない。長いRTも注意の逸脱（lapse）を捉える情報として保持する
+- EEG欠損セットをNaN化した後、200 ms未満のRTだけを予期反応として除外しNaN化する。200 ms以上には上限除外を設けず、長いRTも注意の逸脱（lapse）を捉える情報として保持する
 - 各セットを独立に、30試行幅の等重み単純移動平均で320点を出力する
 - Trial `i` は原則 `i-15`〜`i+14` を使い、端点とNaNでは利用可能な有限RTだけを算術平均し、セット境界を越えない
 - 分割記録のあるID 109、120、135、225も個人別解析を行い、各セットで重複のない320刺激試行を確認する。重複は二重計上せず、欠損補間はしない
@@ -29,10 +29,10 @@ No1・No2は、2026年10月1日に解析対象40被験者ペアへ同一の確�
 - 色はControl `#563A7C`、C Cube `#C84A4A`、V Rohto Premium `#E58A2B` に固定する
 - 凡例は `Control` と、製品群に応じた `Eye Drop (C Cube)` または `Eye Drop (V Rohto Premium)` とし、被験者タイトルは付けない
 - 出力フォルダ、ファイル名、Notion結果はセッション単独ではなく `ID<1回目>-<2回目>` の被験者ペア単位とする
-- 個人別出力とGrand-averageは同じNo1に属する。全個人の移動平均が完了してから、個人別の移動平均値を同じセット・同じ進捗位置で被験者間平均し、平均±1 SDを表示する。条件別に標本SDと有効人数Nを保存し、欠測値は前詰め・補間しない
+- 個人別出力とGrand-averageは同じNo1に属する。個人figureは30試行幅とする。Grand-averageは個人ごとに30試行幅または50試行幅で平滑化してから同じセット・同じ進捗位置で被験者間平均し、両窓幅を別PNGで保存する。シェードは平均±SEM（標本SD/√N）とし、条件別に平均・標本SD・SEM・有効人数Nを保存する。欠測値は前詰め・補間しない
 - Grand-averageでは、EEG欠損セットを持つ被験者ペアについて、対応するもう一方の条件も同じセットをNaN化してから集計する。個人figureではこの対称化を行わない
-- Grand-averageの凡例に `Mean ± 1 SD` というタイトルを付けない。縦軸はCキューブ群・Vロートプレミアム群とも0〜1800 msに固定する
-- 同じNo1内でセット別RT定量化を行う。各被験者・各条件・各セットについて、移動平均値ではなくEEG欠損セットのNaN化後の試行別RTから、`AllTrials`（Trial 1〜320）と `Last80Trials`（Trial 241〜320）の2種類の算術平均を必ず作成する
+- Grand-averageの凡例に変動帯のタイトルを付けない。縦軸はCキューブ群・Vロートプレミアム群とも0〜1800 msに固定する
+- 同じNo1内でセット別RT定量化を行う。各被験者・各条件・各セットについて、移動平均値ではなくEEG欠損セットのNaN化と200 ms未満の除外後の試行別RTから、`AllTrials`（Trial 1〜320）と `Last80Trials`（Trial 241〜320）の2種類の算術平均を必ず作成する
 - 定量化では製品群ごとにSet 1〜6の独立6パネルを横一列で作り、各パネルの左にEye Drop、右にControlを配置する。バーは被験者間平均、ドットは被験者値、線は同一被験者の条件対応を示す
 - EEG欠損セットを持つペアはGrand-averageと同様に両条件の同じセットをNaNとし、そのセットのドット・接続線・平均から除外する
 - 定量化の縦軸は6パネル共通の `Reaction Time (ms)` とし、数字を全パネルに表示する。バーは中央付近（中心-0.32／0.32、幅0.42）、横軸範囲は-0.90〜0.90、ドットサイズは150とし、左右端へ余白を取る。横軸の条件名は22 pt、括弧内の目薬名だけ18 ptとする。Set名は縦軸上限より内側へ置き、Arialと既存No1の固定色を用いる。推測統計は未実施とする
@@ -42,13 +42,13 @@ No1・No2は、2026年10月1日に解析対象40被験者ペアへ同一の確�
 - 1名または少人数：`--participant 101:201:101:VRohtoPremium` のように、`1回目ID:2回目ID:目薬ありID:製品群` を指定する
 - 全被験者：`first_session_id,second_session_id,drops_session_id,product` の4列を持つ非公開manifest CSVを `--manifest` で指定する
 
-どちらも同じコード内のループを通り、被験者別にコードを変更しません。EEG欠損セット対応は全員共通スクリプト内の確定表から自動適用します。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。個人別解析ではfigure、セッション別QC、実行要約を指定OneDriveへ保存します。試行別の `RT_TrialData.csv` は保存しません。Grand-averageは全個人別解析の完了後に同じNo1として追加します。
+どちらも同じコード内のループを通り、被験者別にコードを変更しません。EEG欠損セット対応は全員共通スクリプト内の確定表から自動適用します。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。`Individual/` は全被験者のPNGだけを直下に並べ、`GrandAverage/` と `SetMeanQuantification/` もPNGだけを置きます。補助CSVはNo1直下の `tables/`、実行要約JSONは `logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。
 
-Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average --skip-invalid-participants` を追加します。製品群ごとの `GrandAverage/` へfigure、平均・SD・NのCSV、実行要約JSONを保存します。必要試行を確定できないペアはペア全体を除外し、No1直下のバッチ実行要約JSONに理由を残して他のペアを継続します。
+Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average --skip-invalid-participants` を追加します。製品群ごとの `GrandAverage/` へ30試行幅・50試行幅のPNG、`tables/GrandAverage/` へ平均・SD・SEM・NのCSV、`logs/GrandAverage/` へ実行要約JSONを保存します。必要試行を確定できないペアはペア全体を除外し、No1の `logs/` にあるバッチ実行要約JSONへ理由を残して他のペアを継続します。
 
 Grand-averageだけを再出力するときは `--grand-average-only --skip-invalid-participants` を使用します。このモードでは個人figure、個人QC、セット別定量化、通常バッチ要約を変更しません。
 
-セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算と確定済みのEEG欠損セットNaN化だけを再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/AllTrials/` と `SetMeanQuantification/Last80Trials/` へ、それぞれ6パネルfigure、被験者別セット値CSV、Set別集計CSV、実行要約JSONを保存します。
+セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算、EEG欠損セットNaN化、200 ms未満の除外を再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/` 直下へAllTrials・Last80TrialsのPNG、`tables/SetMeanQuantification/` へ補助CSV、`logs/SetMeanQuantification/` へ実行要約JSONを保存します。
 
 ## No2
 

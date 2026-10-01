@@ -78,7 +78,7 @@ Phase 1でEEG欠損と確定したセットは、該当セッションの全320�
 
 ### 3.6 RT試行の採用
 
-EEG欠損セット以外では、平均±SDや固定上限によるRT試行除外を行わない。算出可能な長いRTも注意の逸脱（lapse）を反映しうる情報として保持する。単発の長大RTだけでなく、長いRTが一定区間に持続するケースも、入力不整合がない限り主解析から除外せずQC上の注意として記録する。平均と標本SD（`ddof=1`）は記述用QCとして保存するが、除外判定には使用しない。
+EEG欠損セットのNaN化後、**200 ms未満のRTだけを予期反応として除外しNaN化する**。200 ms以上には平均±SDや固定上限による試行除外を行わない。算出可能な長いRTも注意の逸脱（lapse）を反映しうる情報として保持する。平均と標本SD（`ddof=1`）は除外後の記述用QCとして保存する。
 
 **理由：** 本解析は実験進行に伴う注意低下を調べるため、長いRTを機械的に除くと、研究対象であるlapseを過小評価する可能性があるため。
 
@@ -125,12 +125,12 @@ Trial 1ではTrial 1～15、Trial 2ではTrial 1～16を使用し、Trial 16で�
 
 ### 3.9 Grand-average
 
-全被験者の移動平均が完了した後、被験者別の移動平均値を、同じセット・同じ進捗位置で被験者間平均する。生RTを被験者間で先にプールしてから平滑化しない。
+全被験者の移動平均が完了した後、被験者別の移動平均値を、同じセット・同じ進捗位置で被験者間平均する。生RTを被験者間で先にプールしてから平滑化しない。個人figureは30試行幅だけ、Grand-averageは30試行幅版と50試行幅版を別PNGで作成する。
 
 - 製品群：Cキューブ群とVロートプレミアム群を別々に集計
 - 中心線：被験者間平均
-- 帯：平均 ± 1 SD
-- SD：標本標準偏差（`ddof=1`）
+- 帯：平均 ± SEM
+- SEM：各位置の標本標準偏差（`ddof=1`）を、その位置の有効人数Nの平方根で割る
 - 欠測値：補間せず、その位置の有限値だけで平均・SD・有効人数Nを算出
 - 縦軸：両製品群とも0～1800 msに固定
 - 横軸、色、フォント、セット境界：被験者別figureと同じ
@@ -143,7 +143,7 @@ Trial 1ではTrial 1～15、Trial 2ではTrial 1～16を使用し、Trial 16で�
 
 - `AllTrials`：Trial 1〜320の全試行の算術平均
 - `Last80Trials`：各Setの最後1/4に当たるTrial 241〜320の算術平均
-- RT長による試行除外はどちらでも行わず、NaNだけを平均から除外する。
+- 200 ms未満のRTは除外済みのNaNとして扱い、それ以外のNaNとともに平均から除外する。
 - EEG欠損セットはどちらの定量化でも両条件をNaNとする。
 - 2種類それぞれに同じ6パネルfigure、被験者別CSV、Set別集計CSV、実行要約を作成する。
 
@@ -177,22 +177,18 @@ Trial 1ではTrial 1～15、Trial 2ではTrial 1～16を使用し、Trial 16で�
 Phase2_行動データ解析/
 └── No1_ReactionTime/
     ├── CCube/
-    │   ├── Individual/ID<1回目>-<2回目>/
+    │   ├── Individual/  # 全被験者PNGのみ
     │   ├── GrandAverage/
-    │   └── SetMeanQuantification/
-    │       ├── AllTrials/
-    │       └── Last80Trials/
+    │   └── SetMeanQuantification/  # AllTrials・Last80Trials PNGのみ
     └── VRohtoPremium/
-        ├── Individual/ID<1回目>-<2回目>/
+        ├── Individual/  # 全被験者PNGのみ
         ├── GrandAverage/
-        └── SetMeanQuantification/
-            ├── AllTrials/
-            └── Last80Trials/
+        └── SetMeanQuantification/  # AllTrials・Last80Trials PNGのみ
 ```
 
 - 個人別：RT推移figure、セッション別QC、実行要約
-- Grand-average：figure、各位置の平均・SD・有効人数NのCSV、実行要約
-- セット別RT定量化：`AllTrials` と `Last80Trials` のそれぞれに、6パネルfigure、被験者別セット値CSV、製品群×Set集計CSV、実行要約
+- Grand-average：30試行幅・50試行幅のPNG。各位置の平均・SD・SEM・有効人数NのCSVと実行要約はNo1直下の `tables/`・`logs/` へ分離
+- セット別RT定量化：`SetMeanQuantification/` 直下にAllTrials・Last80Trialsの6パネルPNGを保存し、被験者別セット値CSV・製品群×Set集計CSV・実行要約は `tables/`・`logs/` へ分離
 - 試行別の `RT_TrialData.csv` は保存しない。
 - ローカルデスクトップの `解析に必要なデータたち/` には保存しない。
 
@@ -212,7 +208,7 @@ first_session_id, second_session_id, drops_session_id, product
 | Grand-averageのみ再出力 | `--grand-average-only --skip-invalid-participants` | `GrandAverage/`のみ |
 | セット別RT定量化のみ | `--set-mean-quantification-only --skip-invalid-participants` | `SetMeanQuantification/`のみ |
 
-すべてのモードで、RT再計算、EEG欠損セット処理、試行除外なし、30試行単純移動平均という同じ確定処理を使用する。解析結果はOneDriveへ保存し、条件対応、試行数QC、欠損セット、出力完了状態をNotionへ記録する。
+すべてのモードで、RT再計算、EEG欠損セット処理、200 ms未満のRT除外、単純移動平均という同じ確定処理を使用する。解析結果はOneDriveへ保存し、条件対応、試行数QC、欠損セット、除外数、出力完了状態をNotionへ記録する。Figure用フォルダにはPNGだけを置き、補助CSV・JSONは `tables/`・`logs/` へ分離する。
 
 ## 6. 参考文献
 

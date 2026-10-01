@@ -107,8 +107,8 @@ Phase3_瞬き解析/
 
 - `HTML/`：セッションID別の検出確認HTML
 - `Individual/`：被験者ペア別のEye Drop対ControlのBlink Rate時間変化figure
-- `GrandAverage/`：製品群別の平均±1 SD figureと、位置別平均・SD・NのCSV
-- `SetQuantification/`：6パネルfigure、被験者別セット値CSV、製品群×Set集計CSV
+- `GrandAverage/`：製品群別のfigure PNGだけを保存する。補助CSVはNo1直下の `tables/`、実行要約JSONは `logs/` へ分離する
+- `SetQuantification/`：6パネルPNGだけを保存する。被験者別セット値CSV・製品群×Set集計CSVはNo1直下の `tables/`、実行要約JSONは `logs/` へ分離する
 - `tables/`：検出ピーク一覧、ID・Set別の主解析・Fp1・Fp2検出数、セッション閾値、欠測・QC要約
 - `logs/`：実行条件、入力、完了・失敗、出力一覧を含む実行要約
 

@@ -52,24 +52,31 @@ def _write_results(path: Path, set_number: int, rt: np.ndarray) -> None:
     frame.to_csv(path, index=False)
 
 
-def test_process_session_recomputes_rt_and_retains_long_rt(tmp_path: Path) -> None:
+def test_process_session_excludes_below_200_ms_and_retains_long_rt(tmp_path: Path) -> None:
     session = tmp_path / "101"
     session.mkdir()
     for set_number in range(1, 7):
         rt = np.full(320, 500.0)
         if set_number == 3:
             rt[49] = 5_000.0
+            rt[50] = 199.0
+            rt[51] = 200.0
         _write_results(session / f"101_block{set_number}_results.csv", set_number, rt)
 
     result = phase2.process_session(tmp_path, "101", "目薬あり", "VRohtoPremium")
     assert len(result.trials) == 1920
-    assert result.trial_exclusion_count == 0
+    assert result.trial_exclusion_count == 1
     target = result.trials.loc[(result.trials["Set"] == 3) & (result.trials["Trial"] == 50)].iloc[0]
     assert target["RT_clean_ms"] == pytest.approx(5_000.0)
     assert not bool(target["Trial_excluded"])
+    excluded = result.trials.loc[(result.trials["Set"] == 3) & (result.trials["Trial"] == 51)].iloc[0]
+    boundary = result.trials.loc[(result.trials["Set"] == 3) & (result.trials["Trial"] == 52)].iloc[0]
+    assert bool(excluded["Trial_excluded"])
+    assert np.isnan(excluded["RT_clean_ms"])
+    assert boundary["RT_clean_ms"] == pytest.approx(200.0)
     assert np.isfinite(target["RT_smoothed_ms"])
     assert result.rt_match == "一致"
-    assert phase2.WINDOW_TRIALS == 30
+    assert phase2.INDIVIDUAL_WINDOW_TRIALS == 30
     first_set = result.trials.loc[result.trials["Set"] == 1]
     sixth_set = result.trials.loc[result.trials["Set"] == 6]
     assert first_set["Progress_within_set_pct"].iloc[0] == pytest.approx(1.0)
@@ -124,12 +131,13 @@ def test_outputs_are_grouped_by_participant_pair(tmp_path: Path) -> None:
     spec = phase2.parse_participant("101:201:101:VRohtoPremium")
     result = phase2.run_participant(raw_root, tmp_path / "output", spec)
     output_dir = Path(result["outputs"]["directory"])
-    assert output_dir.name == "ID101-201"
+    assert output_dir.name == "Individual"
     assert sorted(path.name for path in output_dir.iterdir()) == [
         "ID101-201_No1_RT_Individual.png",
-        "ID101-201_No1_RT_QC.csv",
-        "ID101-201_No1_RT_RunSummary.json",
     ]
+    assert Path(result["outputs"]["qc"]).parent.name == "Individual"
+    assert Path(result["outputs"]["qc"]).parents[1].name == "tables"
+    assert Path(result["outputs"]["summary"]).parents[1].name == "logs"
 
 
 def test_run_batch_can_record_and_skip_invalid_participant(tmp_path: Path) -> None:
@@ -164,6 +172,7 @@ def _synthetic_session(session_id: str, condition: str, values: np.ndarray) -> o
             "Global_progress_pct": np.concatenate(
                 [set_number * 100.0 + np.linspace(1.0, 100.0, 320) for set_number in range(6)]
             ),
+            "RT_clean_ms": values,
             "RT_smoothed_ms": values,
         }
     )
@@ -203,22 +212,23 @@ def test_grand_average_uses_individual_smoothed_values_and_writes_outputs(
             "control": _synthetic_session("202", "コントロール", values_a),
         },
     ]
-    grand = phase2.build_grand_average(results, "VRohtoPremium")
+    grand = phase2.build_grand_average(results, "VRohtoPremium", 30)
     assert np.allclose(grand["EyeDrop_mean_RT_ms"], 600.0)
     assert np.allclose(grand["Control_mean_RT_ms"], 600.0)
     assert np.allclose(grand["EyeDrop_SD_RT_ms"], np.sqrt(20_000.0))
+    assert np.allclose(grand["EyeDrop_SEM_RT_ms"], 100.0)
     assert np.all(grand["EyeDrop_N"] == 2)
 
     outputs = phase2.write_grand_average_outputs(tmp_path, results, "VRohtoPremium")
     output_dir = Path(outputs["directory"])
     assert output_dir.name == "GrandAverage"
     assert sorted(path.name for path in output_dir.iterdir()) == [
-        "No1_RT_GrandAverage_VRohtoPremium.png",
-        "No1_RT_GrandAverage_VRohtoPremium_RunSummary.json",
-        "No1_RT_GrandAverage_VRohtoPremium_Values.csv",
+        "No1_RT_GrandAverage_VRohtoPremium_MA30.png",
+        "No1_RT_GrandAverage_VRohtoPremium_MA50.png",
     ]
-    summary = pd.read_json(outputs["summary"], typ="series")
+    summary = pd.read_json(outputs["windows"]["30"]["summary"], typ="series")
     assert summary["figure_y_axis_upper_ms"] == 1_800.0
+    assert "mean +/- SEM" in summary["between_participant_variability"]
 
 
 def test_eeg_missing_set_is_masked_before_smoothing(tmp_path: Path) -> None:
@@ -259,7 +269,7 @@ def test_grand_average_masks_both_conditions_for_pairwise_eeg_missing_set() -> N
         {"participant": spec_b, "drops": drops_b, "control": control_b},
     ]
 
-    grand = phase2.build_grand_average(results, "VRohtoPremium")
+    grand = phase2.build_grand_average(results, "VRohtoPremium", 30)
     set1 = grand["Set"] == 1
     set2 = grand["Set"] == 2
     assert np.all(grand.loc[set1, "EyeDrop_N"] == 1)
@@ -416,16 +426,11 @@ def test_quantification_outputs_do_not_replace_existing_no1_outputs(
     assert grand_sentinel.read_text(encoding="utf-8") == "keep"
     output_dir = Path(outputs["directory"])
     assert output_dir.name == "SetMeanQuantification"
-    assert sorted(path.name for path in output_dir.iterdir()) == ["AllTrials", "Last80Trials"]
-    assert sorted(path.name for path in (output_dir / "AllTrials").iterdir()) == [
+    assert sorted(path.name for path in output_dir.iterdir()) == [
         "No1_RT_SetMeanQuantification_CCube_AllTrials.png",
-        "No1_RT_SetMeanQuantification_CCube_AllTrials_ParticipantValues.csv",
-        "No1_RT_SetMeanQuantification_CCube_AllTrials_RunSummary.json",
-        "No1_RT_SetMeanQuantification_CCube_AllTrials_SetSummary.csv",
-    ]
-    assert sorted(path.name for path in (output_dir / "Last80Trials").iterdir()) == [
         "No1_RT_SetMeanQuantification_CCube_Last80Trials.png",
-        "No1_RT_SetMeanQuantification_CCube_Last80Trials_ParticipantValues.csv",
-        "No1_RT_SetMeanQuantification_CCube_Last80Trials_RunSummary.json",
-        "No1_RT_SetMeanQuantification_CCube_Last80Trials_SetSummary.csv",
     ]
+    for variant in ("AllTrials", "Last80Trials"):
+        variant_output = outputs["variants"][variant]
+        assert Path(variant_output["participant_values"]).parents[1].name == "tables"
+        assert Path(variant_output["summary"]).parents[1].name == "logs"

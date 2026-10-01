@@ -21,7 +21,9 @@ import pandas as pd
 
 N_SETS = 6
 N_TRIALS = 320
-WINDOW_TRIALS = 30
+INDIVIDUAL_WINDOW_TRIALS = 30
+GRAND_AVERAGE_WINDOW_TRIALS = (30, 50)
+RT_LOWER_BOUND_MS = 200.0
 CONTROL_COLOR = "#563A7C"
 GRAND_AVERAGE_Y_LIMIT_MS = 1_800.0
 SET_MEAN_BAR_CENTERS = np.array([-0.32, 0.32])
@@ -141,8 +143,8 @@ def load_manifest(path: Path) -> list[ParticipantSpec]:
     return specs
 
 
-def simple_moving_average(values: np.ndarray) -> np.ndarray:
-    """Apply an equal-weight 30-trial mean without crossing a set boundary.
+def simple_moving_average(values: np.ndarray, window_trials: int = INDIVIDUAL_WINDOW_TRIALS) -> np.ndarray:
+    """Apply an equal-weight moving mean without crossing a set boundary.
 
     The support follows the fixed convention i-15 through i+14. At an edge,
     and for NaNs, the mean uses only available finite values.
@@ -150,10 +152,12 @@ def simple_moving_average(values: np.ndarray) -> np.ndarray:
 
     values = np.asarray(values, dtype=float)
     result = np.full(values.shape, np.nan, dtype=float)
-    half_window = WINDOW_TRIALS // 2
+    if window_trials <= 0:
+        raise ValueError("window_trials must be positive")
+    half_window = window_trials // 2
     for index in range(values.size):
         start = max(0, index - half_window)
-        stop = min(values.size, index + (WINDOW_TRIALS - half_window))
+        stop = min(values.size, index + (window_trials - half_window))
         valid = np.isfinite(values[start:stop])
         if not valid.any():
             continue
@@ -280,14 +284,17 @@ def process_session(
     if eeg_missing_set is not None:
         eeg_missing = trials["Set"].to_numpy(dtype=int) == eeg_missing_set
 
-    analysis_rt = recomputed.copy()
-    analysis_rt[eeg_missing] = np.nan
+    raw_analysis_rt = recomputed.copy()
+    raw_analysis_rt[eeg_missing] = np.nan
+    trial_excluded = np.isfinite(raw_analysis_rt) & (raw_analysis_rt < RT_LOWER_BOUND_MS)
+    analysis_rt = raw_analysis_rt.copy()
+    analysis_rt[trial_excluded] = np.nan
     finite_analysis_rt = analysis_rt[np.isfinite(analysis_rt)]
     mean_rt = float(np.mean(finite_analysis_rt))
     sd_rt = float(np.std(finite_analysis_rt, ddof=1))
     trials["EEG_missing_set"] = eeg_missing
-    trials["RT_raw_ms"] = analysis_rt
-    trials["Trial_excluded"] = False
+    trials["RT_raw_ms"] = raw_analysis_rt
+    trials["Trial_excluded"] = trial_excluded
     trials["RT_clean_ms"] = analysis_rt
     trials["RT_smoothed_ms"] = np.nan
     trials["Progress_within_set_pct"] = 1.0 + (
@@ -299,7 +306,9 @@ def process_session(
     for set_number in range(1, N_SETS + 1):
         mask = trials["Set"] == set_number
         values = trials.loc[mask, "RT_clean_ms"].to_numpy(dtype=float)
-        trials.loc[mask, "RT_smoothed_ms"] = simple_moving_average(values)
+        trials.loc[mask, "RT_smoothed_ms"] = simple_moving_average(
+            values, INDIVIDUAL_WINDOW_TRIALS
+        )
     keep = [
         "Set",
         "Trial",
@@ -327,7 +336,7 @@ def process_session(
         trials=trials,
         mean_rt_ms=mean_rt,
         sd_rt_ms=sd_rt,
-        trial_exclusion_count=0,
+        trial_exclusion_count=int(trial_excluded.sum()),
         valid_rt_count=int(np.isfinite(trials["RT_clean_ms"]).sum()),
         rt_match=rt_match,
         source_notes=" | ".join(notes),
@@ -344,7 +353,10 @@ def _qc_row(result: SessionResult) -> dict[str, object]:
         "320_trials_per_set_confirmed": True,
         "mean_rt_ms": result.mean_rt_ms,
         "sd_rt_ms_ddof1": result.sd_rt_ms,
-        "trial_exclusion": "none; retain long RTs to preserve attentional lapses",
+        "trial_exclusion": (
+            f"RT < {RT_LOWER_BOUND_MS:g} ms excluded; no upper bound; "
+            "retain long RTs to preserve attentional lapses"
+        ),
         "trial_exclusion_count": result.trial_exclusion_count,
         "valid_rt_count": result.valid_rt_count,
         "rt_match": result.rt_match,
@@ -455,19 +467,21 @@ def write_participant_outputs(
     """Write only authorized OneDrive outputs; never write a local processed copy."""
 
     product_dir, _, _ = normalize_product(participant.product)
+    no1_root = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
     participant_dir = (
-        output_root
-        / "Phase2_行動データ解析"
-        / "No1_ReactionTime"
+        no1_root
         / product_dir
         / "Individual"
-        / f"ID{participant.pair_id}"
     )
     participant_dir.mkdir(parents=True, exist_ok=True)
+    table_dir = no1_root / "tables" / "Individual"
+    log_dir = no1_root / "logs" / "Individual"
+    table_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"ID{participant.pair_id}_No1_RT"
     figure_path = participant_dir / f"{prefix}_Individual.png"
-    qc_path = participant_dir / f"{prefix}_QC.csv"
-    log_path = participant_dir / f"{prefix}_RunSummary.json"
+    qc_path = table_dir / f"{prefix}_QC.csv"
+    log_path = log_dir / f"{prefix}_RunSummary.json"
 
     plot_individual(participant, drops, control, figure_path)
     pd.DataFrame([_qc_row(drops), _qc_row(control)]).to_csv(qc_path, index=False)
@@ -480,12 +494,18 @@ def write_participant_outputs(
         },
         "parameters": {
             "rt": "KeyPress(ms) - TiltOnset(ms)",
-            "trial_exclusion": "none; retain long RTs to preserve attentional lapses",
+            "trial_exclusion": (
+                f"RT < {RT_LOWER_BOUND_MS:g} ms excluded; no upper bound; "
+                "retain long RTs to preserve attentional lapses"
+            ),
             "eeg_missing_set_rule": (
                 "Only the affected session is NaN-masked in individual analysis; "
                 "both paired conditions are masked for the same set in grand-average"
             ),
-            "moving_average": "simple equal-weight mean, local support 30 trials",
+            "moving_average": (
+                "simple equal-weight mean, local support "
+                f"{INDIVIDUAL_WINDOW_TRIALS} trials"
+            ),
             "moving_average_support": "i-15 through i+14; finite values only at edges/NaNs",
             "grand_average_created": False,
             "local_processed_data_created": False,
@@ -524,7 +544,22 @@ def _columnwise_mean_sd_n(matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray, n
     return mean, np.sqrt(variance), count
 
 
-def build_grand_average(results: list[dict[str, object]], product: str) -> pd.DataFrame:
+def _session_smoothed_values(session: SessionResult, window_trials: int) -> np.ndarray:
+    """Recreate set-local smoothing from cleaned trial RT for a requested window."""
+
+    values = np.full(len(session.trials), np.nan, dtype=float)
+    for set_number in range(1, N_SETS + 1):
+        mask = session.trials["Set"].to_numpy(dtype=int) == set_number
+        clean = session.trials.loc[mask, "RT_clean_ms"].to_numpy(dtype=float)
+        values[mask] = simple_moving_average(clean, window_trials)
+    return values
+
+
+def build_grand_average(
+    results: list[dict[str, object]],
+    product: str,
+    window_trials: int = INDIVIDUAL_WINDOW_TRIALS,
+) -> pd.DataFrame:
     """Aggregate individual smoothed RT at identical set/trial positions."""
 
     product_dir, _, _ = normalize_product(product)
@@ -559,8 +594,8 @@ def build_grand_average(results: list[dict[str, object]], product: str) -> pd.Da
         if len(pairwise_missing_sets) > 1:
             pair_id = result["participant"].pair_id
             raise ValueError(f"Participant {pair_id} has multiple EEG-missing sets")
-        drops = result["drops"].trials["RT_smoothed_ms"].to_numpy(dtype=float).copy()
-        control = result["control"].trials["RT_smoothed_ms"].to_numpy(dtype=float).copy()
+        drops = _session_smoothed_values(result["drops"], window_trials)
+        control = _session_smoothed_values(result["control"], window_trials)
         if pairwise_missing_sets:
             missing_set = next(iter(pairwise_missing_sets))
             missing_mask = reference["Set"].to_numpy(dtype=int) == missing_set
@@ -574,36 +609,49 @@ def build_grand_average(results: list[dict[str, object]], product: str) -> pd.Da
     grand = reference.copy()
     grand["EyeDrop_mean_RT_ms"] = drops_mean
     grand["EyeDrop_SD_RT_ms"] = drops_sd
+    grand["EyeDrop_SEM_RT_ms"] = np.divide(
+        drops_sd,
+        np.sqrt(drops_n),
+        out=np.full(drops_sd.shape, np.nan),
+        where=drops_n > 1,
+    )
     grand["EyeDrop_N"] = drops_n
     grand["Control_mean_RT_ms"] = control_mean
     grand["Control_SD_RT_ms"] = control_sd
+    grand["Control_SEM_RT_ms"] = np.divide(
+        control_sd,
+        np.sqrt(control_n),
+        out=np.full(control_sd.shape, np.nan),
+        where=control_n > 1,
+    )
     grand["Control_N"] = control_n
+    grand["Moving_average_window_trials"] = window_trials
     return grand
 
 
 def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> float:
-    """Plot product-specific mean RT and between-participant mean +/- 1 SD."""
+    """Plot product-specific mean RT and between-participant mean +/- SEM."""
 
     _, product_label, product_color = normalize_product(product)
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
     figure, axis = plt.subplots(figsize=(24, 8))
     x = grand["Global_progress_pct"].to_numpy(dtype=float)
     control_mean = grand["Control_mean_RT_ms"].to_numpy(dtype=float)
-    control_sd = grand["Control_SD_RT_ms"].to_numpy(dtype=float)
+    control_sem = grand["Control_SEM_RT_ms"].to_numpy(dtype=float)
     drops_mean = grand["EyeDrop_mean_RT_ms"].to_numpy(dtype=float)
-    drops_sd = grand["EyeDrop_SD_RT_ms"].to_numpy(dtype=float)
+    drops_sem = grand["EyeDrop_SEM_RT_ms"].to_numpy(dtype=float)
     axis.fill_between(
         x,
-        control_mean - control_sd,
-        control_mean + control_sd,
+        control_mean - control_sem,
+        control_mean + control_sem,
         color=CONTROL_COLOR,
         alpha=0.18,
         linewidth=0,
     )
     axis.fill_between(
         x,
-        drops_mean - drops_sd,
-        drops_mean + drops_sd,
+        drops_mean - drops_sem,
+        drops_mean + drops_sem,
         color=product_color,
         alpha=0.18,
         linewidth=0,
@@ -616,7 +664,7 @@ def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> float:
         linewidth=3,
         label=f"Eye Drop ({product_label})",
     )
-    displayed = np.concatenate([control_mean + control_sd, drops_mean + drops_sd])
+    displayed = np.concatenate([control_mean + control_sem, drops_mean + drops_sem])
     upper_limit = grand_figure_y_upper_limit(displayed, product)
     _format_rt_axis(axis, upper_limit)
     axis.legend(
@@ -636,8 +684,8 @@ def write_grand_average_outputs(
     output_root: Path,
     results: list[dict[str, object]],
     product: str,
-) -> dict[str, str]:
-    """Write the product-specific grand-average figure, values, and run summary."""
+) -> dict[str, object]:
+    """Write 30- and 50-trial grand-average PNGs plus separated tables/logs."""
 
     product_dir, _, _ = normalize_product(product)
     selected = [
@@ -645,35 +693,45 @@ def write_grand_average_outputs(
         for result in results
         if normalize_product(result["participant"].product)[0] == product_dir
     ]
-    grand = build_grand_average(results, product_dir)
-    output_dir = (
-        output_root / "Phase2_行動データ解析" / "No1_ReactionTime" / product_dir / "GrandAverage"
-    )
+    no1_root = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
+    output_dir = no1_root / product_dir / "GrandAverage"
+    table_dir = no1_root / "tables" / "GrandAverage"
+    log_dir = no1_root / "logs" / "GrandAverage"
     output_dir.mkdir(parents=True, exist_ok=True)
-    prefix = f"No1_RT_GrandAverage_{product_dir}"
-    figure_path = output_dir / f"{prefix}.png"
-    values_path = output_dir / f"{prefix}_Values.csv"
-    summary_path = output_dir / f"{prefix}_RunSummary.json"
-    y_axis_upper_ms = plot_grand_average(grand, product_dir, figure_path)
-    grand.to_csv(values_path, index=False)
-    max_upper_sd_band_ms = float(
-        np.nanmax(
-            np.concatenate(
-                [
-                    grand["Control_mean_RT_ms"].to_numpy(dtype=float)
-                    + grand["Control_SD_RT_ms"].to_numpy(dtype=float),
-                    grand["EyeDrop_mean_RT_ms"].to_numpy(dtype=float)
-                    + grand["EyeDrop_SD_RT_ms"].to_numpy(dtype=float),
-                ]
+    table_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    window_outputs: dict[str, dict[str, str]] = {}
+    for window_trials in GRAND_AVERAGE_WINDOW_TRIALS:
+        grand = build_grand_average(results, product_dir, window_trials)
+        prefix = f"No1_RT_GrandAverage_{product_dir}_MA{window_trials}"
+        figure_path = output_dir / f"{prefix}.png"
+        values_path = table_dir / f"{prefix}_Values.csv"
+        summary_path = log_dir / f"{prefix}_RunSummary.json"
+        y_axis_upper_ms = plot_grand_average(grand, product_dir, figure_path)
+        grand.to_csv(values_path, index=False)
+        max_upper_sem_band_ms = float(
+            np.nanmax(
+                np.concatenate(
+                    [
+                        grand["Control_mean_RT_ms"].to_numpy(dtype=float)
+                        + grand["Control_SEM_RT_ms"].to_numpy(dtype=float),
+                        grand["EyeDrop_mean_RT_ms"].to_numpy(dtype=float)
+                        + grand["EyeDrop_SEM_RT_ms"].to_numpy(dtype=float),
+                    ]
+                )
             )
         )
-    )
-    summary = {
+        summary = {
         "product": product_dir,
+        "moving_average_window_trials": window_trials,
         "participant_count": len(selected),
         "participant_pairs": [result["participant"].pair_id for result in selected],
-        "aggregation": "individual 30-trial simple-moving-average RT aligned by set and trial",
-        "between_participant_variability": "sample SD (ddof=1), shown as mean +/- 1 SD",
+        "aggregation": (
+            f"individual {window_trials}-trial simple-moving-average RT aligned by set and trial"
+        ),
+        "between_participant_variability": (
+            "sample SD (ddof=1) divided by sqrt(valid N), shown as mean +/- SEM"
+        ),
         "missing_values": "NaN-aware by position; N stored for each condition and position",
         "pairwise_eeg_missing_sets": {
             result["participant"].pair_id: next(
@@ -693,18 +751,23 @@ def write_grand_average_outputs(
         },
         "manifest_controls_inclusion": True,
         "figure_y_axis_upper_ms": y_axis_upper_ms,
-        "max_upper_sd_band_ms": max_upper_sd_band_ms,
-        "max_upper_sd_band_axis_ratio": max_upper_sd_band_ms / y_axis_upper_ms,
+        "max_upper_sem_band_ms": max_upper_sem_band_ms,
+        "max_upper_sem_band_axis_ratio": max_upper_sem_band_ms / y_axis_upper_ms,
         "local_processed_data_created": False,
         "outputs": {"figure": str(figure_path), "values": str(values_path)},
         "completed_at": datetime.now().astimezone().isoformat(),
-    }
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        }
+        summary_path.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        window_outputs[str(window_trials)] = {
+            "figure": str(figure_path),
+            "values": str(values_path),
+            "summary": str(summary_path),
+        }
     return {
         "directory": str(output_dir),
-        "figure": str(figure_path),
-        "values": str(values_path),
-        "summary": str(summary_path),
+        "windows": window_outputs,
     }
 
 
@@ -977,6 +1040,11 @@ def write_set_mean_quantification_outputs(
         / "SetMeanQuantification"
     )
     quantification_root.mkdir(parents=True, exist_ok=True)
+    no1_root = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
+    table_dir = no1_root / "tables" / "SetMeanQuantification"
+    log_dir = no1_root / "logs" / "SetMeanQuantification"
+    table_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     variant_outputs: dict[str, dict[str, str]] = {}
     for variant, (trial_start, trial_end) in SET_MEAN_VARIANTS.items():
         participant_values, summary = build_set_mean_quantification(
@@ -986,13 +1054,11 @@ def write_set_mean_quantification_outputs(
             trial_end=trial_end,
             variant=variant,
         )
-        output_dir = quantification_root / variant
-        output_dir.mkdir(parents=True, exist_ok=True)
         prefix = f"No1_RT_SetMeanQuantification_{product_dir}_{variant}"
-        figure_path = output_dir / f"{prefix}.png"
-        participant_values_path = output_dir / f"{prefix}_ParticipantValues.csv"
-        summary_path = output_dir / f"{prefix}_SetSummary.csv"
-        run_summary_path = output_dir / f"{prefix}_RunSummary.json"
+        figure_path = quantification_root / f"{prefix}.png"
+        participant_values_path = table_dir / f"{prefix}_ParticipantValues.csv"
+        summary_path = table_dir / f"{prefix}_SetSummary.csv"
+        run_summary_path = log_dir / f"{prefix}_RunSummary.json"
         y_axis_upper_ms = plot_set_mean_quantification(
             participant_values, summary, product_dir, figure_path
         )
@@ -1026,7 +1092,7 @@ def write_set_mean_quantification_outputs(
             json.dumps(run_summary, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         variant_outputs[variant] = {
-            "directory": str(output_dir),
+            "directory": str(quantification_root),
             "figure": str(figure_path),
             "participant_values": str(participant_values_path),
             "set_summary": str(summary_path),
@@ -1080,7 +1146,7 @@ def write_set_mean_quantification_batch_summary(
 ) -> Path:
     """Write a dedicated batch record without replacing the existing No1 summary."""
 
-    output_dir = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
+    output_dir = output_root / "Phase2_行動データ解析" / "No1_ReactionTime" / "logs"
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "No1_RT_SetMeanQuantification_BatchSummary.json"
     summary = {
@@ -1147,11 +1213,11 @@ def write_batch_summary(
     specs: list[ParticipantSpec],
     results: list[dict[str, object]],
     exclusions: list[dict[str, str]],
-    grand_outputs: list[dict[str, str]],
+    grand_outputs: list[dict[str, object]],
 ) -> Path:
     """Write the batch completion and exclusion record to the authorized output root."""
 
-    output_dir = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
+    output_dir = output_root / "Phase2_行動データ解析" / "No1_ReactionTime" / "logs"
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "No1_RT_BatchSummary.json"
     summary = {
@@ -1299,7 +1365,7 @@ def main() -> int:
             result["participant"].pair_id,
             outputs["directory"],
         )
-    grand_outputs: list[dict[str, str]] = []
+    grand_outputs: list[dict[str, object]] = []
     if args.grand_average:
         products = sorted(
             {normalize_product(result["participant"].product)[0] for result in results}
