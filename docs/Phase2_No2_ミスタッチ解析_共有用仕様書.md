@@ -156,19 +156,21 @@ No1と区別するため、No2では条件色を一段暗く固定する。
 Phase2_行動データ解析/
 └── No2_Mistouch/
     ├── CCube/
-    │   ├── 主解析figure
+    │   ├── 主解析figure PNG
+    │   └── ID132-232 Set 1除外の感度分析figure PNG
+    ├── VRohtoPremium/
+    │   └── 主解析figure PNG
+    ├── Sub/
     │   ├── 被験者別セット値CSV
     │   ├── Set別集計CSV
-    │   ├── 実行要約JSON
-    │   └── ID132-232 Set 1除外の感度分析成果物
-    └── VRohtoPremium/
-        ├── 主解析figure
-        ├── 被験者別セット値CSV
-        ├── Set別集計CSV
-        └── 実行要約JSON
+    │   ├── 製品群別実行要約JSON
+    │   └── 感度分析の補助CSV・JSON
+    └── No2_Mistouch_BatchSummary.json
 ```
 
 No2では、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しない。
+
+製品群フォルダはFigure閲覧用としてPNGだけを置く。Figure以外の補助成果物は `Sub/` へまとめ、全体の完了ペアと実行状態を記録するバッチ要約だけをNo2直下へ置く。
 
 ## 5. 再現性
 

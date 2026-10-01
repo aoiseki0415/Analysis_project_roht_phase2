@@ -180,15 +180,24 @@ Phase2_行動データ解析/
     │   ├── Individual/  # 全被験者PNGのみ
     │   ├── GrandAverage/
     │   └── SetMeanQuantification/  # AllTrials・Last80Trials PNGのみ
-    └── VRohtoPremium/
+    ├── VRohtoPremium/
         ├── Individual/  # 全被験者PNGのみ
         ├── GrandAverage/
         └── SetMeanQuantification/  # AllTrials・Last80Trials PNGのみ
+    └── Sub/
+        ├── tables/
+        │   ├── Individual/
+        │   ├── GrandAverage/
+        │   └── SetMeanQuantification/
+        └── logs/
+            ├── Individual/
+            ├── GrandAverage/
+            └── SetMeanQuantification/
 ```
 
 - 個人別：RT推移figure、セッション別QC、実行要約
-- Grand-average：30試行幅・50試行幅のPNG。各位置の平均・SD・SEM・有効人数NのCSVと実行要約はNo1直下の `tables/`・`logs/` へ分離
-- セット別RT定量化：`SetMeanQuantification/` 直下にAllTrials・Last80Trialsの6パネルPNGを保存し、被験者別セット値CSV・製品群×Set集計CSV・実行要約は `tables/`・`logs/` へ分離
+- Grand-average：30試行幅・50試行幅のPNG。各位置の平均・SD・SEM・有効人数NのCSVと実行要約はNo1直下の `Sub/tables/`・`Sub/logs/` へ分離
+- セット別RT定量化：`SetMeanQuantification/` 直下にAllTrials・Last80Trialsの6パネルPNGを保存し、被験者別セット値CSV・製品群×Set集計CSV・実行要約は `Sub/tables/`・`Sub/logs/` へ分離
 - 試行別の `RT_TrialData.csv` は保存しない。
 - ローカルデスクトップの `解析に必要なデータたち/` には保存しない。
 
@@ -208,7 +217,7 @@ first_session_id, second_session_id, drops_session_id, product
 | Grand-averageのみ再出力 | `--grand-average-only --skip-invalid-participants` | `GrandAverage/`のみ |
 | セット別RT定量化のみ | `--set-mean-quantification-only --skip-invalid-participants` | `SetMeanQuantification/`のみ |
 
-すべてのモードで、RT再計算、EEG欠損セット処理、200 ms未満のRT除外、単純移動平均という同じ確定処理を使用する。解析結果はOneDriveへ保存し、条件対応、試行数QC、欠損セット、除外数、出力完了状態をNotionへ記録する。Figure用フォルダにはPNGだけを置き、補助CSV・JSONは `tables/`・`logs/` へ分離する。
+すべてのモードで、RT再計算、EEG欠損セット処理、200 ms未満のRT除外、単純移動平均という同じ確定処理を使用する。解析結果はOneDriveへ保存し、条件対応、試行数QC、欠損セット、除外数、出力完了状態をNotionへ記録する。Figure用フォルダにはPNGだけを置き、補助CSV・JSONは `Sub/tables/`・`Sub/logs/` へ分離する。
 
 ## 6. 参考文献
 

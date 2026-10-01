@@ -357,15 +357,17 @@ def write_outputs(
 ) -> list[dict[str, object]]:
     root = output_root / "Phase2_行動データ解析" / "No2_Mistouch"
     root.mkdir(parents=True, exist_ok=True)
+    support_dir = root / "Sub"
+    support_dir.mkdir(parents=True, exist_ok=True)
     outputs: list[dict[str, object]] = []
     for product in PRODUCTS:
         product_dir = root / product
         product_dir.mkdir(parents=True, exist_ok=True)
         prefix = f"No2_Mistouch_{product}"
         figure_path = product_dir / f"{prefix}.png"
-        values_path = product_dir / f"{prefix}_ParticipantValues.csv"
-        summary_path = product_dir / f"{prefix}_SetSummary.csv"
-        run_path = product_dir / f"{prefix}_RunSummary.json"
+        values_path = support_dir / f"{prefix}_ParticipantValues.csv"
+        summary_path = support_dir / f"{prefix}_SetSummary.csv"
+        run_path = support_dir / f"{prefix}_RunSummary.json"
         selected_values = values.loc[values["Product"] == product].copy()
         selected_summary = summary.loc[summary["Product"] == product].copy()
         upper = plot_product(selected_values, selected_summary, product, figure_path)
@@ -404,8 +406,8 @@ def write_outputs(
             ].copy()
             sensitivity_prefix = "No2_Mistouch_CCube_SensitivityAnalysis_ExcludeID132-232_Set1"
             sensitivity_figure = product_dir / f"{sensitivity_prefix}.png"
-            sensitivity_csv = product_dir / f"{sensitivity_prefix}_SetSummary.csv"
-            sensitivity_run = product_dir / f"{sensitivity_prefix}_RunSummary.json"
+            sensitivity_csv = support_dir / f"{sensitivity_prefix}_SetSummary.csv"
+            sensitivity_run = support_dir / f"{sensitivity_prefix}_RunSummary.json"
             sensitivity_upper = plot_product(
                 sensitivity_values,
                 sensitivity_summary,

@@ -42,13 +42,13 @@ No1・No2は、2026年10月1日に解析対象40被験者ペアへ同一の確�
 - 1名または少人数：`--participant 101:201:101:VRohtoPremium` のように、`1回目ID:2回目ID:目薬ありID:製品群` を指定する
 - 全被験者：`first_session_id,second_session_id,drops_session_id,product` の4列を持つ非公開manifest CSVを `--manifest` で指定する
 
-どちらも同じコード内のループを通り、被験者別にコードを変更しません。EEG欠損セット対応は全員共通スクリプト内の確定表から自動適用します。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。`Individual/` は全被験者のPNGだけを直下に並べ、`GrandAverage/` と `SetMeanQuantification/` もPNGだけを置きます。補助CSVはNo1直下の `tables/`、実行要約JSONは `logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。
+どちらも同じコード内のループを通り、被験者別にコードを変更しません。EEG欠損セット対応は全員共通スクリプト内の確定表から自動適用します。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。`Individual/` は全被験者のPNGだけを直下に並べ、`GrandAverage/` と `SetMeanQuantification/` もPNGだけを置きます。補助CSVはNo1直下の `Sub/tables/`、実行要約JSONは `Sub/logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。
 
-Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average --skip-invalid-participants` を追加します。製品群ごとの `GrandAverage/` へ30試行幅・50試行幅のPNG、`tables/GrandAverage/` へ平均・SD・SEM・NのCSV、`logs/GrandAverage/` へ実行要約JSONを保存します。必要試行を確定できないペアはペア全体を除外し、No1の `logs/` にあるバッチ実行要約JSONへ理由を残して他のペアを継続します。
+Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average --skip-invalid-participants` を追加します。製品群ごとの `GrandAverage/` へ30試行幅・50試行幅のPNG、`Sub/tables/GrandAverage/` へ平均・SD・SEM・NのCSV、`Sub/logs/GrandAverage/` へ実行要約JSONを保存します。必要試行を確定できないペアはペア全体を除外し、No1の `Sub/logs/` にあるバッチ実行要約JSONへ理由を残して他のペアを継続します。
 
 Grand-averageだけを再出力するときは `--grand-average-only --skip-invalid-participants` を使用します。このモードでは個人figure、個人QC、セット別定量化、通常バッチ要約を変更しません。
 
-セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算、EEG欠損セットNaN化、200 ms未満の除外を再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/` 直下へAllTrials・Last80TrialsのPNG、`tables/SetMeanQuantification/` へ補助CSV、`logs/SetMeanQuantification/` へ実行要約JSONを保存します。
+セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算、EEG欠損セットNaN化、200 ms未満の除外を再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/` 直下へAllTrials・Last80TrialsのPNG、`Sub/tables/SetMeanQuantification/` へ補助CSV、`Sub/logs/SetMeanQuantification/` へ実行要約JSONを保存します。
 
 ## No2
 
@@ -69,4 +69,4 @@ Grand-averageだけを再出力するときは `--grand-average-only --skip-inva
 - 主解析ではID132-232のCキューブ目薬ありSet 1（375回）を含める。追加の感度分析だけ、ID132-232のSet 1を目薬あり・Controlの両条件ともNaN化し、Set 2〜6は変更しない
 - Cキューブ群は主解析Figureに加えて感度分析Figure・Set集計CSV・実行要約JSONを別名で保存する。Vロートプレミアム群には適用せず、主解析成果物を上書きしない
 
-実行スクリプトは `Phase2_No2_Mistouch.py`、出力先は指定OneDriveの `Phase2_行動データ解析/No2_Mistouch/` です。非公開manifestを入力し、全被験者を同一コードのループで処理します。
+実行スクリプトは `Phase2_No2_Mistouch.py`、出力先は指定OneDriveの `Phase2_行動データ解析/No2_Mistouch/` です。`CCube/`・`VRohtoPremium/` にはPNGだけを置き、補助CSVと製品群別JSONは `Sub/` 直下へまとめます。全体バッチ要約JSONはNo2直下に保存します。非公開manifestを入力し、全被験者を同一コードのループで処理します。

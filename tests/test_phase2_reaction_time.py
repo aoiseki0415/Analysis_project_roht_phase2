@@ -69,8 +69,12 @@ def test_process_session_excludes_below_200_ms_and_retains_long_rt(tmp_path: Pat
     target = result.trials.loc[(result.trials["Set"] == 3) & (result.trials["Trial"] == 50)].iloc[0]
     assert target["RT_clean_ms"] == pytest.approx(5_000.0)
     assert not bool(target["Trial_excluded"])
-    excluded = result.trials.loc[(result.trials["Set"] == 3) & (result.trials["Trial"] == 51)].iloc[0]
-    boundary = result.trials.loc[(result.trials["Set"] == 3) & (result.trials["Trial"] == 52)].iloc[0]
+    excluded = result.trials.loc[
+        (result.trials["Set"] == 3) & (result.trials["Trial"] == 51)
+    ].iloc[0]
+    boundary = result.trials.loc[
+        (result.trials["Set"] == 3) & (result.trials["Trial"] == 52)
+    ].iloc[0]
     assert bool(excluded["Trial_excluded"])
     assert np.isnan(excluded["RT_clean_ms"])
     assert boundary["RT_clean_ms"] == pytest.approx(200.0)
@@ -137,7 +141,9 @@ def test_outputs_are_grouped_by_participant_pair(tmp_path: Path) -> None:
     ]
     assert Path(result["outputs"]["qc"]).parent.name == "Individual"
     assert Path(result["outputs"]["qc"]).parents[1].name == "tables"
+    assert Path(result["outputs"]["qc"]).parents[2].name == "Sub"
     assert Path(result["outputs"]["summary"]).parents[1].name == "logs"
+    assert Path(result["outputs"]["summary"]).parents[2].name == "Sub"
 
 
 def test_run_batch_can_record_and_skip_invalid_participant(tmp_path: Path) -> None:
@@ -433,4 +439,6 @@ def test_quantification_outputs_do_not_replace_existing_no1_outputs(
     for variant in ("AllTrials", "Last80Trials"):
         variant_output = outputs["variants"][variant]
         assert Path(variant_output["participant_values"]).parents[1].name == "tables"
+        assert Path(variant_output["participant_values"]).parents[2].name == "Sub"
         assert Path(variant_output["summary"]).parents[1].name == "logs"
+        assert Path(variant_output["summary"]).parents[2].name == "Sub"

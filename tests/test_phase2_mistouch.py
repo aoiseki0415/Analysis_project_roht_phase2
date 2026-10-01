@@ -105,3 +105,28 @@ def test_ccube_sensitivity_masks_only_target_pair_and_set() -> None:
     assert sensitivity.loc[target, "Control_mistouch_count"].isna().all()
     assert sensitivity.loc[~target, "EyeDrop_mistouch_count"].eq(10.0).all()
     assert sensitivity.loc[~target, "Control_mistouch_count"].eq(20.0).all()
+
+
+def test_support_outputs_are_written_to_sub(monkeypatch, tmp_path: Path) -> None:
+    values = pd.DataFrame(
+        [
+            {
+                "Product": product,
+                "Pair_ID": pair_id,
+                "Set": set_number,
+                "EyeDrop_mistouch_count": 1.0,
+                "Control_mistouch_count": 2.0,
+            }
+            for product in phase2.PRODUCTS
+            for pair_id in ("132-232", "134-234")
+            for set_number in range(1, 7)
+        ]
+    )
+    summary = phase2.build_summary(values)
+    monkeypatch.setattr(phase2, "plot_product", lambda *args, **kwargs: 10.0)
+    outputs = phase2.write_outputs(tmp_path, values, summary)
+    root = tmp_path / "Phase2_行動データ解析" / "No2_Mistouch"
+    assert (root / "Sub" / "No2_Mistouch_CCube_ParticipantValues.csv").exists()
+    assert (root / "Sub" / "No2_Mistouch_VRohtoPremium_RunSummary.json").exists()
+    assert (root / "No2_Mistouch_BatchSummary.json").exists()
+    assert all(Path(item["figure"]).parent.name in phase2.PRODUCTS for item in outputs)

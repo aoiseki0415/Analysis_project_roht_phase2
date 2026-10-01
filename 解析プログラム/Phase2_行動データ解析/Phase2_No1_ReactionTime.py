@@ -143,7 +143,10 @@ def load_manifest(path: Path) -> list[ParticipantSpec]:
     return specs
 
 
-def simple_moving_average(values: np.ndarray, window_trials: int = INDIVIDUAL_WINDOW_TRIALS) -> np.ndarray:
+def simple_moving_average(
+    values: np.ndarray,
+    window_trials: int = INDIVIDUAL_WINDOW_TRIALS,
+) -> np.ndarray:
     """Apply an equal-weight moving mean without crossing a set boundary.
 
     The support follows the fixed convention i-15 through i+14. At an edge,
@@ -468,14 +471,15 @@ def write_participant_outputs(
 
     product_dir, _, _ = normalize_product(participant.product)
     no1_root = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
+    support_root = no1_root / "Sub"
     participant_dir = (
         no1_root
         / product_dir
         / "Individual"
     )
     participant_dir.mkdir(parents=True, exist_ok=True)
-    table_dir = no1_root / "tables" / "Individual"
-    log_dir = no1_root / "logs" / "Individual"
+    table_dir = support_root / "tables" / "Individual"
+    log_dir = support_root / "logs" / "Individual"
     table_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"ID{participant.pair_id}_No1_RT"
@@ -694,9 +698,10 @@ def write_grand_average_outputs(
         if normalize_product(result["participant"].product)[0] == product_dir
     ]
     no1_root = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
+    support_root = no1_root / "Sub"
     output_dir = no1_root / product_dir / "GrandAverage"
-    table_dir = no1_root / "tables" / "GrandAverage"
-    log_dir = no1_root / "logs" / "GrandAverage"
+    table_dir = support_root / "tables" / "GrandAverage"
+    log_dir = support_root / "logs" / "GrandAverage"
     output_dir.mkdir(parents=True, exist_ok=True)
     table_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -1041,8 +1046,9 @@ def write_set_mean_quantification_outputs(
     )
     quantification_root.mkdir(parents=True, exist_ok=True)
     no1_root = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
-    table_dir = no1_root / "tables" / "SetMeanQuantification"
-    log_dir = no1_root / "logs" / "SetMeanQuantification"
+    support_root = no1_root / "Sub"
+    table_dir = support_root / "tables" / "SetMeanQuantification"
+    log_dir = support_root / "logs" / "SetMeanQuantification"
     table_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     variant_outputs: dict[str, dict[str, str]] = {}
@@ -1146,7 +1152,13 @@ def write_set_mean_quantification_batch_summary(
 ) -> Path:
     """Write a dedicated batch record without replacing the existing No1 summary."""
 
-    output_dir = output_root / "Phase2_行動データ解析" / "No1_ReactionTime" / "logs"
+    output_dir = (
+        output_root
+        / "Phase2_行動データ解析"
+        / "No1_ReactionTime"
+        / "Sub"
+        / "logs"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "No1_RT_SetMeanQuantification_BatchSummary.json"
     summary = {
@@ -1217,7 +1229,13 @@ def write_batch_summary(
 ) -> Path:
     """Write the batch completion and exclusion record to the authorized output root."""
 
-    output_dir = output_root / "Phase2_行動データ解析" / "No1_ReactionTime" / "logs"
+    output_dir = (
+        output_root
+        / "Phase2_行動データ解析"
+        / "No1_ReactionTime"
+        / "Sub"
+        / "logs"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "No1_RT_BatchSummary.json"
     summary = {

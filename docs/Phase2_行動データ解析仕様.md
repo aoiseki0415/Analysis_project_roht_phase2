@@ -185,7 +185,7 @@ NotionのNo2結果表は1被験者ペア1行とし、少なくとも次を記録
 - OneDrive：`Phase2_行動データ解析/No2_Mistouch/`
 - Notion：`フェーズ２：行動データの解析 / 解析2（No2）`
 
-OneDriveのNo2配下では、`CCube` と `VRohtoPremium` を分け、各製品群のfigure用フォルダには6パネルPNGだけを保存します。被験者別セット値CSV・製品群×Set集計CSVはNo2直下の `tables/`、実行要約JSONは `logs/` へ分離します。被験者別の識別子は単独セッションIDではなく `ID<1回目>-<2回目>` とします。No2はローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。
+OneDriveのNo2配下では、`CCube` と `VRohtoPremium` を分け、各製品群のfigure用フォルダには6パネルPNGだけを保存します。被験者別セット値CSV・製品群×Set集計CSV・製品群別実行要約JSON・感度分析の補助CSV/JSONは、No2直下の `Sub/` へまとめます。全体の `No2_Mistouch_BatchSummary.json` はNo2直下に保持します。被験者別の識別子は単独セッションIDではなく `ID<1回目>-<2回目>` とします。No2はローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。
 
 Cキューブ群の同じフォルダには、主解析成果物を上書きせず、ID132-232のSet 1を両条件とも除外した感度分析Figure、Set集計CSV、実行要約JSONを追加します。感度分析は極端値への依存性を確認する補助解析であり、主解析の置き換えではありません。
 
@@ -197,9 +197,9 @@ Cキューブ群の同じフォルダには、主解析成果物を上書きせ�
 
 OneDriveのNo1配下では、`CCube` と `VRohtoPremium` を分け、各製品群の中に `Individual`、`GrandAverage`、`SetMeanQuantification`を置きます。`Individual/` 直下には全被験者ペアのPNGだけを並べ、被験者別下位フォルダは作成しません。`GrandAverage/` 直下には30試行版・50試行版のPNGだけ、`SetMeanQuantification/` 直下にはAllTrials版・Last80Trials版のPNGだけを置きます。ファイル名は、単独IDではなく `ID<1回目>-<2回目>` を使用します。
 
-No1は、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。Figure用フォルダにはPNGだけを保存し、QC・集計CSVはNo1直下の `tables/`、実行要約JSONは `logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。このPNG-onlyかつ補助表・ログ分離の原則は、No2ミスタッチ解析とPhase 3瞬き解析にも適用します。
+No1は、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。Figure用フォルダにはPNGだけを保存し、QC・集計CSVはNo1直下の `Sub/tables/`、実行要約JSONは `Sub/logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。No2でも製品群figureフォルダはPNGだけとし、補助CSV・JSONを `Sub/` へ分離します。
 
-Grand-averageは同じスクリプトへ `--grand-average --skip-invalid-participants` を付けて実行します。製品群ごとの `GrandAverage/` に30試行幅版・50試行幅版のPNGを保存します。同一進捗位置の平均・SD・SEM・Nを収めたCSVは `tables/GrandAverage/`、実行要約JSONは `logs/GrandAverage/` へ分離します。No1の `logs/` に、完了ペア、除外ペア、除外理由、Grand-average出力を記録します。
+Grand-averageは同じスクリプトへ `--grand-average --skip-invalid-participants` を付けて実行します。製品群ごとの `GrandAverage/` に30試行幅版・50試行幅版のPNGを保存します。同一進捗位置の平均・SD・SEM・Nを収めたCSVは `Sub/tables/GrandAverage/`、実行要約JSONは `Sub/logs/GrandAverage/` へ分離します。No1の `Sub/logs/` に、完了ペア、除外ペア、除外理由、Grand-average出力を記録します。
 
 既存の個人figureとセット別定量化を変更せずGrand-averageだけを再出力するときは、`--grand-average-only --skip-invalid-participants` を使用します。このモードは全被験者を同じ確定処理で再計算しますが、`GrandAverage/` 以外の成果物を生成・上書きしません。
 
