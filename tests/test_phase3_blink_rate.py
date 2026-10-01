@@ -65,6 +65,7 @@ def test_blink_rate_uses_actual_edge_window_duration():
     at_sixty = frame.loc[frame["SetTimeSeconds"] == 60].iloc[0]
     assert at_sixty["WindowDurationSeconds"] == 60
     assert at_sixty["BlinkCountInWindow"] == 1
+    assert "BlinkRateSmoothed15sBlinksPerMin" in frame.columns
 
 
 def test_progress_maps_each_set_to_one_hundred_units():
@@ -80,3 +81,18 @@ def test_no_minimum_peak_distance_is_applied():
     values[[40, 42]] = [10, 9]
     peaks, _ = MODULE.find_peaks(values, height=5, prominence=5)
     assert peaks.tolist() == [40, 42]
+
+
+def test_rate_smoothing_is_centered_and_keeps_raw_rate():
+    signal = _set_signal(120, [5, 10, 20, 40, 90])
+    frame = MODULE.calculate_blink_rate(signal)
+    expected = (
+        frame["BlinkRateBlinksPerMin"]
+        .rolling(window=15, center=True, min_periods=1)
+        .mean()
+    )
+    assert np.allclose(frame["BlinkRateSmoothed15sBlinksPerMin"], expected)
+    assert not np.shares_memory(
+        frame["BlinkRateBlinksPerMin"].to_numpy(),
+        frame["BlinkRateSmoothed15sBlinksPerMin"].to_numpy(),
+    )

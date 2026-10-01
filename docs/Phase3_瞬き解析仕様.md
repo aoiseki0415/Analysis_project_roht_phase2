@@ -29,12 +29,12 @@ Phase 3解析1（No1）では、Phase 1で保存した瞬き解析用信号か�
 - ピーク検出には `scipy.signal.find_peaks` を使用します。
 - まず、同一セッションの解析可能な全セットで、制約なしの局所最大点を候補として列挙します。
 - Peak height閾値は、その全候補のピーク高さ分布の **96パーセンタイル以上**とします。
-- Peak prominence閾値は、その全候補のprominence分布の **97パーセンタイル以上**とします。Prominenceは、周囲の谷に対してピークがどれだけ突出しているかを表します。
+- 主解析のPeak prominence閾値は、その全候補のprominence分布の **95パーセンタイル以上**とします。Prominenceは、周囲の谷に対してピークがどれだけ突出しているかを表します。
 - 閾値はセットごとに変えず、セッションにつき1組を固定して全使用セットへ適用します。
 - 現段階ではminimum peak distanceを設定しません。近接ピークを自動的に一つへ統合せず、パイロットのHTMLで同一瞬きの多重検出がないかを確認します。
 - 検出されたピーク時刻、セット番号、セット内相対時刻、`OriginalTimestamp`、振幅、height閾値、prominence閾値を保存します。
 
-Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak height 96パーセンタイル、peak prominence 97パーセンタイル、minimum peak distance 100 ms等を使用しています。本解析はパーセンタイル基準を採用しますが、minimum peak distanceは現段階で採用しない点が異なります。
+Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak height 96パーセンタイル、peak prominence 97パーセンタイル、minimum peak distance 100 ms等を使用しています。本解析は小振幅の明瞭な瞬きが97パーセンタイル基準で過少検出されたパイロット所見を踏まえ、主解析のprominenceを95パーセンタイルへ緩和します。minimum peak distanceは現段階で採用しません。
 
 参考：
 
@@ -43,7 +43,8 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 
 ## 4. 瞬き検出確認HTML
 
-- セッションIDごとに1ファイルを作成します。被験者ペアを1つのHTMLへ統合しません。
+- セッションIDごとに、主解析と同じprominence 95パーセンタイル版と、感度確認用の90パーセンタイル版の2ファイルを作成します。被験者ペアを1つのHTMLへ統合しません。
+- 90パーセンタイル版は検出位置の比較確認専用です。Blink Rate時間変化、セット別定量化、Grand-average、結果表には使用しません。
 - 横軸にはセット内データだけを使用し、セット間の休憩時間は含めません。
 - Set 1〜6を一つの横軸へ連結し、各セットの実時間を同じ幅の100単位へ線形変換します。Set 1は0〜100、Set 2は100〜200、以降も同様にSet 6の600までとします。
 - 横軸名は `Experimental Progress, %` とします。進捗座標とセット内実時間の対応は保持し、ホバーでSet、進捗、セット内秒、振幅、ピーク判定を表示します。
@@ -59,7 +60,8 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 - 窓は開始時刻を含み終了時刻を含まない半開区間として数え、境界上のイベントを重複計上しません。
 - セット端では利用可能な時間だけを用い、実際に使用した窓長で分母を補正します。端点を削除せず、セット全体の出力位置を保持します。
 - セット境界を越えて別セットの瞬きを同じ窓へ含めません。
-- Blink Rateは実時間で計算した後、HTMLと同じ0〜600の `Experimental Progress, %` へ対応付けます。
+- 60秒窓で得た1秒刻みのBlink Rateへ、各セット内だけで **15秒の中心化単純移動平均**を適用します。セット境界をまたいで平滑化しません。未平滑化Blink Rateも補助表へ保持します。
+- Blink Rateと15秒平滑値は実時間で計算し、平滑化完了後にHTMLと同じ0〜600の `Experimental Progress, %` へ対応付けます。各セットの実時間差は横軸だけを線形伸縮し、Blink Rate計算の60秒窓には影響させません。
 - 被験者別figureでは、同一被験者のEye DropとControlの2本の線を同一図へ描きます。
 - 個人解析の後、Cキューブ群とVロートプレミアム群を分けてGrand-averageを作成します。各進捗位置で個人値の平均、標本SD（`ddof=1`）、有効人数Nを算出し、平均線と平均±1 SDの帯を表示します。
 - 欠測値を補間・前詰めしません。被験者内対応を保つ群比較では、Phase 1で一方のセッションが欠測となったセットについて、対応するもう一方の条件も同じセットを群集計から外します。
@@ -96,21 +98,23 @@ Phase3_瞬き解析/
       Individual/
       GrandAverage/
       SetQuantification/
+      HTML/
     VRohtoPremium/
       Individual/
       GrandAverage/
       SetQuantification/
-    HTML/
-    tables/
-    logs/
+      HTML/
+    Sub/
+      tables/
+      logs/
 ```
 
-- `HTML/`：セッションID別の検出確認HTML
-- `Individual/`：被験者ペア別のEye Drop対ControlのBlink Rate時間変化figure
-- `GrandAverage/`：製品群別のfigure PNGだけを保存する。補助CSVはNo1直下の `tables/`、実行要約JSONは `logs/` へ分離する
-- `SetQuantification/`：6パネルPNGだけを保存する。被験者別セット値CSV・製品群×Set集計CSVはNo1直下の `tables/`、実行要約JSONは `logs/` へ分離する
-- `tables/`：検出ピーク一覧、ID・Set別の主解析・Fp1・Fp2検出数、セッション閾値、欠測・QC要約
-- `logs/`：実行条件、入力、完了・失敗、出力一覧を含む実行要約
+- 各製品群の `HTML/`：セッションID別にprominence 95%版・90%版の検出確認HTMLを保存する
+- 各製品群の `Individual/`：被験者ペア別PNGを直下へ保存し、被験者別サブフォルダを作らない
+- 各製品群の `GrandAverage/`：製品群別PNGだけを保存する
+- 各製品群の `SetQuantification/`：6パネルPNGを直下へ保存し、被験者別サブフォルダを作らない
+- `Sub/tables/`：検出ピーク一覧、未平滑化・15秒平滑化Blink Rate、ID・Set別検出数、閾値、欠測・QC要約
+- `Sub/logs/`：実行条件、入力、完了・失敗、出力一覧を含む実行要約
 
 Phase 3では、現段階でローカルデスクトップの `解析に必要なデータたち/` へ新しい中間データを保存しません。Phase 1 HDF5を読み込み、再現に必要な検出結果と成果物を指定OneDriveへ保存します。
 
@@ -134,6 +138,6 @@ Notionの「フェーズ３：まばたきの解析」配下に、ID・Setごと
 - 実行前にルートREADME、運用ルール、解析上の注意事項、本仕様、Phase 3実行README、NotionのPhase 3ページを確認します。
 - 全対象を同じPythonコードと固定パラメータのループで処理し、IDごとにコードや閾値を手修正しません。
 - まずパイロットIDで、HDF5読込、閾値、ピーク重複、HTML操作、Blink Rate、定量化、欠測、保存、Notion記録を検証します。
-- パイロットID 101／201では、検出ピーク間隔100 ms未満は0件であり、minimum peak distanceを未設定としても同一瞬きの明瞭な多重検出は認めませんでした。
+- パイロットID 101／201では、旧prominence 97%設定で小振幅の明瞭な瞬きの過少検出を認めたため、95%を主解析、90%をHTML感度確認として再検証します。
 - 実行成功だけで完了とせず、OneDrive成果物、CSV・JSONの読み戻し、HTML操作、Notion読み戻しを確認します。
 - 許可済み範囲の通常実行、出力確認、Notion更新、Git操作に利用者承認を求めません。許可範囲外、安全上の問題、または自力で解決できない阻害要因がある場合だけ停止します。
