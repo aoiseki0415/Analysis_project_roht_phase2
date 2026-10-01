@@ -50,6 +50,7 @@ class SetCount:
     consecutive_links_50ms: int
     correct_bridge_links_100ms: int
     missing_keypress_rows: int
+    time_reversal_links: int
     source_note: str
     eeg_missing: bool
 
@@ -91,6 +92,8 @@ def count_mistouch_events(frame: pd.DataFrame) -> dict[str, int]:
     mistouch_positions = np.flatnonzero(types == "mistouch")
     raw_count = int(mistouch_positions.size)
     missing = int(np.isnan(times[mistouch_positions]).sum())
+    finite_adjacent = np.isfinite(times[:-1]) & np.isfinite(times[1:])
+    time_reversals = int(np.sum((np.diff(times) < 0.0) & finite_adjacent))
     assigned: set[int] = set()
     event_count = 0
     consecutive_links = 0
@@ -130,6 +133,7 @@ def count_mistouch_events(frame: pd.DataFrame) -> dict[str, int]:
         "consecutive_links_50ms": consecutive_links,
         "correct_bridge_links_100ms": bridge_links,
         "missing_keypress_rows": missing,
+        "time_reversal_links": time_reversals,
     }
 
 
@@ -150,6 +154,7 @@ def process_session(raw_root: Path, session_id: str) -> list[SetCount]:
                 consecutive_links_50ms=counted["consecutive_links_50ms"],
                 correct_bridge_links_100ms=counted["correct_bridge_links_100ms"],
                 missing_keypress_rows=counted["missing_keypress_rows"],
+                time_reversal_links=counted["time_reversal_links"],
                 source_note=note,
                 eeg_missing=missing_set == set_number,
             )
@@ -188,6 +193,8 @@ def analyse_participant(raw_root: Path, participant: object) -> list[dict[str, o
                 "Control_100ms_correct_bridge_links": control_set.correct_bridge_links_100ms,
                 "EyeDrop_missing_keypress_rows": drops_set.missing_keypress_rows,
                 "Control_missing_keypress_rows": control_set.missing_keypress_rows,
+                "EyeDrop_time_reversal_links": drops_set.time_reversal_links,
+                "Control_time_reversal_links": control_set.time_reversal_links,
                 "Pairwise_EEG_missing_set": f"Set{missing_set}" if missing_set else "なし",
                 "EyeDrop_source": drops_set.source_note,
                 "Control_source": control_set.source_note,

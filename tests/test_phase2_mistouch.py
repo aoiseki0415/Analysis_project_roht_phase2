@@ -56,12 +56,18 @@ def test_more_than_one_correct_is_not_merged() -> None:
     assert result["mistouch_count"] == 2
 
 
+def test_time_reversal_is_recorded_and_not_merged() -> None:
+    result = phase2.count_mistouch_events(frame(["mistouch", "mistouch"], [100, 90]))
+    assert result["mistouch_count"] == 2
+    assert result["time_reversal_links"] == 1
+
+
 def test_pairwise_eeg_missing_set_masks_both_conditions(monkeypatch) -> None:
     participant = phase2.no1.parse_participant("109:209:109:VRohtoPremium")
 
     def fake_process(_root: Path, session_id: str):
         return [
-            phase2.SetCount(i, 4, 3.0, 1, 0, 0, "x", session_id == "109" and i == 1)
+            phase2.SetCount(i, 4, 3.0, 1, 0, 0, 0, "x", session_id == "109" and i == 1)
             for i in range(1, 7)
         ]
 
