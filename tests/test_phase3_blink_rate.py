@@ -133,3 +133,25 @@ def test_rate_smoothing_is_centered_and_keeps_raw_rate():
         frame["BlinkRateBlinksPerMin"].to_numpy(),
         frame["BlinkRateSmoothed15sBlinksPerMin"].to_numpy(),
     )
+
+
+def test_session_file_prefix_sorts_sessions_within_pair():
+    spec = MODULE.parse_participant("101:201:101:VRohtoPremium")
+    assert MODULE.session_file_prefix(spec, "101") == "Pair101-201_01_ID101"
+    assert MODULE.session_file_prefix(spec, "201") == "Pair101-201_02_ID201"
+
+
+def test_detection_reset_scale_matches_html_formula():
+    signal = _set_signal(1, [])
+    values = np.linspace(-20.0, 20.0, signal.relative_seconds.size)
+    signal.filtered_uv["Fp1_Fp2_mean"] = values
+    result = MODULE.SessionResult(
+        "101",
+        "Eye Drop",
+        {"Fp1_Fp2_mean": {"prominence_uv": 1.0}},
+        {"Fp1_Fp2_mean": np.array([1.0])},
+        {1: signal},
+    )
+    absolute = np.sort(np.abs(values))
+    expected = max(10.0, float(absolute[int(np.floor(absolute.size * 0.995))]) * 1.25)
+    assert np.isclose(MODULE.detection_reset_scale_uv(result), expected)

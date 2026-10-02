@@ -11,7 +11,7 @@
 - 検出用フィルタは1–10 Hz、ピーク検出は `scipy.signal.find_peaks`
 - Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 10 × 1.4826 × MAD`を全セットへ共通適用
 - 同一瞬きの重複検出を避ける安全条件としてminimum peak distanceを100 ms、瞬きらしい時間幅を保つ形状条件としてpeak widthを20–320 msに固定する
-- 検出確認HTMLはセッションIDごとにMAD方式の1ファイルを作る
+- 検出確認HTMLはセッションIDごとにMAD方式の1ファイルを作り、同じResetスケールの横長PNGも作る
 - 全候補prominenceの分布とMAD閾値線を、横軸0–500 µV・縦軸対数のPNGとしてセッションIDごとに作り、500 µV超の候補数も図中へ記す
 - Blink Rate時間変化は60秒中心化窓、1秒刻み、端点は実際の窓長で補正する。さらにセット内だけで15秒中心化単純移動平均を適用し、その後0〜600へ変換する
 - セット別定量値は検出総数をセット実時間（分）で割る。移動窓値の時間平均は使用しない
@@ -19,7 +19,7 @@
 - 個人時間変化、製品群別Grand-average、6パネルセット別定量化を同じNo1で出力
 - 欠測セットは補完しない。ID 109 Set 1、ID 120 Set 6、ID 135 Set 2、ID 225 Set 4を欠測として扱う
 - Phase 3専用色はControl `#4B5563`、C Cube `#21867A`、V Rohto Premium `#3268A8`
-- 指定OneDriveの `Phase3_瞬き解析/No1_BlinkRate/` で、製品群ごとに `Individual/`、`GrandAverage/`、`SetQuantification/`、`HTML/`、`ProminenceDistribution/` を置き、被験者別サブフォルダを作らない。表・ログはNo1直下の `Sub/` へ分離する
+- 指定OneDriveの `Phase3_瞬き解析/No1_BlinkRate/` で、検出QCを `BlinkDetection_QC/`、Blink Rate成果物を `BlinkRate_Individual/<製品群>/`、`BlinkRate_GrandAverage/<製品群>/`、`BlinkRate_SetQuantification/<製品群>/` へ役割分離する。検出HTML・横長PNG・prominence分布PNGは `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で並べ、表・ログはNo1直下の `Sub/` へ分離する
 - Phase 3ではローカルデスクトップへ新しい中間データを保存しない
 - Notionの結果表へID・Set別の平均信号／Fp1／Fp2検出数、セット時間、Blink Rate、閾値、欠測・備考を記録
 

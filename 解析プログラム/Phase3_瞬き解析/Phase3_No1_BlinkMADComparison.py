@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E501
 """Create self-contained QC HTML comparing blink detections at MAD k=8, 10, and 12."""
 
 from __future__ import annotations

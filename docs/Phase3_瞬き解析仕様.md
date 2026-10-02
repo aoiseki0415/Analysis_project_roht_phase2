@@ -44,7 +44,7 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 - Nyström M, et al. *What is a blink? Classifying and characterizing blinks in eye openness signals.* Behavior Research Methods. 2024. https://doi.org/10.3758/s13428-023-02333-9
 - MNE-Python. *Overview of artifact detection.* EOGイベント検出で1–10 Hzのバンドパスを使用。https://mne.tools/stable/auto_tutorials/preprocessing/10_preprocessing_overview.html
 
-## 4. 瞬き検出確認HTML
+## 4. 瞬き検出確認成果物
 
 - セッションIDごとに、height基準なし・MAD方式の検出確認HTMLを1ファイル作成します。被験者ペアを1つのHTMLへ統合しません。
 - 横軸にはセット内データだけを使用し、セット間の休憩時間は含めません。
@@ -53,6 +53,8 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 - 1–10 Hzフィルタ後の `Fp1_Fp2_mean` と、検出されたピーク位置の中抜き丸印を表示します。
 - セット境界へグレー点線を入れ、`Set 1`〜`Set 6` を表示します。欠測セットはデータのない区間として明示します。
 - Phase 1の確認HTMLと同様に、x・y方向の拡大縮小、ドラッグ移動、左右矢印キーによる表示幅比率ベースの移動、全体表示への復帰、カーソル位置の値確認を可能にします。
+- 同じフィルタ後信号と検出ピークを、HTMLのReset表示と同じ縦軸スケールで、全6セットを横長に連結したPNGとしても保存します。横軸は `Experimental Progress, %`、縦軸は `Filtered amplitude (µV)` とし、Set境界・Set名・検出ピークの意味を図内へ明記します。
+- HTML、横長PNG、prominence分布PNGは同じ `BlinkDetection_QC/` に置きます。ファイル名は `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で統一し、ファイル名順が被験者ペア内の1回目・2回目を連続表示するようにします。
 - ICA学習で除外した時間・チャンネルの表示はPhase 1のQC成果物に任せ、Phase 3 HTMLへ重複表示しません。
 
 ## 5. Blink Rateの時間変化
@@ -96,28 +98,25 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 ```text
 Phase3_瞬き解析/
   No1_BlinkRate/
-    CCube/
-      Individual/
-      GrandAverage/
-      SetQuantification/
-      HTML/
-      ProminenceDistribution/
-    VRohtoPremium/
-      Individual/
-      GrandAverage/
-      SetQuantification/
-      HTML/
-      ProminenceDistribution/
+    BlinkDetection_QC/
+    BlinkRate_Individual/
+      CCube/
+      VRohtoPremium/
+    BlinkRate_GrandAverage/
+      CCube/
+      VRohtoPremium/
+    BlinkRate_SetQuantification/
+      CCube/
+      VRohtoPremium/
     Sub/
       tables/
       logs/
 ```
 
-- 各製品群の `HTML/`：セッションID別にMAD方式の検出確認HTMLを保存する
-- 各製品群の `ProminenceDistribution/`：セッションID別に、全候補prominenceの0–500 µVヒストグラムを対数縦軸で表示し、MAD閾値線と500 µV超の候補数を示すPNGを保存する
-- 各製品群の `Individual/`：被験者ペア別PNGを直下へ保存し、被験者別サブフォルダを作らない
-- 各製品群の `GrandAverage/`：製品群別PNGだけを保存する
-- 各製品群の `SetQuantification/`：6パネルPNGを直下へ保存し、被験者別サブフォルダを作らない
+- `BlinkDetection_QC/`：セッションID別のMAD方式検出確認HTML、同じResetスケールの横長PNG、全候補prominenceの0–500 µV・対数縦軸ヒストグラムPNGを、被験者ペア順の接頭辞で保存する
+- `BlinkRate_Individual/<製品群>/`：被験者ペア別Blink Rate時間変化PNGを直下へ保存し、被験者別サブフォルダを作らない
+- `BlinkRate_GrandAverage/<製品群>/`：製品群別Blink Rate Grand-average PNGだけを保存する
+- `BlinkRate_SetQuantification/<製品群>/`：Blink Rateの6パネルセット別定量化PNGを直下へ保存し、被験者別サブフォルダを作らない
 - `Sub/tables/`：検出ピーク一覧、未平滑化・15秒平滑化Blink Rate、ID・Set別検出数、閾値、欠測・QC要約
 - `Sub/logs/`：実行条件、入力、完了・失敗、出力一覧を含む実行要約
 
@@ -136,6 +135,8 @@ Notionの「フェーズ３：まばたきの解析」配下に、ID・Setごと
 - HTMLとOneDrive出力先
 - 検出異常、左右差、欠測その他の備考
 
+ID・Set別表に加え、セッション別QC表へ、セッション検出総数、prominence閾値、全セットの高速目視による定性的精度評価（良好／概ね良好／要確認）、短い根拠、HTML・PNG保存先を記録します。この評価は真の瞬きラベルに基づく感度・適合率ではなく、波形と検出丸印の整合性を確認する目視QCです。
+
 観察結果と解釈を分離し、Fp1・Fp2単独の検出数を主解析結果として扱いません。
 
 ## 10. 実装・実行条件
@@ -143,6 +144,6 @@ Notionの「フェーズ３：まばたきの解析」配下に、ID・Setごと
 - 実行前にルートREADME、運用ルール、解析上の注意事項、本仕様、Phase 3実行README、NotionのPhase 3ページを確認します。
 - 全対象を同じPythonコードと固定パラメータのループで処理し、IDごとにコードや閾値を手修正しません。
 - まずパイロットIDで、HDF5読込、閾値、ピーク重複、HTML操作、Blink Rate、定量化、欠測、保存、Notion記録を検証します。
-- パイロットID 101／201では、height基準を設けず、prominenceの `中央値 + 10 × 1.4826 × MAD` をセッション共通閾値とし、minimum peak distance 100 ms・peak width 20–320 msを併用する方式を検証します。HTML、0–500 µV・対数縦軸のprominence分布PNG、Blink Rate、定量化、補助表、Notion記録を確認します。
+- パイロットID 101／201では、height基準を設けず、prominenceの `中央値 + 10 × 1.4826 × MAD` をセッション共通閾値とし、minimum peak distance 100 ms・peak width 20–320 msを併用する方式を検証します。HTML、同じResetスケールの横長検出PNG、0–500 µV・対数縦軸のprominence分布PNG、Blink Rate、定量化、補助表、Notion記録を確認します。
 - 実行成功だけで完了とせず、OneDrive成果物、CSV・JSONの読み戻し、HTML操作、Notion読み戻しを確認します。
 - 許可済み範囲の通常実行、出力確認、Notion更新、Git操作に利用者承認を求めません。許可範囲外、安全上の問題、または自力で解決できない阻害要因がある場合だけ停止します。

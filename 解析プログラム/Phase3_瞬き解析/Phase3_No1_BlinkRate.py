@@ -400,6 +400,86 @@ def plot_prominence_distribution(result: SessionResult, path: Path) -> None:
     plt.close(figure)
 
 
+def detection_reset_scale_uv(result: SessionResult) -> float:
+    """Return the shared y half-range used by the HTML Reset view and PNG."""
+    finite_absolute = np.concatenate(
+        [
+            np.abs(signal.filtered_uv["Fp1_Fp2_mean"])
+            for signal in result.sets.values()
+            if signal.filtered_uv["Fp1_Fp2_mean"].size
+        ]
+    )
+    finite_absolute = finite_absolute[np.isfinite(finite_absolute)]
+    if not finite_absolute.size:
+        return 10.0
+    finite_absolute.sort()
+    percentile_index = min(
+        finite_absolute.size - 1, int(np.floor(finite_absolute.size * 0.995))
+    )
+    return max(10.0, float(finite_absolute[percentile_index]) * 1.25)
+
+
+def plot_detection_overview(result: SessionResult, path: Path) -> None:
+    """Save a wide, static counterpart of the HTML Reset view."""
+    _configure_plot()
+    figure, axis = plt.subplots(figsize=(32, 8))
+    line_label_used = False
+    peak_label_used = False
+    for set_number in range(1, N_SETS + 1):
+        signal = result.sets.get(set_number)
+        if signal is None:
+            continue
+        values = signal.filtered_uv["Fp1_Fp2_mean"]
+        progress = (set_number - 1) * 100.0 + np.arange(values.size) / max(
+            1, values.size - 1
+        ) * 100.0
+        axis.plot(
+            progress,
+            values,
+            color="#3268A8",
+            linewidth=0.35,
+            rasterized=True,
+            label="1–10 Hz filtered Fp1/Fp2 mean" if not line_label_used else None,
+        )
+        line_label_used = True
+        peaks = signal.peaks["Fp1_Fp2_mean"]
+        if peaks.size:
+            axis.scatter(
+                progress[peaks],
+                values[peaks],
+                s=22,
+                facecolors="none",
+                edgecolors="#D14B45",
+                linewidths=0.9,
+                zorder=3,
+                label="Detected blink" if not peak_label_used else None,
+            )
+            peak_label_used = True
+    y_half_range = detection_reset_scale_uv(result)
+    axis.set_xlim(0, 600)
+    axis.set_ylim(-y_half_range, y_half_range)
+    axis.set_xticks(np.arange(0, 601, 50))
+    for boundary in range(100, 600, 100):
+        axis.axvline(boundary, color="#999999", linestyle="--", linewidth=1.1, zorder=0)
+    for set_number in range(1, N_SETS + 1):
+        axis.text(
+            (set_number - 0.5) * 100,
+            y_half_range * 0.92,
+            f"Set {set_number}",
+            ha="center",
+            va="top",
+            fontsize=17,
+        )
+    axis.set_xlabel("Experimental Progress, %", labelpad=14)
+    axis.set_ylabel("Filtered amplitude (µV)", labelpad=14)
+    axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.12), ncol=2, frameon=False)
+    axis.spines[["top", "right"]].set_visible(False)
+    figure.tight_layout(rect=(0, 0, 1, 0.94))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+
+
 def _configure_plot() -> None:
     plt.rcParams.update(
         {
@@ -563,6 +643,17 @@ document.getElementById('xin').onclick=()=>zoom(.5);document.getElementById('xou
     path.write_text(html, encoding="utf-8")
 
 
+def session_file_prefix(spec: ParticipantSpec, session_id: str) -> str:
+    """Return a filename prefix that sorts paired sessions consecutively."""
+    if session_id == spec.first_session_id:
+        order = 1
+    elif session_id == spec.second_session_id:
+        order = 2
+    else:
+        raise ValueError(f"ID{session_id} does not belong to pair {spec.pair_id}")
+    return f"Pair{spec.pair_id}_{order:02d}_ID{session_id}"
+
+
 def process_participant(
     spec: ParticipantSpec,
     input_root: Path,
@@ -600,17 +691,15 @@ def process_participant(
         [set_summary(result, spec.pair_id, product_jp) for result in results.values()],
         ignore_index=True,
     )
-    for configured_product_dir in ("CCube", "VRohtoPremium"):
-        for directory_name in (
-            "Individual",
-            "GrandAverage",
-            "SetQuantification",
-            "HTML",
-            "ProminenceDistribution",
-        ):
-            (phase_root / configured_product_dir / directory_name).mkdir(
-                parents=True,
-                exist_ok=True,
+    (phase_root / "BlinkDetection_QC").mkdir(parents=True, exist_ok=True)
+    for directory_name in (
+        "BlinkRate_Individual",
+        "BlinkRate_GrandAverage",
+        "BlinkRate_SetQuantification",
+    ):
+        for configured_product_dir in ("CCube", "VRohtoPremium"):
+            (phase_root / directory_name / configured_product_dir).mkdir(
+                parents=True, exist_ok=True
             )
     pair_table_dir = phase_root / "Sub" / "tables"
     pair_table_dir.mkdir(parents=True, exist_ok=True)
@@ -619,19 +708,13 @@ def process_participant(
         rate_frames[session_id] = pd.concat(
             [calculate_blink_rate(signal) for signal in result.sets.values()], ignore_index=True
         )
-        html_path = (
-            phase_root
-            / product_dir
-            / "HTML"
-            / f"ID{session_id}_No1_BlinkDetection_MAD{filename_suffix}.html"
-        )
-        distribution_path = (
-            phase_root
-            / product_dir
-            / "ProminenceDistribution"
-            / f"ID{session_id}_No1_ProminenceDistribution_MADThreshold{filename_suffix}.png"
-        )
+        prefix = session_file_prefix(spec, session_id)
+        qc_dir = phase_root / "BlinkDetection_QC"
+        html_path = qc_dir / f"{prefix}_No1_BlinkDetection{filename_suffix}.html"
+        overview_path = qc_dir / f"{prefix}_No1_BlinkDetection_Overview{filename_suffix}.png"
+        distribution_path = qc_dir / f"{prefix}_No1_ProminenceDistribution{filename_suffix}.png"
         save_detection_html(result, html_path)
+        plot_detection_overview(result, overview_path)
         plot_prominence_distribution(result, distribution_path)
         event_table(result).to_csv(
             pair_table_dir / f"ID{session_id}_No1_BlinkEvents.csv",
@@ -644,13 +727,16 @@ def process_participant(
     summary_path = pair_table_dir / f"ID{spec.pair_id}_No1_BlinkSetResults.csv"
     summaries.to_csv(summary_path, index=False)
     individual_path = (
-        phase_root / product_dir / "Individual" / f"ID{spec.pair_id}_No1_BlinkRate_Timecourse.png"
+        phase_root
+        / "BlinkRate_Individual"
+        / product_dir
+        / f"ID{spec.pair_id}_No1_BlinkRate_Timecourse.png"
     )
     plot_pair_timecourse(rate_frames, spec, product_label, product_color, individual_path)
     quant_path = (
         phase_root
+        / "BlinkRate_SetQuantification"
         / product_dir
-        / "SetQuantification"
         / f"ID{spec.pair_id}_No1_BlinkRate_SetQuantification.png"
     )
     plot_pair_quantification(summaries, product_label, product_color, quant_path)
@@ -690,6 +776,26 @@ def process_participant(
             "individual_figure": str(individual_path),
             "set_quantification_figure": str(quant_path),
             "set_results_csv": str(summary_path),
+            "blink_detection_qc": {
+                session_id: {
+                    "html": str(
+                        phase_root
+                        / "BlinkDetection_QC"
+                        / f"{session_file_prefix(spec, session_id)}_No1_BlinkDetection{filename_suffix}.html"
+                    ),
+                    "overview_png": str(
+                        phase_root
+                        / "BlinkDetection_QC"
+                        / f"{session_file_prefix(spec, session_id)}_No1_BlinkDetection_Overview{filename_suffix}.png"
+                    ),
+                    "prominence_distribution_png": str(
+                        phase_root
+                        / "BlinkDetection_QC"
+                        / f"{session_file_prefix(spec, session_id)}_No1_ProminenceDistribution{filename_suffix}.png"
+                    ),
+                }
+                for session_id in results
+            },
         },
     }
     log_dir = phase_root / "Sub" / "logs"
