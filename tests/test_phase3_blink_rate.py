@@ -96,6 +96,19 @@ def test_peak_detection_uses_prominence_without_height_threshold():
     assert peaks.tolist() == []
 
 
+def test_auxiliary_all_nan_channel_is_allowed_but_has_no_threshold():
+    signal = _set_signal(1, [])
+    signal.filtered_uv["Fp2"][:] = np.nan
+    signal.filtered_uv["Fp1"] = np.array(
+        [0.0, 1.0, 0.0] + [0.0] * (signal.filtered_uv["Fp1"].size - 3)
+    )
+    signal.filtered_uv["Fp1_Fp2_mean"] = signal.filtered_uv["Fp1"].copy()
+    thresholds, distributions = MODULE.calculate_session_thresholds({1: signal})
+    assert thresholds["Fp2"]["prominence_uv"] is None
+    assert thresholds["Fp2"]["prominence_candidate_count"] == 0
+    assert distributions["Fp2"].size == 0
+
+
 def test_prominence_threshold_uses_median_plus_ten_robust_sd():
     signal = _set_signal(1, [])
     values = np.array([0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 10.0, 0.0])
@@ -116,9 +129,7 @@ def test_prominence_threshold_accepts_explicit_comparison_multiplier():
     values = np.array([0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 10.0, 0.0])
     for channel in signal.filtered_uv:
         signal.filtered_uv[channel] = values.copy()
-    thresholds, _ = MODULE.calculate_session_thresholds(
-        {1: signal}, prominence_mad_multiplier=8.0
-    )
+    thresholds, _ = MODULE.calculate_session_thresholds({1: signal}, prominence_mad_multiplier=8.0)
     threshold = thresholds["Fp1_Fp2_mean"]
     assert np.isclose(threshold["prominence_uv"], 2.5 + 8.0 * 1.4826)
     assert threshold["prominence_mad_multiplier"] == 8.0
@@ -174,6 +185,52 @@ def test_grand_average_statistics_use_sample_sem_and_valid_n():
     assert result["valid_n"].tolist() == [3, 2, 1]
     assert np.isnan(result["sample_sd"][2])
     assert np.isnan(result["sem"][2])
+
+
+def test_group_quantification_uses_between_participant_values_and_paired_missing_set():
+    items = []
+    for first, second, eye_value, control_value, missing_control in (
+        ("101", "201", 10.0, 20.0, False),
+        ("103", "203", 30.0, 40.0, True),
+    ):
+        spec = MODULE.ParticipantSpec(first, second, first, "VRohtoPremium")
+        summary_rows = []
+        rates = {}
+        for session_id, condition, value in (
+            (first, "Eye Drop", eye_value),
+            (second, "Control", control_value),
+        ):
+            sets = [1] if not (missing_control and condition == "Control") else []
+            rates[session_id] = MODULE.pd.DataFrame(
+                {
+                    "Set": sets,
+                    "ExperimentalProgressPercent": [0.0] * len(sets),
+                    "BlinkRateSmoothed15sBlinksPerMin": [value] * len(sets),
+                }
+            )
+            if sets:
+                summary_rows.append(
+                    {
+                        "SessionID": session_id,
+                        "Condition": condition,
+                        "Set": 1,
+                        "BlinkRateBlinksPerMin": value,
+                    }
+                )
+        items.append(
+            {
+                "spec": spec,
+                "product_dir": "VRohtoPremium",
+                "summary": MODULE.pd.DataFrame(summary_rows),
+                "rate_frames": rates,
+            }
+        )
+    frame = MODULE._group_quantification_frame(items, "VRohtoPremium")
+    set_one = frame.loc[frame["Set"] == 1]
+    pair_two = set_one.loc[set_one["PairID"] == "103-203"]
+    assert pair_two["BlinkRateBlinksPerMin"].isna().all()
+    pair_one = set_one.loc[set_one["PairID"] == "101-201"]
+    assert pair_one["BlinkRateBlinksPerMin"].tolist() == [10.0, 20.0]
 
 
 def test_production_threshold_basis_is_explicitly_exploratory_not_literature():

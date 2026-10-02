@@ -44,6 +44,7 @@ MAXIMUM_PEAK_WIDTH_SECONDS = 0.320
 RATE_WINDOW_SECONDS = 60.0
 RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
+GROUP_PROGRESS_POINTS_PER_SET = 100
 CONTROL_COLOR = "#402B5D"
 CONTROL_QUANTIFICATION_COLOR = "#66547D"
 QUANTIFICATION_COLORS = {
@@ -174,8 +175,13 @@ def load_set_signal(path: Path, session_id: str, set_number: int) -> SetSignal:
         original = handle["time/OriginalTimestamp"][:].astype(np.float64)
     if matrix_uv.shape != (relative.size, 3) or original.size != relative.size:
         raise ValueError(f"{path}: signal/time lengths do not match")
-    if not np.isfinite(matrix_uv).all():
-        raise ValueError(f"{path}: non-finite blink signal")
+    primary = matrix_uv[:, 2]
+    if not np.isfinite(primary).all():
+        raise ValueError(f"{path}: non-finite primary blink signal")
+    for index, name in enumerate(names[:2]):
+        finite = np.isfinite(matrix_uv[:, index])
+        if finite.any() and not finite.all():
+            raise ValueError(f"{path}: partially non-finite auxiliary signal {name}")
     sos = butter(
         FILTER_ORDER,
         [FILTER_LOW_HZ, FILTER_HIGH_HZ],
@@ -184,7 +190,12 @@ def load_set_signal(path: Path, session_id: str, set_number: int) -> SetSignal:
         output="sos",
     )
     raw = {name: matrix_uv[:, index] for index, name in enumerate(names)}
-    filtered = {name: sosfiltfilt(sos, values) for name, values in raw.items()}
+    filtered = {
+        name: sosfiltfilt(sos, values)
+        if np.isfinite(values).all()
+        else np.full_like(values, np.nan)
+        for name, values in raw.items()
+    }
     return SetSignal(session_id, set_number, path, relative, original, raw, filtered, {})
 
 
@@ -211,7 +222,19 @@ def calculate_session_thresholds(
             if candidates.size:
                 candidate_prominences.append(peak_prominences(values, candidates)[0])
         if not candidate_prominences:
-            raise ValueError(f"No local maxima available for {channel}")
+            if channel == "Fp1_Fp2_mean":
+                raise ValueError(f"No local maxima available for {channel}")
+            thresholds[channel] = {
+                "height_uv": None,
+                "prominence_uv": None,
+                "prominence_candidate_count": 0,
+                "prominence_median_uv": None,
+                "prominence_mad_uv": None,
+                "prominence_robust_sd_uv": None,
+                "prominence_mad_multiplier": prominence_mad_multiplier,
+            }
+            distributions[channel] = np.array([], dtype=float)
+            continue
         prominences = np.concatenate(candidate_prominences)
         median = float(np.median(prominences))
         mad = float(np.median(np.abs(prominences - median)))
@@ -259,16 +282,17 @@ def detect_session(
         sets[set_number] = load_set_signal(path, session_id, set_number)
     if not sets:
         raise FileNotFoundError(f"No Phase 1 blink HDF5 found for ID{session_id}")
-    thresholds, distributions = calculate_session_thresholds(
-        sets, prominence_mad_multiplier
-    )
+    thresholds, distributions = calculate_session_thresholds(sets, prominence_mad_multiplier)
     for set_signal in sets.values():
         for channel, values in set_signal.filtered_uv.items():
             threshold = thresholds[channel]
-            set_signal.peaks[channel] = detect_blink_peaks(
-                values,
-                float(threshold["prominence_uv"]),
-            )
+            if threshold["prominence_uv"] is None:
+                set_signal.peaks[channel] = np.array([], dtype=np.int64)
+            else:
+                set_signal.peaks[channel] = detect_blink_peaks(
+                    values,
+                    float(threshold["prominence_uv"]),
+                )
     return SessionResult(session_id, condition, thresholds, distributions, sets)
 
 
@@ -336,8 +360,16 @@ def set_summary(result: SessionResult, pair_id: str, product_jp: str) -> pd.Data
                 "Set": set_number,
                 "Status": "使用",
                 "MeanSignalBlinkCount": primary_count,
-                "Fp1BlinkCount": int(set_signal.peaks["Fp1"].size),
-                "Fp2BlinkCount": int(set_signal.peaks["Fp2"].size),
+                "Fp1BlinkCount": (
+                    int(set_signal.peaks["Fp1"].size)
+                    if result.thresholds["Fp1"]["prominence_uv"] is not None
+                    else np.nan
+                ),
+                "Fp2BlinkCount": (
+                    int(set_signal.peaks["Fp2"].size)
+                    if result.thresholds["Fp2"]["prominence_uv"] is not None
+                    else np.nan
+                ),
                 "SetDurationMinutes": duration_minutes,
                 "BlinkRateBlinksPerMin": primary_count / duration_minutes,
                 "PeakHeightThresholdUv": result.thresholds["Fp1_Fp2_mean"]["height_uv"],
@@ -427,9 +459,7 @@ def detection_reset_scale_uv(result: SessionResult) -> float:
     if not finite_absolute.size:
         return 10.0
     finite_absolute.sort()
-    percentile_index = min(
-        finite_absolute.size - 1, int(np.floor(finite_absolute.size * 0.995))
-    )
+    percentile_index = min(finite_absolute.size - 1, int(np.floor(finite_absolute.size * 0.995)))
     return max(10.0, float(finite_absolute[percentile_index]) * 1.60)
 
 
@@ -610,53 +640,228 @@ def plot_pair_timecourse(
     plt.close(figure)
 
 
-def plot_pair_quantification(
-    summary: pd.DataFrame,
+def _paired_available_sets(processed: dict[str, object]) -> set[int]:
+    """Return sets available in both sessions of one participant pair."""
+    spec = processed["spec"]
+    rates = processed["rate_frames"]
+    assert isinstance(spec, ParticipantSpec)
+    assert isinstance(rates, dict)
+    available: set[int] | None = None
+    for session_id in (spec.drops_session_id, spec.control_session_id):
+        frame = rates[session_id]
+        current = set(frame["Set"].dropna().astype(int).unique().tolist())
+        available = current if available is None else available & current
+    return available or set()
+
+
+def _resample_rate_set(frame: pd.DataFrame, set_number: int) -> tuple[np.ndarray, np.ndarray]:
+    """Interpolate one set to the fixed group progress grid without crossing sets."""
+    grid = np.linspace(0.0, 100.0, GROUP_PROGRESS_POINTS_PER_SET, endpoint=False)
+    set_frame = frame.loc[frame["Set"] == set_number].copy()
+    if set_frame.empty:
+        return grid, np.full(grid.shape, np.nan)
+    local_progress = (
+        set_frame["ExperimentalProgressPercent"].to_numpy(dtype=float) - (set_number - 1) * 100.0
+    )
+    values = set_frame["BlinkRateSmoothed15sBlinksPerMin"].to_numpy(dtype=float)
+    finite = np.isfinite(local_progress) & np.isfinite(values)
+    if np.count_nonzero(finite) < 2:
+        return grid, np.full(grid.shape, np.nan)
+    return grid, np.interp(grid, local_progress[finite], values[finite])
+
+
+def _group_rate_matrices(
+    processed_items: list[dict[str, object]], product_dir: str
+) -> tuple[dict[str, np.ndarray], np.ndarray, list[str]]:
+    """Build paired participant matrices on a fixed within-set progress grid."""
+    selected = [item for item in processed_items if item["product_dir"] == product_dir]
+    pair_ids = [str(item["spec"].pair_id) for item in selected]
+    global_progress = np.concatenate(
+        [
+            (set_number - 1) * 100.0
+            + np.linspace(0.0, 100.0, GROUP_PROGRESS_POINTS_PER_SET, endpoint=False)
+            for set_number in range(1, N_SETS + 1)
+        ]
+    )
+    matrices: dict[str, list[np.ndarray]] = {"Eye Drop": [], "Control": []}
+    for item in selected:
+        spec = item["spec"]
+        rates = item["rate_frames"]
+        assert isinstance(spec, ParticipantSpec)
+        assert isinstance(rates, dict)
+        available = _paired_available_sets(item)
+        for condition, session_id in (
+            ("Eye Drop", spec.drops_session_id),
+            ("Control", spec.control_session_id),
+        ):
+            pieces: list[np.ndarray] = []
+            for set_number in range(1, N_SETS + 1):
+                if set_number not in available:
+                    pieces.append(np.full(GROUP_PROGRESS_POINTS_PER_SET, np.nan))
+                else:
+                    _, values = _resample_rate_set(rates[session_id], set_number)
+                    pieces.append(values)
+            matrices[condition].append(np.concatenate(pieces))
+    return (
+        {condition: np.vstack(rows) for condition, rows in matrices.items()},
+        global_progress,
+        pair_ids,
+    )
+
+
+def plot_group_grand_average(
+    processed_items: list[dict[str, object]],
     product_dir: str,
     product_label: str,
-    color: str,
+    product_color: str,
     path: Path,
+    table_path: Path,
 ) -> None:
+    """Plot product-specific pointwise between-participant mean +/- SEM."""
+    matrices, progress, pair_ids = _group_rate_matrices(processed_items, product_dir)
+    statistics = {
+        condition: calculate_grand_average_statistics(matrix)
+        for condition, matrix in matrices.items()
+    }
+    rows: list[dict[str, object]] = []
+    for condition, stats in statistics.items():
+        for position, x in enumerate(progress):
+            rows.append(
+                {
+                    "Product": product_dir,
+                    "Condition": condition,
+                    "ExperimentalProgressPercent": x,
+                    "Set": int(x // 100) + 1,
+                    "WithinSetProgressPercent": x % 100,
+                    "MeanBlinkRateBlinksPerMin": stats["mean"][position],
+                    "SampleSDBlinksPerMin": stats["sample_sd"][position],
+                    "SEMBlinksPerMin": stats["sem"][position],
+                    "ValidN": stats["valid_n"][position],
+                }
+            )
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(table_path, index=False)
+    _configure_plot()
+    figure, axis = plt.subplots(figsize=(18, 8.5))
+    upper_values: list[np.ndarray] = []
+    for condition, label, color in (
+        ("Eye Drop", f"Eye Drop ({product_label})", product_color),
+        ("Control", "Control", CONTROL_COLOR),
+    ):
+        stats = statistics[condition]
+        mean, sem = stats["mean"], stats["sem"]
+        upper_values.append(mean + sem)
+        for set_number in range(1, N_SETS + 1):
+            start = (set_number - 1) * GROUP_PROGRESS_POINTS_PER_SET
+            stop = set_number * GROUP_PROGRESS_POINTS_PER_SET
+            x = progress[start:stop]
+            y = mean[start:stop]
+            band = sem[start:stop]
+            axis.plot(x, y, color=color, linewidth=2.7, label=label if set_number == 1 else None)
+            axis.fill_between(x, y - band, y + band, color=color, alpha=0.20, linewidth=0)
+    axis.set_xlabel("Experimental Progress, %", labelpad=14)
+    axis.set_ylabel("Blink Rate (blinks/min)", labelpad=14)
+    axis.set_ylim(0, grand_figure_y_upper_limit(np.concatenate(upper_values)))
+    axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.13), ncol=2, frameon=False)
+    _decorate_progress_axis(axis)
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.text(
+        0.995,
+        0.015,
+        f"N = {len(pair_ids)}; shade = mean ± SEM",
+        transform=axis.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=14,
+        color="#555555",
+    )
+    figure.tight_layout(rect=(0, 0, 1, 0.94))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+
+
+def _group_quantification_frame(
+    processed_items: list[dict[str, object]], product_dir: str
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for item in processed_items:
+        if item["product_dir"] != product_dir:
+            continue
+        spec = item["spec"]
+        summary = item["summary"]
+        assert isinstance(spec, ParticipantSpec)
+        assert isinstance(summary, pd.DataFrame)
+        available = _paired_available_sets(item)
+        for set_number in range(1, N_SETS + 1):
+            for condition, session_id in (
+                ("Eye Drop", spec.drops_session_id),
+                ("Control", spec.control_session_id),
+            ):
+                value = np.nan
+                if set_number in available:
+                    selected = summary.loc[
+                        (summary["SessionID"].astype(str) == session_id)
+                        & (summary["Set"] == set_number),
+                        "BlinkRateBlinksPerMin",
+                    ]
+                    if len(selected) and pd.notna(selected.iloc[0]):
+                        value = float(selected.iloc[0])
+                rows.append(
+                    {
+                        "PairID": spec.pair_id,
+                        "SessionID": session_id,
+                        "Product": product_dir,
+                        "Condition": condition,
+                        "Set": set_number,
+                        "BlinkRateBlinksPerMin": value,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def plot_group_quantification(
+    processed_items: list[dict[str, object]],
+    product_dir: str,
+    product_label: str,
+    path: Path,
+    table_path: Path,
+) -> None:
+    """Plot six paired panels whose bars are between-participant means."""
+    frame = _group_quantification_frame(processed_items, product_dir)
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(table_path, index=False)
     _configure_plot()
     figure, axes = plt.subplots(1, 6, figsize=(25, 7), sharey=True)
-    finite = summary["BlinkRateBlinksPerMin"].dropna().to_numpy(dtype=float)
-    ymax = max(1.0, float(np.max(finite)) * 1.30) if finite.size else 1.0
+    finite = frame["BlinkRateBlinksPerMin"].dropna().to_numpy(dtype=float)
+    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.78) / 5.0) * 5.0)) if finite.size else 5.0
+    x = np.array([-0.25, 0.25])
+    eye_color = QUANTIFICATION_COLORS[product_dir]
     for set_number, axis in enumerate(axes, 1):
-        part = summary[summary["Set"] == set_number]
-        values = []
-        for condition in ("Eye Drop", "Control"):
-            series = part.loc[part["Condition"] == condition, "BlinkRateBlinksPerMin"]
-            values.append(
-                float(series.iloc[0]) if len(series) and pd.notna(series.iloc[0]) else np.nan
+        part = frame.loc[frame["Set"] == set_number]
+        pivot = part.pivot(index="PairID", columns="Condition", values="BlinkRateBlinksPerMin")
+        means = [pivot["Eye Drop"].mean(skipna=True), pivot["Control"].mean(skipna=True)]
+        axis.bar(x, means, width=0.34, color=[eye_color, CONTROL_QUANTIFICATION_COLOR], alpha=0.90)
+        for _, row in pivot.iterrows():
+            values = np.array(
+                [row.get("Eye Drop", np.nan), row.get("Control", np.nan)], dtype=float
             )
-        x = np.array([-0.25, 0.25])
-        quantification_color = QUANTIFICATION_COLORS[product_dir]
-        axis.bar(
-            x,
-            values,
-            width=0.34,
-            color=[quantification_color, CONTROL_QUANTIFICATION_COLOR],
-            alpha=0.90,
-        )
-        if np.isfinite(values).all():
-            axis.plot(x, values, color="#8A8A8A", linewidth=1.5, alpha=0.75, zorder=2)
-        for xpos, value, dot_color in zip(
-            x,
-            values,
-            [quantification_color, CONTROL_QUANTIFICATION_COLOR],
-            strict=True,
-        ):
-            if np.isfinite(value):
-                axis.scatter(
-                    xpos,
-                    value,
-                    s=145,
-                    color=dot_color,
-                    edgecolor="white",
-                    linewidth=1.4,
-                    zorder=3,
-                    alpha=0.80,
-                )
+            if np.isfinite(values).all():
+                axis.plot(x, values, color="#8A8A8A", linewidth=1.1, alpha=0.55, zorder=2)
+            for xpos, value, color in zip(
+                x, values, [eye_color, CONTROL_QUANTIFICATION_COLOR], strict=True
+            ):
+                if np.isfinite(value):
+                    axis.scatter(
+                        xpos,
+                        value,
+                        s=105,
+                        color=color,
+                        edgecolor="white",
+                        linewidth=1.2,
+                        alpha=0.72,
+                        zorder=3,
+                    )
         axis.set_xlim(-0.75, 0.75)
         axis.set_ylim(0, ymax)
         axis.set_xticks(x, [f"Eye Drop\n({product_label})", "Control"], fontsize=14)
@@ -668,6 +873,54 @@ def plot_pair_quantification(
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
+
+
+def create_group_outputs(
+    processed_items: list[dict[str, object]], output_root: Path, comparison_label: str | None
+) -> dict[str, dict[str, str]]:
+    """Create final product-level Grand-average and set quantification outputs."""
+    phase_root = output_root / "Phase3_瞬き解析" / "No1_BlinkRate"
+    if comparison_label:
+        phase_root = (
+            output_root / "Phase3_瞬き解析" / "No1_BlinkRate_ParameterComparison" / comparison_label
+        )
+    outputs: dict[str, dict[str, str]] = {}
+    for product_dir, product_label, product_color, _ in (
+        PRODUCTS["ccube"],
+        PRODUCTS["vrohtopremium"],
+    ):
+        selected = [item for item in processed_items if item["product_dir"] == product_dir]
+        if not selected:
+            continue
+        grand_path = (
+            phase_root
+            / product_dir
+            / "GrandAverage"
+            / f"{product_dir}_No1_BlinkRate_GrandAverage.png"
+        )
+        grand_table = (
+            phase_root / "Sub" / "tables" / f"{product_dir}_No1_BlinkRate_GrandAverage.csv"
+        )
+        quant_path = (
+            phase_root
+            / product_dir
+            / "SetQuantification"
+            / f"{product_dir}_No1_BlinkRate_SetQuantification.png"
+        )
+        quant_table = (
+            phase_root / "Sub" / "tables" / f"{product_dir}_No1_BlinkRate_SetQuantification.csv"
+        )
+        plot_group_grand_average(
+            selected, product_dir, product_label, product_color, grand_path, grand_table
+        )
+        plot_group_quantification(selected, product_dir, product_label, quant_path, quant_table)
+        outputs[product_dir] = {
+            "grand_average_figure": str(grand_path),
+            "grand_average_table": str(grand_table),
+            "set_quantification_figure": str(quant_path),
+            "set_quantification_table": str(quant_table),
+        }
+    return outputs
 
 
 def _encoded_float32(values: np.ndarray) -> str:
@@ -702,9 +955,7 @@ def save_detection_html(
         "segments": segments,
         "height": result.thresholds["Fp1_Fp2_mean"]["height_uv"],
         "prominence": result.thresholds["Fp1_Fp2_mean"]["prominence_uv"],
-        "prominence_mad_multiplier": result.thresholds["Fp1_Fp2_mean"][
-            "prominence_mad_multiplier"
-        ],
+        "prominence_mad_multiplier": result.thresholds["Fp1_Fp2_mean"]["prominence_mad_multiplier"],
     }
     html = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Blink detection QC</title>
 <style>body{font-family:Arial,sans-serif;margin:16px;color:#202124}.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button{padding:6px 12px}canvas{border:1px solid #777;width:100%;height:620px;cursor:grab;touch-action:none}.hint{color:#555}.line{display:inline-block;width:24px;height:3px;background:#3268A8;margin-right:5px}.dot{display:inline-block;width:10px;height:10px;border:2px solid #D14B45;border-radius:50%;margin-right:5px}</style></head><body>
@@ -744,10 +995,7 @@ def process_participant(
     product_dir, product_label, product_color, product_jp = normalize_product(spec.product)
     if comparison_label:
         phase_root = (
-            output_root
-            / "Phase3_瞬き解析"
-            / "No1_BlinkRate_ParameterComparison"
-            / comparison_label
+            output_root / "Phase3_瞬き解析" / "No1_BlinkRate_ParameterComparison" / comparison_label
         )
         filename_suffix = f"_{comparison_label}"
     else:
@@ -793,7 +1041,9 @@ def process_participant(
         prominence_dir = phase_root / product_dir / "QualityCheck" / "ProminenceDistribution"
         html_path = detection_dir / f"{prefix}_No1_BlinkDetection{filename_suffix}.html"
         overview_path = detection_dir / f"{prefix}_No1_BlinkDetection_Overview{filename_suffix}.png"
-        distribution_path = prominence_dir / f"{prefix}_No1_ProminenceDistribution{filename_suffix}.png"
+        distribution_path = (
+            prominence_dir / f"{prefix}_No1_ProminenceDistribution{filename_suffix}.png"
+        )
         save_detection_html(result, html_path)
         plot_detection_overview(result, overview_path)
         plot_prominence_distribution(result, distribution_path)
@@ -808,25 +1058,9 @@ def process_participant(
     summary_path = pair_table_dir / f"ID{spec.pair_id}_No1_BlinkSetResults.csv"
     summaries.to_csv(summary_path, index=False)
     individual_path = (
-        phase_root
-        / product_dir
-        / "Individual"
-        / f"ID{spec.pair_id}_No1_BlinkRate_Timecourse.png"
+        phase_root / product_dir / "Individual" / f"ID{spec.pair_id}_No1_BlinkRate_Timecourse.png"
     )
     plot_pair_timecourse(rate_frames, spec, product_label, product_color, individual_path)
-    quant_path = (
-        phase_root
-        / product_dir
-        / "SetQuantification"
-        / f"ID{spec.pair_id}_No1_BlinkRate_SetQuantification.png"
-    )
-    plot_pair_quantification(
-        summaries,
-        product_dir,
-        product_label,
-        product_color,
-        quant_path,
-    )
     run_summary = {
         "created_at": datetime.now().astimezone().isoformat(),
         "script": Path(__file__).name,
@@ -867,7 +1101,6 @@ def process_participant(
         },
         "outputs": {
             "individual_figure": str(individual_path),
-            "set_quantification_figure": str(quant_path),
             "set_results_csv": str(summary_path),
             "blink_detection_qc": {
                 session_id: {
@@ -901,7 +1134,14 @@ def process_participant(
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"ID{spec.pair_id}_No1_BlinkRate_RunSummary.json"
     log_path.write_text(json.dumps(run_summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"summary": summaries, "run_summary": run_summary, "log_path": log_path}
+    return {
+        "spec": spec,
+        "product_dir": product_dir,
+        "summary": summaries,
+        "rate_frames": rate_frames,
+        "run_summary": run_summary,
+        "log_path": log_path,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -931,15 +1171,20 @@ def main() -> int:
     if not specs:
         raise SystemExit("Provide --participant or --manifest")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    processed_items: list[dict[str, object]] = []
     for spec in specs:
         logging.info("Processing ID%s", spec.pair_id)
-        process_participant(
-            spec,
-            args.input_root,
-            args.output_root,
-            prominence_mad_multiplier=args.prominence_mad_multiplier,
-            comparison_label=args.comparison_label,
+        processed_items.append(
+            process_participant(
+                spec,
+                args.input_root,
+                args.output_root,
+                prominence_mad_multiplier=args.prominence_mad_multiplier,
+                comparison_label=args.comparison_label,
+            )
         )
+    group_outputs = create_group_outputs(processed_items, args.output_root, args.comparison_label)
+    logging.info("Created group outputs: %s", json.dumps(group_outputs, ensure_ascii=False))
     return 0
 
 
