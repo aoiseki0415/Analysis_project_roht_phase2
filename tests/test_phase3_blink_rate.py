@@ -155,3 +155,26 @@ def test_detection_reset_scale_matches_html_formula():
     absolute = np.sort(np.abs(values))
     expected = max(10.0, float(absolute[int(np.floor(absolute.size * 0.995))]) * 1.25)
     assert np.isclose(MODULE.detection_reset_scale_uv(result), expected)
+
+
+def test_detection_html_uses_eye_blink_component_signal_labels(tmp_path):
+    signal = _set_signal(1, [])
+    result = MODULE.SessionResult(
+        "101",
+        "Eye Drop",
+        {
+            "Fp1_Fp2_mean": {
+                "height_uv": None,
+                "prominence_uv": 1.0,
+                "prominence_mad_multiplier": 10.0,
+            }
+        },
+        {"Fp1_Fp2_mean": np.array([1.0])},
+        {1: signal},
+    )
+    output = tmp_path / "blink_detection.html"
+    MODULE.save_detection_html(result, output)
+    html = output.read_text(encoding="utf-8")
+    assert "Eye Blink Component Signal" in html
+    assert "Amplitude (µV)" in html
+    assert "Filtered amplitude (µV)" not in html

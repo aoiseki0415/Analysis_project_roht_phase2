@@ -7,7 +7,7 @@
 ## No1：瞬き検出・Blink Rate解析
 
 - 入力はPhase 1のセット別 `IDxxx_SetN_blink_signal.h5`
-- 主解析信号は `Fp1_Fp2_mean`、Fp1・Fp2単独はセット別検出数の補助QCのみ
+- 主解析信号の表示名は `Eye Blink Component Signal`。Phase 1でICLabelのEye成分として除去したICをセンサー空間へ復元し、そのFp1・Fp2を時点ごとに平均した `Fp1_Fp2_mean` へ、Phase 3で1–10 Hzのゼロ位相フィルタを適用して作る。Fp1・Fp2単独はセット別検出数の補助QCのみ
 - 検出用フィルタは1–10 Hz、ピーク検出は `scipy.signal.find_peaks`
 - Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 10 × 1.4826 × MAD`を全セットへ共通適用
 - 同一瞬きの重複検出を避ける安全条件としてminimum peak distanceを100 ms、瞬きらしい時間幅を保つ形状条件としてpeak widthを20–320 msに固定する
@@ -19,7 +19,7 @@
 - 個人時間変化、製品群別Grand-average、6パネルセット別定量化を同じNo1で出力
 - 欠測セットは補完しない。ID 109 Set 1、ID 120 Set 6、ID 135 Set 2、ID 225 Set 4を欠測として扱う
 - Phase 3専用色はControl `#4B5563`、C Cube `#21867A`、V Rohto Premium `#3268A8`
-- 指定OneDriveの `Phase3_瞬き解析/No1_BlinkRate/` で、検出QCを `BlinkDetection_QC/`、Blink Rate成果物を `BlinkRate_Individual/<製品群>/`、`BlinkRate_GrandAverage/<製品群>/`、`BlinkRate_SetQuantification/<製品群>/` へ役割分離する。検出HTML・横長PNG・prominence分布PNGは `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で並べ、表・ログはNo1直下の `Sub/` へ分離する
+- 指定OneDriveの `Phase3_瞬き解析/No1_BlinkRate/` 直下で `CCube/`、`VRohtoPremium/`、`Sub/` に分け、各製品群内を `Individual/`、`GrandAverage/`、`SetQuantification/`、`QualityCheck/` に分ける。HTML・横長PNGは `QualityCheck/BlinkDetection/`、prominence分布PNGは `QualityCheck/ProminenceDistribution/` に保存する。検出確認の凡例は `Eye Blink Component Signal`、縦軸は `Amplitude (µV)` とする。検出成果物は `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で並べ、表・ログはNo1直下の `Sub/` へ分離する
 - Phase 3ではローカルデスクトップへ新しい中間データを保存しない
 - Notionの結果表へID・Set別の平均信号／Fp1／Fp2検出数、セット時間、Blink Rate、閾値、欠測・備考を記録
 

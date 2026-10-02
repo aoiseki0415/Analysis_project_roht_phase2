@@ -439,7 +439,7 @@ def plot_detection_overview(result: SessionResult, path: Path) -> None:
             color="#3268A8",
             linewidth=0.35,
             rasterized=True,
-            label="1–10 Hz filtered Fp1/Fp2 mean" if not line_label_used else None,
+            label="Eye Blink Component Signal" if not line_label_used else None,
         )
         line_label_used = True
         peaks = signal.peaks["Fp1_Fp2_mean"]
@@ -471,7 +471,7 @@ def plot_detection_overview(result: SessionResult, path: Path) -> None:
             fontsize=17,
         )
     axis.set_xlabel("Experimental Progress, %", labelpad=14)
-    axis.set_ylabel("Filtered amplitude (µV)", labelpad=14)
+    axis.set_ylabel("Amplitude (µV)", labelpad=14)
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.12), ncol=2, frameon=False)
     axis.spines[["top", "right"]].set_visible(False)
     figure.tight_layout(rect=(0, 0, 1, 0.94))
@@ -628,11 +628,11 @@ def save_detection_html(
     }
     html = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Blink detection QC</title>
 <style>body{font-family:Arial,sans-serif;margin:16px;color:#202124}.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button{padding:6px 12px}canvas{border:1px solid #777;width:100%;height:620px;cursor:grab;touch-action:none}.hint{color:#555}.line{display:inline-block;width:24px;height:3px;background:#3268A8;margin-right:5px}.dot{display:inline-block;width:10px;height:10px;border:2px solid #D14B45;border-radius:50%;margin-right:5px}</style></head><body>
-<h1>ID__SESSION__: Blink detection QC (MAD-based prominence threshold, k=__MAD_K__)</h1><p><span class="line"></span>1–10 Hz filtered Fp1/Fp2 mean &nbsp; <span class="dot"></span>Detected blink</p>
+<h1>ID__SESSION__: Blink detection quality check (MAD-based prominence threshold, k=__MAD_K__)</h1><p><span class="line"></span>Eye Blink Component Signal &nbsp; <span class="dot"></span>Detected blink</p>
 <div class="tools"><button id="xin">x zoom in</button><button id="xout">x zoom out</button><button id="yin">y zoom in</button><button id="yout">y zoom out</button><button id="reset">Reset</button><span id="status"></span></div>
-<p class="hint">Drag or use Left/Right Arrow to move. Mouse wheel or x buttons change the x scale. All sets use equal 0–100 progress units; rest periods are omitted. Axes: Experimental Progress, %; Filtered amplitude (µV).</p>
+<p class="hint">Drag or use Left/Right Arrow to move. Mouse wheel or x buttons change the x scale. All sets use equal 0–100 progress units; rest periods are omitted. Axes: Experimental Progress, %; Amplitude (µV).</p>
 <canvas id="plot" width="1700" height="620"></canvas><pre id="readout"></pre>
-<script id="payload" type="application/json">__PAYLOAD__</script><script>"use strict";const P=JSON.parse(document.getElementById('payload').textContent);function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}P.segments.forEach(s=>{if(!s.missing)s.values=decode(s.values)});const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),L=90,R=25,T=30,B=65;let x0=0,x1=600,drag=null,panTimer=null;let all=[];P.segments.forEach(s=>{if(!s.missing)for(const v of s.values)if(Number.isFinite(v))all.push(Math.abs(v))});all.sort((a,b)=>a-b);let baseY=Math.max(10,all[Math.floor(all.length*.995)]*1.25),ys=baseY;function clamp(a,b){const span=Math.max(2,Math.min(600,b-a));a=Math.max(0,Math.min(600-span,a));return[a,a+span]}function zoom(f,r=.5){const c=x0+r*(x1-x0),span=(x1-x0)*f;[x0,x1]=clamp(c-r*span,c+(1-r)*span);draw()}function pan(d){const shift=(x1-x0)*.05*d;[x0,x1]=clamp(x0+shift,x1+shift);draw()}function stopPan(){if(panTimer){clearInterval(panTimer);panTimer=null}}function startPan(d){stopPan();pan(d);panTimer=setInterval(()=>pan(d),80)}function xy(progress,value,w,h){return[L+(progress-x0)/(x1-x0)*w,T+h/2-value/ys*h*.43]}function draw(){ctx.clearRect(0,0,cv.width,cv.height);const w=cv.width-L-R,h=cv.height-T-B;ctx.strokeStyle='#222';ctx.strokeRect(L,T,w,h);ctx.font='16px Arial';ctx.fillStyle='#111';ctx.textAlign='center';for(let t=Math.ceil(x0/50)*50;t<=x1;t+=50){const x=L+(t-x0)/(x1-x0)*w;ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(String(t),x,T+h+25)}for(let s=1;s<6;s++){const p=s*100;if(p<x0||p>x1)continue;const x=L+(p-x0)/(x1-x0)*w;ctx.strokeStyle='#999';ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.setLineDash([])}for(let s=1;s<=6;s++){const p=(s-.5)*100;if(p>=x0&&p<=x1)ctx.fillText('Set '+s,L+(p-x0)/(x1-x0)*w,T+20)}P.segments.forEach(seg=>{if(seg.missing)return;const start=(seg.set-1)*100,n=seg.values.length;ctx.strokeStyle='#3268A8';ctx.lineWidth=1;ctx.beginPath();const pxCount=Math.max(1,Math.floor(w*2));for(let px=0;px<pxCount;px++){const pa=x0+(x1-x0)*px/pxCount,pb=x0+(x1-x0)*(px+1)/pxCount;if(pb<start||pa>start+100)continue;const a=Math.max(0,Math.floor((pa-start)/100*n)),b=Math.min(n,Math.max(a+1,Math.ceil((pb-start)/100*n)));let lo=Infinity,hi=-Infinity;for(let i=a;i<b;i++){lo=Math.min(lo,seg.values[i]);hi=Math.max(hi,seg.values[i])}if(!Number.isFinite(lo))continue;const x=L+px/pxCount*w;ctx.moveTo(x,xy(pa,lo,w,h)[1]);ctx.lineTo(x,xy(pa,hi,w,h)[1])}ctx.stroke();ctx.strokeStyle='#D14B45';ctx.lineWidth=2;seg.peaks.forEach(i=>{const p=start+i/Math.max(1,n-1)*100;if(p<x0||p>x1)return;const [x,y]=xy(p,seg.values[i],w,h);ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.stroke()})});ctx.fillStyle='#111';ctx.font='20px Arial';ctx.fillText('Experimental Progress, %',L+w/2,cv.height-10);ctx.save();ctx.translate(22,T+h/2);ctx.rotate(-Math.PI/2);ctx.fillText('Filtered amplitude (µV)',0,0);ctx.restore();document.getElementById('status').textContent=`x ${x0.toFixed(1)}–${x1.toFixed(1)} %, y ±${ys.toFixed(1)} µV`}
+<script id="payload" type="application/json">__PAYLOAD__</script><script>"use strict";const P=JSON.parse(document.getElementById('payload').textContent);function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}P.segments.forEach(s=>{if(!s.missing)s.values=decode(s.values)});const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),L=90,R=25,T=30,B=65;let x0=0,x1=600,drag=null,panTimer=null;let all=[];P.segments.forEach(s=>{if(!s.missing)for(const v of s.values)if(Number.isFinite(v))all.push(Math.abs(v))});all.sort((a,b)=>a-b);let baseY=Math.max(10,all[Math.floor(all.length*.995)]*1.25),ys=baseY;function clamp(a,b){const span=Math.max(2,Math.min(600,b-a));a=Math.max(0,Math.min(600-span,a));return[a,a+span]}function zoom(f,r=.5){const c=x0+r*(x1-x0),span=(x1-x0)*f;[x0,x1]=clamp(c-r*span,c+(1-r)*span);draw()}function pan(d){const shift=(x1-x0)*.05*d;[x0,x1]=clamp(x0+shift,x1+shift);draw()}function stopPan(){if(panTimer){clearInterval(panTimer);panTimer=null}}function startPan(d){stopPan();pan(d);panTimer=setInterval(()=>pan(d),80)}function xy(progress,value,w,h){return[L+(progress-x0)/(x1-x0)*w,T+h/2-value/ys*h*.43]}function draw(){ctx.clearRect(0,0,cv.width,cv.height);const w=cv.width-L-R,h=cv.height-T-B;ctx.strokeStyle='#222';ctx.strokeRect(L,T,w,h);ctx.font='16px Arial';ctx.fillStyle='#111';ctx.textAlign='center';for(let t=Math.ceil(x0/50)*50;t<=x1;t+=50){const x=L+(t-x0)/(x1-x0)*w;ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(String(t),x,T+h+25)}for(let s=1;s<6;s++){const p=s*100;if(p<x0||p>x1)continue;const x=L+(p-x0)/(x1-x0)*w;ctx.strokeStyle='#999';ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.setLineDash([])}for(let s=1;s<=6;s++){const p=(s-.5)*100;if(p>=x0&&p<=x1)ctx.fillText('Set '+s,L+(p-x0)/(x1-x0)*w,T+20)}P.segments.forEach(seg=>{if(seg.missing)return;const start=(seg.set-1)*100,n=seg.values.length;ctx.strokeStyle='#3268A8';ctx.lineWidth=1;ctx.beginPath();const pxCount=Math.max(1,Math.floor(w*2));for(let px=0;px<pxCount;px++){const pa=x0+(x1-x0)*px/pxCount,pb=x0+(x1-x0)*(px+1)/pxCount;if(pb<start||pa>start+100)continue;const a=Math.max(0,Math.floor((pa-start)/100*n)),b=Math.min(n,Math.max(a+1,Math.ceil((pb-start)/100*n)));let lo=Infinity,hi=-Infinity;for(let i=a;i<b;i++){lo=Math.min(lo,seg.values[i]);hi=Math.max(hi,seg.values[i])}if(!Number.isFinite(lo))continue;const x=L+px/pxCount*w;ctx.moveTo(x,xy(pa,lo,w,h)[1]);ctx.lineTo(x,xy(pa,hi,w,h)[1])}ctx.stroke();ctx.strokeStyle='#D14B45';ctx.lineWidth=2;seg.peaks.forEach(i=>{const p=start+i/Math.max(1,n-1)*100;if(p<x0||p>x1)return;const [x,y]=xy(p,seg.values[i],w,h);ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.stroke()})});ctx.fillStyle='#111';ctx.font='20px Arial';ctx.fillText('Experimental Progress, %',L+w/2,cv.height-10);ctx.save();ctx.translate(22,T+h/2);ctx.rotate(-Math.PI/2);ctx.fillText('Amplitude (µV)',0,0);ctx.restore();document.getElementById('status').textContent=`x ${x0.toFixed(1)}–${x1.toFixed(1)} %, y ±${ys.toFixed(1)} µV`}
 document.getElementById('xin').onclick=()=>zoom(.5);document.getElementById('xout').onclick=()=>zoom(2);document.getElementById('yin').onclick=()=>{ys=Math.max(.1,ys/1.5);draw()};document.getElementById('yout').onclick=()=>{ys*=1.5;draw()};document.getElementById('reset').onclick=()=>{x0=0;x1=600;ys=baseY;draw()};document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();startPan(e.key==='ArrowLeft'?-1:1)}});document.addEventListener('keyup',e=>{if(e.key.startsWith('Arrow'))stopPan()});window.addEventListener('blur',stopPan);cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),q=(e.clientX-r.left)/r.width;zoom(e.deltaY>0?1.5:.67,Math.max(0,Math.min(1,q)))},{passive:false});cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,a:x0,b:x1};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{drag=null;cv.style.cursor='grab'});cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();if(drag){const d=(e.clientX-drag.x)/r.width*(drag.b-drag.a);[x0,x1]=clamp(drag.a-d,drag.b-d);draw();return}const p=x0+(e.clientX-r.left)/r.width*(x1-x0),set=Math.min(6,Math.max(1,Math.floor(p/100)+1)),seg=P.segments[set-1];if(seg.missing){document.getElementById('readout').textContent=`Set ${set}: missing`;return}const q=Math.max(0,Math.min(1,(p-(set-1)*100)/100)),i=Math.min(seg.values.length-1,Math.round(q*(seg.values.length-1))),peak=seg.peaks.includes(i);document.getElementById('readout').textContent=`Set ${set} | progress ${p.toFixed(2)} % | set time ${(i/P.sfreq).toFixed(3)} s | ${seg.values[i].toFixed(2)} µV | peak ${peak?'yes':'no'}`});draw();</script></body></html>"""
     html = (
         html.replace("__SESSION__", result.session_id)
@@ -691,16 +691,16 @@ def process_participant(
         [set_summary(result, spec.pair_id, product_jp) for result in results.values()],
         ignore_index=True,
     )
-    (phase_root / "BlinkDetection_QC").mkdir(parents=True, exist_ok=True)
-    for directory_name in (
-        "BlinkRate_Individual",
-        "BlinkRate_GrandAverage",
-        "BlinkRate_SetQuantification",
-    ):
-        for configured_product_dir in ("CCube", "VRohtoPremium"):
-            (phase_root / directory_name / configured_product_dir).mkdir(
-                parents=True, exist_ok=True
-            )
+    for configured_product_dir in ("CCube", "VRohtoPremium"):
+        configured_product_root = phase_root / configured_product_dir
+        for relative_directory in (
+            Path("Individual"),
+            Path("GrandAverage"),
+            Path("SetQuantification"),
+            Path("QualityCheck") / "BlinkDetection",
+            Path("QualityCheck") / "ProminenceDistribution",
+        ):
+            (configured_product_root / relative_directory).mkdir(parents=True, exist_ok=True)
     pair_table_dir = phase_root / "Sub" / "tables"
     pair_table_dir.mkdir(parents=True, exist_ok=True)
     rate_frames: dict[str, pd.DataFrame] = {}
@@ -709,10 +709,11 @@ def process_participant(
             [calculate_blink_rate(signal) for signal in result.sets.values()], ignore_index=True
         )
         prefix = session_file_prefix(spec, session_id)
-        qc_dir = phase_root / "BlinkDetection_QC"
-        html_path = qc_dir / f"{prefix}_No1_BlinkDetection{filename_suffix}.html"
-        overview_path = qc_dir / f"{prefix}_No1_BlinkDetection_Overview{filename_suffix}.png"
-        distribution_path = qc_dir / f"{prefix}_No1_ProminenceDistribution{filename_suffix}.png"
+        detection_dir = phase_root / product_dir / "QualityCheck" / "BlinkDetection"
+        prominence_dir = phase_root / product_dir / "QualityCheck" / "ProminenceDistribution"
+        html_path = detection_dir / f"{prefix}_No1_BlinkDetection{filename_suffix}.html"
+        overview_path = detection_dir / f"{prefix}_No1_BlinkDetection_Overview{filename_suffix}.png"
+        distribution_path = prominence_dir / f"{prefix}_No1_ProminenceDistribution{filename_suffix}.png"
         save_detection_html(result, html_path)
         plot_detection_overview(result, overview_path)
         plot_prominence_distribution(result, distribution_path)
@@ -728,15 +729,15 @@ def process_participant(
     summaries.to_csv(summary_path, index=False)
     individual_path = (
         phase_root
-        / "BlinkRate_Individual"
         / product_dir
+        / "Individual"
         / f"ID{spec.pair_id}_No1_BlinkRate_Timecourse.png"
     )
     plot_pair_timecourse(rate_frames, spec, product_label, product_color, individual_path)
     quant_path = (
         phase_root
-        / "BlinkRate_SetQuantification"
         / product_dir
+        / "SetQuantification"
         / f"ID{spec.pair_id}_No1_BlinkRate_SetQuantification.png"
     )
     plot_pair_quantification(summaries, product_label, product_color, quant_path)
@@ -780,17 +781,23 @@ def process_participant(
                 session_id: {
                     "html": str(
                         phase_root
-                        / "BlinkDetection_QC"
+                        / product_dir
+                        / "QualityCheck"
+                        / "BlinkDetection"
                         / f"{session_file_prefix(spec, session_id)}_No1_BlinkDetection{filename_suffix}.html"
                     ),
                     "overview_png": str(
                         phase_root
-                        / "BlinkDetection_QC"
+                        / product_dir
+                        / "QualityCheck"
+                        / "BlinkDetection"
                         / f"{session_file_prefix(spec, session_id)}_No1_BlinkDetection_Overview{filename_suffix}.png"
                     ),
                     "prominence_distribution_png": str(
                         phase_root
-                        / "BlinkDetection_QC"
+                        / product_dir
+                        / "QualityCheck"
+                        / "ProminenceDistribution"
                         / f"{session_file_prefix(spec, session_id)}_No1_ProminenceDistribution{filename_suffix}.png"
                     ),
                 }

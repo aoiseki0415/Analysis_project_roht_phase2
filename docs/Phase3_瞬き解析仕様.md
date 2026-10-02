@@ -9,7 +9,7 @@ Phase 3解析1（No1）では、Phase 1で保存した瞬き解析用信号か�
 ## 2. 入力と解析単位
 
 - 入力はPhase 1のセット別 `IDxxx_SetN_blink_signal.h5` です。
-- 主解析信号は、除去Eye成分をセンサー空間へ復元した `Fp1_Fp2_mean` とします。
+- 主解析信号の固有名詞は **`Eye Blink Component Signal`** とします。Phase 1でICLabelの `eye blink` 確率が0.80以上となり除去対象に選ばれたICを、ICA適用前後の差分としてセンサー空間へ復元し、そのFp1・Fp2信号を各時点で算術平均して作成した `Fp1_Fp2_mean` が実データです。Phase 3では、これへセットごとに1–10 Hzのゼロ位相バンドパスフィルタを適用した信号から瞬きを抽出します。
 - `Fp1` と `Fp2` でも同じ検出を補助的に行い、セット別検出数だけを記録します。主解析値、条件比較、figureの算出には使用しません。
 - サンプリング周波数、セット内相対時刻、`OriginalTimestamp`、ICA学習除外区間・チャンネルのmaskと記録はHDF5から読み込み、整合性を検証します。
 - 瞬き検出とBlink Rate算出はセットごとに独立して行い、セット間をまたいでフィルタ、ピーク検出、移動窓集計を行いません。
@@ -21,7 +21,7 @@ Phase 3解析1（No1）では、Phase 1で保存した瞬き解析用信号か�
 
 ### 3.1 検出信号
 
-主解析では `Fp1_Fp2_mean` を使用します。Fp1・Fp2の一方だけに依存しにくい擬似垂直EOGとして扱い、同じセットのFp1単独・Fp2単独の検出数を補助QCに用います。
+主解析では `Eye Blink Component Signal`（HDF5列名：`Fp1_Fp2_mean`）を使用します。これは、Phase 1で選択・除去したEye ICのセンサー空間寄与量についてFp1・Fp2を時点ごとに平均した信号です。Fp1・Fp2の一方だけに依存しにくい瞬き抽出信号として扱い、同じEye IC寄与量のFp1単独・Fp2単独による検出数は補助QCにだけ用います。この信号から検出したピークを、本解析の瞬きイベントとします。
 
 ### 3.2 フィルタとピーク検出
 
@@ -50,11 +50,11 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 - 横軸にはセット内データだけを使用し、セット間の休憩時間は含めません。
 - Set 1〜6を一つの横軸へ連結し、各セットの実時間を同じ幅の100単位へ線形変換します。Set 1は0〜100、Set 2は100〜200、以降も同様にSet 6の600までとします。
 - 横軸名は `Experimental Progress, %` とします。進捗座標とセット内実時間の対応は保持し、ホバーでSet、進捗、セット内秒、振幅、ピーク判定を表示します。
-- 1–10 Hzフィルタ後の `Fp1_Fp2_mean` と、検出されたピーク位置の中抜き丸印を表示します。
+- 1–10 Hzフィルタ後の `Eye Blink Component Signal` と、検出されたピーク位置の中抜き丸印を表示します。青線の凡例は `Eye Blink Component Signal` とします。
 - セット境界へグレー点線を入れ、`Set 1`〜`Set 6` を表示します。欠測セットはデータのない区間として明示します。
 - Phase 1の確認HTMLと同様に、x・y方向の拡大縮小、ドラッグ移動、左右矢印キーによる表示幅比率ベースの移動、全体表示への復帰、カーソル位置の値確認を可能にします。
-- 同じフィルタ後信号と検出ピークを、HTMLのReset表示と同じ縦軸スケールで、全6セットを横長に連結したPNGとしても保存します。横軸は `Experimental Progress, %`、縦軸は `Filtered amplitude (µV)` とし、Set境界・Set名・検出ピークの意味を図内へ明記します。
-- HTML、横長PNG、prominence分布PNGは同じ `BlinkDetection_QC/` に置きます。ファイル名は `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で統一し、ファイル名順が被験者ペア内の1回目・2回目を連続表示するようにします。
+- 同じフィルタ後信号と検出ピークを、HTMLのReset表示と同じ縦軸スケールで、全6セットを横長に連結したPNGとしても保存します。横軸は `Experimental Progress, %`、縦軸は `Amplitude (µV)` とし、Set境界・Set名・検出ピークの意味を図内へ明記します。
+- HTMLと横長PNGは、対象製品群の `QualityCheck/BlinkDetection/` に一緒に置きます。prominence分布PNGは `QualityCheck/ProminenceDistribution/` へ分けます。ファイル名は `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で統一し、ファイル名順が被験者ペア内の1回目・2回目を連続表示するようにします。
 - ICA学習で除外した時間・チャンネルの表示はPhase 1のQC成果物に任せ、Phase 3 HTMLへ重複表示しません。
 
 ## 5. Blink Rateの時間変化
@@ -98,25 +98,30 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 ```text
 Phase3_瞬き解析/
   No1_BlinkRate/
-    BlinkDetection_QC/
-    BlinkRate_Individual/
-      CCube/
-      VRohtoPremium/
-    BlinkRate_GrandAverage/
-      CCube/
-      VRohtoPremium/
-    BlinkRate_SetQuantification/
-      CCube/
-      VRohtoPremium/
+    CCube/
+      Individual/
+      GrandAverage/
+      SetQuantification/
+      QualityCheck/
+        BlinkDetection/
+        ProminenceDistribution/
+    VRohtoPremium/
+      Individual/
+      GrandAverage/
+      SetQuantification/
+      QualityCheck/
+        BlinkDetection/
+        ProminenceDistribution/
     Sub/
       tables/
       logs/
 ```
 
-- `BlinkDetection_QC/`：セッションID別のMAD方式検出確認HTML、同じResetスケールの横長PNG、全候補prominenceの0–500 µV・対数縦軸ヒストグラムPNGを、被験者ペア順の接頭辞で保存する
-- `BlinkRate_Individual/<製品群>/`：被験者ペア別Blink Rate時間変化PNGを直下へ保存し、被験者別サブフォルダを作らない
-- `BlinkRate_GrandAverage/<製品群>/`：製品群別Blink Rate Grand-average PNGだけを保存する
-- `BlinkRate_SetQuantification/<製品群>/`：Blink Rateの6パネルセット別定量化PNGを直下へ保存し、被験者別サブフォルダを作らない
+- `<製品群>/Individual/`：被験者ペア別Blink Rate時間変化PNGを直下へ保存し、被験者別サブフォルダを作らない
+- `<製品群>/GrandAverage/`：製品群別Blink Rate Grand-average PNGだけを保存する
+- `<製品群>/SetQuantification/`：Blink Rateの6パネルセット別定量化PNGを直下へ保存し、被験者別サブフォルダを作らない
+- `<製品群>/QualityCheck/BlinkDetection/`：セッションID別のMAD方式検出確認HTMLと、同じResetスケールの横長PNGを一緒に保存する
+- `<製品群>/QualityCheck/ProminenceDistribution/`：全候補prominenceの0–500 µV・対数縦軸ヒストグラムPNGを保存する
 - `Sub/tables/`：検出ピーク一覧、未平滑化・15秒平滑化Blink Rate、ID・Set別検出数、閾値、欠測・QC要約
 - `Sub/logs/`：実行条件、入力、完了・失敗、出力一覧を含む実行要約
 
