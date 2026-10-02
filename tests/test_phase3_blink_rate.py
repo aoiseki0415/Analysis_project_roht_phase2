@@ -72,11 +72,13 @@ def test_progress_maps_each_set_to_one_hundred_units():
     assert np.isclose(frame.iloc[-1]["ExperimentalProgressPercent"], 300)
 
 
-def test_no_minimum_peak_distance_is_applied():
-    values = np.zeros(100)
-    values[[40, 42]] = [10, 9]
-    peaks, _ = MODULE.find_peaks(values, height=5, prominence=5)
-    assert peaks.tolist() == [40, 42]
+def test_peak_detection_applies_minimum_distance_and_width():
+    values = np.zeros(300)
+    values[45:56] = np.array([0, 2, 4, 6, 8, 10, 8, 6, 4, 2, 0])
+    values[65:76] = np.array([0, 2, 4, 6, 8, 9, 8, 6, 4, 2, 0])
+    values[150:170] = np.r_[np.linspace(0, 12, 10), np.linspace(12, 0, 10)]
+    peaks = MODULE.detect_blink_peaks(values, prominence_uv=5)
+    assert peaks.tolist() == [50, 159]
 
 
 def test_peak_detection_uses_prominence_without_height_threshold():
@@ -87,14 +89,14 @@ def test_peak_detection_uses_prominence_without_height_threshold():
     thresholds, distributions = MODULE.calculate_session_thresholds({1: signal})
     assert thresholds["Fp1_Fp2_mean"]["height_uv"] is None
     assert distributions["Fp1_Fp2_mean"].tolist() == [2.0, 1.0]
-    peaks, _ = MODULE.find_peaks(
+    peaks = MODULE.detect_blink_peaks(
         values,
-        prominence=thresholds["Fp1_Fp2_mean"]["prominence_uv"],
+        prominence_uv=thresholds["Fp1_Fp2_mean"]["prominence_uv"],
     )
     assert peaks.tolist() == []
 
 
-def test_prominence_threshold_uses_median_plus_three_robust_sd():
+def test_prominence_threshold_uses_median_plus_ten_robust_sd():
     signal = _set_signal(1, [])
     values = np.array([0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 10.0, 0.0])
     for channel in signal.filtered_uv:
@@ -103,7 +105,7 @@ def test_prominence_threshold_uses_median_plus_three_robust_sd():
     threshold = thresholds["Fp1_Fp2_mean"]
     expected_median = 2.5
     expected_mad = 1.0
-    expected = expected_median + 3.0 * 1.4826 * expected_mad
+    expected = expected_median + 10.0 * 1.4826 * expected_mad
     assert np.isclose(threshold["prominence_median_uv"], expected_median)
     assert np.isclose(threshold["prominence_mad_uv"], expected_mad)
     assert np.isclose(threshold["prominence_uv"], expected)

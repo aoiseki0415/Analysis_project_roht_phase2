@@ -9,8 +9,8 @@
 - 入力はPhase 1のセット別 `IDxxx_SetN_blink_signal.h5`
 - 主解析信号は `Fp1_Fp2_mean`、Fp1・Fp2単独はセット別検出数の補助QCのみ
 - 検出用フィルタは1–10 Hz、ピーク検出は `scipy.signal.find_peaks`
-- Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 3 × 1.4826 × MAD`を全セットへ共通適用
-- minimum peak distanceは設定しない。パイロットHTMLで多重検出を確認する
+- Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 10 × 1.4826 × MAD`を全セットへ共通適用
+- 同一瞬きの重複検出を避ける安全条件としてminimum peak distanceを100 ms、瞬きらしい時間幅を保つ形状条件としてpeak widthを20–320 msに固定する
 - 検出確認HTMLはセッションIDごとにMAD方式の1ファイルを作る
 - 全候補prominenceの分布とMAD閾値線を、通常の線形軸のPNGとしてセッションIDごとに作る
 - Blink Rate時間変化は60秒中心化窓、1秒刻み、端点は実際の窓長で補正する。さらにセット内だけで15秒中心化単純移動平均を適用し、その後0〜600へ変換する

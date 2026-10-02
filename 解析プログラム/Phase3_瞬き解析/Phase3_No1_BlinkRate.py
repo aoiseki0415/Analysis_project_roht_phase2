@@ -28,7 +28,10 @@ FILTER_LOW_HZ = 1.0
 FILTER_HIGH_HZ = 10.0
 FILTER_ORDER = 4
 MAD_NORMAL_CONSISTENCY = 1.4826
-PROMINENCE_MAD_MULTIPLIER = 3.0
+PROMINENCE_MAD_MULTIPLIER = 10.0
+MINIMUM_PEAK_DISTANCE_SECONDS = 0.100
+MINIMUM_PEAK_WIDTH_SECONDS = 0.020
+MAXIMUM_PEAK_WIDTH_SECONDS = 0.320
 RATE_WINDOW_SECONDS = 60.0
 RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
@@ -212,6 +215,20 @@ def calculate_session_thresholds(
     return thresholds, distributions
 
 
+def detect_blink_peaks(values: np.ndarray, prominence_uv: float) -> np.ndarray:
+    """Detect blink peaks using the fixed prominence and morphology criteria."""
+    peaks, _ = find_peaks(
+        values,
+        prominence=prominence_uv,
+        distance=max(1, round(MINIMUM_PEAK_DISTANCE_SECONDS * SFREQ)),
+        width=(
+            max(1, round(MINIMUM_PEAK_WIDTH_SECONDS * SFREQ)),
+            max(1, round(MAXIMUM_PEAK_WIDTH_SECONDS * SFREQ)),
+        ),
+    )
+    return peaks.astype(np.int64)
+
+
 def detect_session(
     session_id: str,
     input_root: Path,
@@ -230,11 +247,10 @@ def detect_session(
     for set_signal in sets.values():
         for channel, values in set_signal.filtered_uv.items():
             threshold = thresholds[channel]
-            peaks, _ = find_peaks(
+            set_signal.peaks[channel] = detect_blink_peaks(
                 values,
-                prominence=threshold["prominence_uv"],
+                float(threshold["prominence_uv"]),
             )
-            set_signal.peaks[channel] = peaks.astype(np.int64)
     return SessionResult(session_id, condition, thresholds, distributions, sets)
 
 
@@ -612,7 +628,11 @@ def process_participant(
             "prominence_threshold_method": "median + k * 1.4826 * MAD",
             "prominence_mad_normal_consistency": MAD_NORMAL_CONSISTENCY,
             "prominence_mad_multiplier": PROMINENCE_MAD_MULTIPLIER,
-            "minimum_peak_distance": None,
+            "minimum_peak_distance_seconds": MINIMUM_PEAK_DISTANCE_SECONDS,
+            "peak_width_seconds": [
+                MINIMUM_PEAK_WIDTH_SECONDS,
+                MAXIMUM_PEAK_WIDTH_SECONDS,
+            ],
             "rate_window_seconds": RATE_WINDOW_SECONDS,
             "rate_step_seconds": RATE_STEP_SECONDS,
             "rate_smoothing_seconds": RATE_SMOOTHING_SECONDS,

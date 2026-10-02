@@ -29,13 +29,13 @@ Phase 3解析1（No1）では、Phase 1で保存した瞬き解析用信号か�
 - ピーク検出には `scipy.signal.find_peaks` を使用します。
 - まず、同一セッションの解析可能な全セットで、制約なしの局所最大点を候補として列挙します。
 - Peak height閾値は設定しません。局所的には明瞭でも絶対振幅が小さい瞬きを一律に落とさないためです。
-- 主解析のPeak prominence閾値は、全候補のprominenceを $P_i$ として、`median(P) + 3 × (1.4826 × MAD(P))` とします。`MAD(P) = median(|P_i - median(P)|)` です。Prominenceは周囲の谷に対してピークがどれだけ突出しているかを表し、`1.4826 × MAD` は正規分布で標準偏差と同じ尺度になるrobust SDです。
+- 主解析のPeak prominence閾値は、全候補のprominenceを $P_i$ として、`median(P) + 10 × (1.4826 × MAD(P))` とします。`MAD(P) = median(|P_i - median(P)|)` です。Prominenceは周囲の谷に対してピークがどれだけ突出しているかを表し、`1.4826 × MAD` は正規分布で標準偏差と同じ尺度になるrobust SDです。係数3ではID101・201の小振幅な揺れを過剰検出したため、パイロット比較に基づいて係数10へ変更しました。
 - 閾値はセットごとに変えず、セッションにつき1組を固定して全使用セットへ適用します。
-- パーセンタイル方式は各セッションから上位一定割合を選ぶため、瞬き総数を分布順位によって強く規定する問題があります。本解析では使用せず、ノイズ水準に対する突出度をMADで評価します。係数3は全被験者で固定し、IDごとに変更しません。
-- 現段階ではminimum peak distanceを設定しません。近接ピークを自動的に一つへ統合せず、パイロットのHTMLで同一瞬きの多重検出がないかを確認します。
+- パーセンタイル方式は各セッションから上位一定割合を選ぶため、瞬き総数を分布順位によって強く規定する問題があります。本解析では使用せず、ノイズ水準に対する突出度をMADで評価します。係数10は全被験者で固定し、IDごとに変更しません。
+- minimum peak distanceは100 ms、peak widthは20–320 msとします。前者は一つの瞬き周辺の近接ピークを重複計数しないための安全条件、後者は極端に狭い／広い揺れを除外する形状条件です。
 - 検出されたピーク時刻、セット番号、セット内相対時刻、`OriginalTimestamp`、振幅、prominence閾値を保存します。互換用のheight欄は空欄とします。
 
-Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak height 96パーセンタイル、peak prominence 97パーセンタイル、minimum peak distance 100 ms等を使用しています。本解析では小振幅でも局所的に明瞭な瞬きをheight基準で除外しないためpeak heightを設けず、また抽出割合を固定しないためprominenceのパーセンタイル方式も採用しません。MADは外れ値の影響を受けにくい散布尺度として使用します。minimum peak distanceは現段階で採用しません。
+Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak height 96パーセンタイル、peak prominence 97パーセンタイル、minimum peak distance 100 ms等を使用しています。本解析では小振幅でも局所的に明瞭な瞬きをheight基準で除外しないためpeak heightを設けず、また抽出割合を固定しないためprominenceのパーセンタイル方式も採用しません。MADは外れ値の影響を受けにくい散布尺度として使用し、minimum peak distance 100 msとpeak width 20–320 msは先行研究の範囲を参考に固定します。
 
 参考：
 
@@ -132,7 +132,7 @@ Notionの「フェーズ３：まばたきの解析」配下に、ID・Setごと
 - `Fp1_Fp2_mean` の検出数
 - Fp1単独・Fp2単独の補助検出数
 - セット実時間とセットBlink Rate
-- セッション共通のprominence閾値、候補数、中央値、MAD、robust SD、係数3（peak heightは未設定）
+- セッション共通のprominence閾値、候補数、中央値、MAD、robust SD、係数10（peak heightは未設定）、minimum peak distance 100 ms、peak width 20–320 ms
 - HTMLとOneDrive出力先
 - 検出異常、左右差、欠測その他の備考
 
@@ -143,6 +143,6 @@ Notionの「フェーズ３：まばたきの解析」配下に、ID・Setごと
 - 実行前にルートREADME、運用ルール、解析上の注意事項、本仕様、Phase 3実行README、NotionのPhase 3ページを確認します。
 - 全対象を同じPythonコードと固定パラメータのループで処理し、IDごとにコードや閾値を手修正しません。
 - まずパイロットIDで、HDF5読込、閾値、ピーク重複、HTML操作、Blink Rate、定量化、欠測、保存、Notion記録を検証します。
-- パイロットID 101／201では、height基準を設けず、prominenceの `中央値 + 3 × 1.4826 × MAD` をセッション共通閾値とする方式を検証します。HTML、線形軸のprominence分布PNG、Blink Rate、定量化、補助表、Notion記録を確認します。
+- パイロットID 101／201では、height基準を設けず、prominenceの `中央値 + 10 × 1.4826 × MAD` をセッション共通閾値とし、minimum peak distance 100 ms・peak width 20–320 msを併用する方式を検証します。HTML、線形軸のprominence分布PNG、Blink Rate、定量化、補助表、Notion記録を確認します。
 - 実行成功だけで完了とせず、OneDrive成果物、CSV・JSONの読み戻し、HTML操作、Notion読み戻しを確認します。
 - 許可済み範囲の通常実行、出力確認、Notion更新、Git操作に利用者承認を求めません。許可範囲外、安全上の問題、または自力で解決できない阻害要因がある場合だけ停止します。
