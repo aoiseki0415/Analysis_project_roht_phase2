@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 SCRIPT = (
     Path(__file__).parents[1] / "解析プログラム" / "Phase3_瞬き解析" / "Phase3_No1_BlinkRate.py"
@@ -49,6 +50,28 @@ def test_participant_mapping_keeps_pair_and_conditions():
     assert spec.pair_id == "101-201"
     assert spec.drops_session_id == "101"
     assert spec.control_session_id == "201"
+
+
+def test_manifest_validation_rejects_excluded_and_duplicate_sessions():
+    with pytest.raises(ValueError, match="Excluded session IDs"):
+        MODULE.validate_participant_specs(
+            [MODULE.ParticipantSpec("130", "230", "130", "CCube")]
+        )
+    with pytest.raises(ValueError, match="reuses a session ID"):
+        MODULE.validate_participant_specs(
+            [
+                MODULE.ParticipantSpec("101", "201", "101", "VRohtoPremium"),
+                MODULE.ParticipantSpec("102", "201", "102", "CCube"),
+            ]
+        )
+
+
+def test_production_manifest_requires_forty_balanced_pairs():
+    with pytest.raises(ValueError, match="requires 40 participant pairs"):
+        MODULE.validate_participant_specs(
+            [MODULE.ParticipantSpec("101", "201", "101", "VRohtoPremium")],
+            production_batch=True,
+        )
 
 
 def test_blink_rate_uses_actual_edge_window_duration():

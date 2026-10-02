@@ -41,6 +41,15 @@ PERCENTILE_THRESHOLD_REJECTION_REASON = (
 MINIMUM_PEAK_DISTANCE_SECONDS = 0.100
 MINIMUM_PEAK_WIDTH_SECONDS = 0.020
 MAXIMUM_PEAK_WIDTH_SECONDS = 0.320
+EXCLUDED_SESSION_IDS = {"130", "230"}
+EXPECTED_MISSING_SETS = {
+    "109": {1},
+    "120": {6},
+    "135": {2},
+    "225": {4},
+}
+PRODUCTION_PARTICIPANT_COUNT = 40
+PRODUCTION_PARTICIPANTS_PER_PRODUCT = 20
 RATE_WINDOW_SECONDS = 60.0
 RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
@@ -149,6 +158,104 @@ def load_manifest(path: Path) -> list[ParticipantSpec]:
         ParticipantSpec(*(str(row[column]).strip() for column in required))
         for _, row in frame.iterrows()
     ]
+
+
+def validate_participant_specs(
+    specs: list[ParticipantSpec], *, production_batch: bool = False
+) -> None:
+    """Reject ambiguous, duplicated, or out-of-scope participant mappings."""
+    pair_ids = [spec.pair_id for spec in specs]
+    session_ids = [
+        session_id
+        for spec in specs
+        for session_id in (spec.first_session_id, spec.second_session_id)
+    ]
+    if len(pair_ids) != len(set(pair_ids)):
+        raise ValueError("Participant manifest contains a duplicated participant pair")
+    if len(session_ids) != len(set(session_ids)):
+        raise ValueError("Participant manifest reuses a session ID in multiple pairs")
+    excluded = sorted(EXCLUDED_SESSION_IDS.intersection(session_ids))
+    if excluded:
+        raise ValueError(f"Excluded session IDs are present in the manifest: {excluded}")
+    if not production_batch:
+        return
+    if len(specs) != PRODUCTION_PARTICIPANT_COUNT:
+        raise ValueError(
+            f"Production batch requires {PRODUCTION_PARTICIPANT_COUNT} participant pairs; "
+            f"received {len(specs)}"
+        )
+    product_counts: dict[str, int] = {}
+    for spec in specs:
+        product_dir = normalize_product(spec.product)[0]
+        product_counts[product_dir] = product_counts.get(product_dir, 0) + 1
+    expected_counts = {
+        "CCube": PRODUCTION_PARTICIPANTS_PER_PRODUCT,
+        "VRohtoPremium": PRODUCTION_PARTICIPANTS_PER_PRODUCT,
+    }
+    if product_counts != expected_counts:
+        raise ValueError(
+            f"Production batch product counts must be {expected_counts}; received {product_counts}"
+        )
+
+
+def preflight_inputs(specs: list[ParticipantSpec], root: Path) -> dict[str, object]:
+    """Validate every input before writing any participant or group output."""
+    missing_by_session: dict[str, list[int]] = {}
+    all_nan_auxiliary: dict[str, list[str]] = {}
+    checked_files = 0
+    for spec in specs:
+        for session_id in (spec.first_session_id, spec.second_session_id):
+            observed_missing: set[int] = set()
+            for set_number in range(1, N_SETS + 1):
+                path = input_path(root, session_id, set_number)
+                if not path.exists():
+                    observed_missing.add(set_number)
+                    continue
+                checked_files += 1
+                with h5py.File(path, "r") as handle:
+                    sfreq = float(handle.attrs["sampling_frequency_hz"])
+                    if not np.isclose(sfreq, SFREQ):
+                        raise ValueError(f"{path}: sampling rate {sfreq} Hz, expected {SFREQ} Hz")
+                    if str(handle.attrs["signal_unit"]) != "V":
+                        raise ValueError(f"{path}: signal unit must be V")
+                    if str(handle.attrs["participant_id"]) != session_id:
+                        raise ValueError(f"{path}: participant_id mismatch")
+                    if int(handle.attrs["set_number"]) != set_number:
+                        raise ValueError(f"{path}: set_number mismatch")
+                    names = _decode_names(handle["signal/channel_names"][:])
+                    required = ["Fp1", "Fp2", "Fp1_Fp2_mean"]
+                    if names != required:
+                        raise ValueError(f"{path}: unexpected signal columns {names}")
+                    matrix = handle["signal/data"][:]
+                    relative_size = handle["time/relative_seconds"].shape[0]
+                    original_size = handle["time/OriginalTimestamp"].shape[0]
+                if matrix.shape != (relative_size, 3) or original_size != relative_size:
+                    raise ValueError(f"{path}: signal/time lengths do not match")
+                if not np.isfinite(matrix[:, 2]).all():
+                    raise ValueError(f"{path}: non-finite primary blink signal")
+                for index, name in enumerate(names[:2]):
+                    finite = np.isfinite(matrix[:, index])
+                    if finite.any() and not finite.all():
+                        raise ValueError(f"{path}: partially non-finite auxiliary signal {name}")
+                    if not finite.any():
+                        all_nan_auxiliary.setdefault(session_id, []).append(
+                            f"Set{set_number}:{name}"
+                        )
+            expected_missing = EXPECTED_MISSING_SETS.get(session_id, set())
+            if observed_missing != expected_missing:
+                raise ValueError(
+                    f"ID{session_id}: missing sets {sorted(observed_missing)}, "
+                    f"expected {sorted(expected_missing)}"
+                )
+            if observed_missing:
+                missing_by_session[session_id] = sorted(observed_missing)
+    return {
+        "participant_pairs": len(specs),
+        "session_ids": len(specs) * 2,
+        "checked_files": checked_files,
+        "missing_by_session": missing_by_session,
+        "all_nan_auxiliary": all_nan_auxiliary,
+    }
 
 
 def _decode_names(values: np.ndarray) -> list[str]:
@@ -1160,6 +1267,16 @@ def parse_args() -> argparse.Namespace:
         "--comparison-label",
         help="Write to a separated comparison folder; normal production output is unchanged",
     )
+    parser.add_argument(
+        "--production-batch",
+        action="store_true",
+        help="Require exactly 40 pairs, 20 per product, 80 unique in-scope session IDs",
+    )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Validate the complete manifest and every HDF5 input without writing outputs",
+    )
     return parser.parse_args()
 
 
@@ -1171,6 +1288,11 @@ def main() -> int:
     if not specs:
         raise SystemExit("Provide --participant or --manifest")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    validate_participant_specs(specs, production_batch=args.production_batch)
+    preflight = preflight_inputs(specs, args.input_root)
+    logging.info("Input preflight passed: %s", json.dumps(preflight, ensure_ascii=False))
+    if args.preflight_only:
+        return 0
     processed_items: list[dict[str, object]] = []
     for spec in specs:
         logging.info("Processing ID%s", spec.pair_id)

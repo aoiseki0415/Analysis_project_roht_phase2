@@ -7,7 +7,7 @@
 ## No1：瞬き検出・Blink Rate解析
 
 - 入力はPhase 1のセット別 `IDxxx_SetN_blink_signal.h5`
-- 主解析信号の表示名は `Eye Blink Component Signal`。計算は「ICAでICへ分解 → ICLabel eye blink確率0.80以上のICを選択 → そのICのチャンネル別寄与をセンサー空間へ戻す（ICA前EEG−除去後EEGと同値）→ Fp1・Fp2を時点ごとに平均 → Phase 3で1–10 Hzゼロ位相フィルタ」の順で行う。Phase 1 HDF5の `Fp1_Fp2_mean` はフィルタ前までの結果で、Fp1・Fp2単独はセット別検出数の補助QCのみ
+- 主解析信号の表示名は `Eye Blink Component Signal`。計算は「ICAでICへ分解 → ICLabel eye blink確率0.80以上のICを選択 → そのICのチャンネル別寄与をセンサー空間へ戻す（ICA前EEG−除去後EEGと同値）→ 使用可能なFp1・Fp2を時点ごとに平均 → Phase 3で1–10 Hzゼロ位相フィルタ」の順で行う。通常はFp1・Fp2平均だが、一方がICA学習除外なら残るFp信号を主解析列とする。ID124・209はFp2補助列が全SetでNaNのため主解析列の実体はFp1のみだが、他IDと同じ処理を行う。Phase 1 HDF5の `Fp1_Fp2_mean` はフィルタ前までの結果で、Fp1・Fp2単独はセット別検出数の補助QCのみ
 - 検出用フィルタは1–10 Hz、ピーク検出は `scipy.signal.find_peaks`
 - Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 10 × 1.4826 × MAD`を全セットへ共通適用する。係数10は文献推奨値ではなく、4被験者ペア・8セッションで8／10／12を探索比較して選んだ固定値
 - パーセンタイル閾値は、IDごとに上位一定割合を選んで抽出割合と総数を似通わせ、実際のID差・条件差を弱めるおそれがあるため使用しない
@@ -34,6 +34,8 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
 ```
 
 複数被験者は `--participant` を繰り返すか、`first_session_id`、`second_session_id`、`drops_session_id`、`product` の4列を持つ非公開manifestを `--manifest` で指定します。ID番号帯から条件を推測しません。
+
+本番一括実行前は、同じ非公開manifestに `--production-batch --preflight-only` を付けます。40ペア・80セッション、製品群各20名、重複・対象外ID、既知の欠測Set、HDF5構造、主解析列の有限性を出力なしで全件検査します。合格後、`--preflight-only` だけを外した同一コマンドで、全個人結果からGrand-averageとセット別定量化まで一括作成します。
 
 ## MAD係数の比較実行
 
