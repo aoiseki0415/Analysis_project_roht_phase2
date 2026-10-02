@@ -29,22 +29,24 @@ Phase 3解析1（No1）では、Phase 1で保存した瞬き解析用信号か�
 - ピーク検出には `scipy.signal.find_peaks` を使用します。
 - まず、同一セッションの解析可能な全セットで、制約なしの局所最大点を候補として列挙します。
 - Peak height閾値は設定しません。局所的には明瞭でも絶対振幅が小さい瞬きを一律に落とさないためです。
-- 主解析のPeak prominence閾値は、その全候補のprominence分布の **95パーセンタイル以上**とします。Prominenceは、周囲の谷に対してピークがどれだけ突出しているかを表します。
+- 主解析のPeak prominence閾値は、全候補のprominenceを $P_i$ として、`median(P) + 3 × (1.4826 × MAD(P))` とします。`MAD(P) = median(|P_i - median(P)|)` です。Prominenceは周囲の谷に対してピークがどれだけ突出しているかを表し、`1.4826 × MAD` は正規分布で標準偏差と同じ尺度になるrobust SDです。
 - 閾値はセットごとに変えず、セッションにつき1組を固定して全使用セットへ適用します。
+- パーセンタイル方式は各セッションから上位一定割合を選ぶため、瞬き総数を分布順位によって強く規定する問題があります。本解析では使用せず、ノイズ水準に対する突出度をMADで評価します。係数3は全被験者で固定し、IDごとに変更しません。
 - 現段階ではminimum peak distanceを設定しません。近接ピークを自動的に一つへ統合せず、パイロットのHTMLで同一瞬きの多重検出がないかを確認します。
 - 検出されたピーク時刻、セット番号、セット内相対時刻、`OriginalTimestamp`、振幅、prominence閾値を保存します。互換用のheight欄は空欄とします。
 
-Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak height 96パーセンタイル、peak prominence 97パーセンタイル、minimum peak distance 100 ms等を使用しています。本解析ではパイロット確認で小振幅でも局所的に明瞭な瞬きがheight基準によって除外されたため、height基準を設けず、主解析のprominenceを95パーセンタイルとします。minimum peak distanceは現段階で採用しません。
+Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak height 96パーセンタイル、peak prominence 97パーセンタイル、minimum peak distance 100 ms等を使用しています。本解析では小振幅でも局所的に明瞭な瞬きをheight基準で除外しないためpeak heightを設けず、また抽出割合を固定しないためprominenceのパーセンタイル方式も採用しません。MADは外れ値の影響を受けにくい散布尺度として使用します。minimum peak distanceは現段階で採用しません。
 
 参考：
 
 - Cheng B, et al. *Using spontaneous eye blink-related brain activity to investigate cognitive load during mobile map-assisted navigation.* Frontiers in Neuroscience. 2023. https://doi.org/10.3389/fnins.2023.1024583
+- Kleifges K, et al. *BLINKER: Automated Extraction of Ocular Indices from EEG Enabling Large-Scale Analysis.* Frontiers in Neuroscience. 2017. https://doi.org/10.3389/fnins.2017.00012
+- Nyström M, et al. *What is a blink? Classifying and characterizing blinks in eye openness signals.* Behavior Research Methods. 2024. https://doi.org/10.3758/s13428-023-02333-9
 - MNE-Python. *Overview of artifact detection.* EOGイベント検出で1–10 Hzのバンドパスを使用。https://mne.tools/stable/auto_tutorials/preprocessing/10_preprocessing_overview.html
 
 ## 4. 瞬き検出確認HTML
 
-- セッションIDごとに、height基準なしの主解析prominence 95パーセンタイル版と、感度確認用の90パーセンタイル版の2ファイルを作成します。被験者ペアを1つのHTMLへ統合しません。
-- 90パーセンタイル版は検出位置の比較確認専用です。Blink Rate時間変化、セット別定量化、Grand-average、結果表には使用しません。
+- セッションIDごとに、height基準なし・MAD方式の検出確認HTMLを1ファイル作成します。被験者ペアを1つのHTMLへ統合しません。
 - 横軸にはセット内データだけを使用し、セット間の休憩時間は含めません。
 - Set 1〜6を一つの横軸へ連結し、各セットの実時間を同じ幅の100単位へ線形変換します。Set 1は0〜100、Set 2は100〜200、以降も同様にSet 6の600までとします。
 - 横軸名は `Experimental Progress, %` とします。進捗座標とセット内実時間の対応は保持し、ホバーでSet、進捗、セット内秒、振幅、ピーク判定を表示します。
@@ -99,17 +101,20 @@ Phase3_瞬き解析/
       GrandAverage/
       SetQuantification/
       HTML/
+      ProminenceDistribution/
     VRohtoPremium/
       Individual/
       GrandAverage/
       SetQuantification/
       HTML/
+      ProminenceDistribution/
     Sub/
       tables/
       logs/
 ```
 
-- 各製品群の `HTML/`：セッションID別にprominence 95%版・90%版の検出確認HTMLを保存する
+- 各製品群の `HTML/`：セッションID別にMAD方式の検出確認HTMLを保存する
+- 各製品群の `ProminenceDistribution/`：セッションID別に、全候補prominenceの線形軸ヒストグラムとMAD閾値線を示すPNGを保存する
 - 各製品群の `Individual/`：被験者ペア別PNGを直下へ保存し、被験者別サブフォルダを作らない
 - 各製品群の `GrandAverage/`：製品群別PNGだけを保存する
 - 各製品群の `SetQuantification/`：6パネルPNGを直下へ保存し、被験者別サブフォルダを作らない
@@ -127,7 +132,7 @@ Notionの「フェーズ３：まばたきの解析」配下に、ID・Setごと
 - `Fp1_Fp2_mean` の検出数
 - Fp1単独・Fp2単独の補助検出数
 - セット実時間とセットBlink Rate
-- セッション共通のprominence閾値（peak heightは未設定）
+- セッション共通のprominence閾値、候補数、中央値、MAD、robust SD、係数3（peak heightは未設定）
 - HTMLとOneDrive出力先
 - 検出異常、左右差、欠測その他の備考
 
@@ -138,6 +143,6 @@ Notionの「フェーズ３：まばたきの解析」配下に、ID・Setごと
 - 実行前にルートREADME、運用ルール、解析上の注意事項、本仕様、Phase 3実行README、NotionのPhase 3ページを確認します。
 - 全対象を同じPythonコードと固定パラメータのループで処理し、IDごとにコードや閾値を手修正しません。
 - まずパイロットIDで、HDF5読込、閾値、ピーク重複、HTML操作、Blink Rate、定量化、欠測、保存、Notion記録を検証します。
-- パイロットID 101／201では、小振幅の明瞭な瞬きがheight基準で過少検出されたため、height基準なし・prominence 95%を主解析、height基準なし・prominence 90%をHTML感度確認として再検証します。
+- パイロットID 101／201では、height基準を設けず、prominenceの `中央値 + 3 × 1.4826 × MAD` をセッション共通閾値とする方式を検証します。HTML、線形軸のprominence分布PNG、Blink Rate、定量化、補助表、Notion記録を確認します。
 - 実行成功だけで完了とせず、OneDrive成果物、CSV・JSONの読み戻し、HTML操作、Notion読み戻しを確認します。
 - 許可済み範囲の通常実行、出力確認、Notion更新、Git操作に利用者承認を求めません。許可範囲外、安全上の問題、または自力で解決できない阻害要因がある場合だけ停止します。

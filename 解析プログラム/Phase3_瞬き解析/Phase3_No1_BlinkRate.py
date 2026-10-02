@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E501
 """Phase 3 No1: detect blinks and calculate blink-rate change by participant pair."""
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ SFREQ = 256.0
 FILTER_LOW_HZ = 1.0
 FILTER_HIGH_HZ = 10.0
 FILTER_ORDER = 4
-MAIN_PROMINENCE_PERCENTILE = 95.0
-HTML_COMPARISON_PROMINENCE_PERCENTILE = 90.0
+MAD_NORMAL_CONSISTENCY = 1.4826
+PROMINENCE_MAD_MULTIPLIER = 3.0
 RATE_WINDOW_SECONDS = 60.0
 RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
@@ -100,6 +101,7 @@ class SessionResult:
     session_id: str
     condition: str
     thresholds: dict[str, dict[str, float | None]]
+    prominence_distributions: dict[str, np.ndarray]
     sets: dict[int, SetSignal]
 
 
@@ -180,9 +182,9 @@ def input_path(root: Path, session_id: str, set_number: int) -> Path:
 
 def calculate_session_thresholds(
     sets: dict[int, SetSignal],
-    prominence_percentile: float = MAIN_PROMINENCE_PERCENTILE,
-) -> dict[str, dict[str, float | None]]:
+) -> tuple[dict[str, dict[str, float | None]], dict[str, np.ndarray]]:
     thresholds: dict[str, dict[str, float | None]] = {}
+    distributions: dict[str, np.ndarray] = {}
     for channel in ("Fp1", "Fp2", "Fp1_Fp2_mean"):
         candidate_prominences: list[np.ndarray] = []
         for set_signal in sets.values():
@@ -193,18 +195,27 @@ def calculate_session_thresholds(
         if not candidate_prominences:
             raise ValueError(f"No local maxima available for {channel}")
         prominences = np.concatenate(candidate_prominences)
+        median = float(np.median(prominences))
+        mad = float(np.median(np.abs(prominences - median)))
+        robust_sd = MAD_NORMAL_CONSISTENCY * mad
+        prominence_threshold = median + PROMINENCE_MAD_MULTIPLIER * robust_sd
         thresholds[channel] = {
             "height_uv": None,
-            "prominence_uv": float(np.percentile(prominences, prominence_percentile)),
+            "prominence_uv": float(prominence_threshold),
+            "prominence_candidate_count": int(prominences.size),
+            "prominence_median_uv": median,
+            "prominence_mad_uv": mad,
+            "prominence_robust_sd_uv": robust_sd,
+            "prominence_mad_multiplier": PROMINENCE_MAD_MULTIPLIER,
         }
-    return thresholds
+        distributions[channel] = prominences
+    return thresholds, distributions
 
 
 def detect_session(
     session_id: str,
     input_root: Path,
     condition: str,
-    prominence_percentile: float = MAIN_PROMINENCE_PERCENTILE,
 ) -> SessionResult:
     sets: dict[int, SetSignal] = {}
     for set_number in range(1, N_SETS + 1):
@@ -215,7 +226,7 @@ def detect_session(
         sets[set_number] = load_set_signal(path, session_id, set_number)
     if not sets:
         raise FileNotFoundError(f"No Phase 1 blink HDF5 found for ID{session_id}")
-    thresholds = calculate_session_thresholds(sets, prominence_percentile)
+    thresholds, distributions = calculate_session_thresholds(sets)
     for set_signal in sets.values():
         for channel, values in set_signal.filtered_uv.items():
             threshold = thresholds[channel]
@@ -224,7 +235,7 @@ def detect_session(
                 prominence=threshold["prominence_uv"],
             )
             set_signal.peaks[channel] = peaks.astype(np.int64)
-    return SessionResult(session_id, condition, thresholds, sets)
+    return SessionResult(session_id, condition, thresholds, distributions, sets)
 
 
 def calculate_blink_rate(set_signal: SetSignal) -> pd.DataFrame:
@@ -318,16 +329,38 @@ def event_table(result: SessionResult) -> pd.DataFrame:
                     "OriginalTimestamp": float(set_signal.original_timestamp[sample]),
                     "ExperimentalProgressPercent": (
                         (set_number - 1) * 100.0
-                        + set_signal.relative_seconds[sample]
-                        / set_signal.duration_seconds
-                        * 100.0
+                        + set_signal.relative_seconds[sample] / set_signal.duration_seconds * 100.0
                     ),
-                    "FilteredAmplitudeUv": float(
-                        set_signal.filtered_uv["Fp1_Fp2_mean"][sample]
-                    ),
+                    "FilteredAmplitudeUv": float(set_signal.filtered_uv["Fp1_Fp2_mean"][sample]),
                 }
             )
     return pd.DataFrame(rows)
+
+
+def plot_prominence_distribution(result: SessionResult, path: Path) -> None:
+    """Plot all candidate prominences and the MAD-based threshold on linear axes."""
+    _configure_plot()
+    values = result.prominence_distributions["Fp1_Fp2_mean"]
+    threshold = float(result.thresholds["Fp1_Fp2_mean"]["prominence_uv"])
+    figure, axis = plt.subplots(figsize=(12, 8))
+    axis.hist(values, bins=100, color="#8CA6C0", edgecolor="white", linewidth=0.35)
+    axis.axvline(
+        threshold,
+        color="#C23B3B",
+        linestyle="--",
+        linewidth=2.8,
+        label=f"MAD threshold = {threshold:.2f} µV",
+    )
+    axis.set_xlabel("Peak Prominence (µV)", labelpad=14)
+    axis.set_ylabel("Candidate Peak Count (count)", labelpad=14)
+    axis.set_xlim(left=0)
+    axis.set_ylim(bottom=0)
+    axis.legend(loc="upper right", frameon=False)
+    axis.spines[["top", "right"]].set_visible(False)
+    figure.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
 
 
 def _configure_plot() -> None:
@@ -361,7 +394,11 @@ def _decorate_progress_axis(axis: plt.Axes) -> None:
 
 
 def plot_pair_timecourse(
-    rates: dict[str, pd.DataFrame], spec: ParticipantSpec, product_label: str, color: str, path: Path
+    rates: dict[str, pd.DataFrame],
+    spec: ParticipantSpec,
+    product_label: str,
+    color: str,
+    path: Path,
 ) -> None:
     _configure_plot()
     figure, axis = plt.subplots(figsize=(18, 8.5))
@@ -404,7 +441,9 @@ def plot_pair_quantification(
         values = []
         for condition in ("Eye Drop", "Control"):
             series = part.loc[part["Condition"] == condition, "BlinkRateBlinksPerMin"]
-            values.append(float(series.iloc[0]) if len(series) and pd.notna(series.iloc[0]) else np.nan)
+            values.append(
+                float(series.iloc[0]) if len(series) and pd.notna(series.iloc[0]) else np.nan
+            )
         x = np.array([-0.25, 0.25])
         axis.bar(x, values, width=0.34, color=[color, CONTROL_COLOR], alpha=0.90)
         if np.isfinite(values).all():
@@ -442,7 +481,6 @@ def _encoded_float32(values: np.ndarray) -> str:
 def save_detection_html(
     result: SessionResult,
     path: Path,
-    prominence_percentile: float,
 ) -> None:
     segments: list[dict[str, object]] = []
     for set_number in range(1, N_SETS + 1):
@@ -467,26 +505,26 @@ def save_detection_html(
         "segments": segments,
         "height": result.thresholds["Fp1_Fp2_mean"]["height_uv"],
         "prominence": result.thresholds["Fp1_Fp2_mean"]["prominence_uv"],
-        "prominence_percentile": prominence_percentile,
+        "prominence_mad_multiplier": PROMINENCE_MAD_MULTIPLIER,
     }
-    html = r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Blink detection QC</title>
+    html = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Blink detection QC</title>
 <style>body{font-family:Arial,sans-serif;margin:16px;color:#202124}.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button{padding:6px 12px}canvas{border:1px solid #777;width:100%;height:620px;cursor:grab;touch-action:none}.hint{color:#555}.line{display:inline-block;width:24px;height:3px;background:#3268A8;margin-right:5px}.dot{display:inline-block;width:10px;height:10px;border:2px solid #D14B45;border-radius:50%;margin-right:5px}</style></head><body>
-<h1>ID__SESSION__: Blink detection QC (prominence __PROMINENCE_PERCENTILE__%)</h1><p><span class="line"></span>1–10 Hz filtered Fp1/Fp2 mean &nbsp; <span class="dot"></span>Detected blink</p>
+<h1>ID__SESSION__: Blink detection QC (MAD-based prominence threshold)</h1><p><span class="line"></span>1–10 Hz filtered Fp1/Fp2 mean &nbsp; <span class="dot"></span>Detected blink</p>
 <div class="tools"><button id="xin">x zoom in</button><button id="xout">x zoom out</button><button id="yin">y zoom in</button><button id="yout">y zoom out</button><button id="reset">Reset</button><span id="status"></span></div>
 <p class="hint">Drag or use Left/Right Arrow to move. Mouse wheel or x buttons change the x scale. All sets use equal 0–100 progress units; rest periods are omitted. Axes: Experimental Progress, %; Filtered amplitude (µV).</p>
 <canvas id="plot" width="1700" height="620"></canvas><pre id="readout"></pre>
 <script id="payload" type="application/json">__PAYLOAD__</script><script>"use strict";const P=JSON.parse(document.getElementById('payload').textContent);function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}P.segments.forEach(s=>{if(!s.missing)s.values=decode(s.values)});const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),L=90,R=25,T=30,B=65;let x0=0,x1=600,drag=null,panTimer=null;let all=[];P.segments.forEach(s=>{if(!s.missing)for(const v of s.values)if(Number.isFinite(v))all.push(Math.abs(v))});all.sort((a,b)=>a-b);let baseY=Math.max(10,all[Math.floor(all.length*.995)]*1.25),ys=baseY;function clamp(a,b){const span=Math.max(2,Math.min(600,b-a));a=Math.max(0,Math.min(600-span,a));return[a,a+span]}function zoom(f,r=.5){const c=x0+r*(x1-x0),span=(x1-x0)*f;[x0,x1]=clamp(c-r*span,c+(1-r)*span);draw()}function pan(d){const shift=(x1-x0)*.05*d;[x0,x1]=clamp(x0+shift,x1+shift);draw()}function stopPan(){if(panTimer){clearInterval(panTimer);panTimer=null}}function startPan(d){stopPan();pan(d);panTimer=setInterval(()=>pan(d),80)}function xy(progress,value,w,h){return[L+(progress-x0)/(x1-x0)*w,T+h/2-value/ys*h*.43]}function draw(){ctx.clearRect(0,0,cv.width,cv.height);const w=cv.width-L-R,h=cv.height-T-B;ctx.strokeStyle='#222';ctx.strokeRect(L,T,w,h);ctx.font='16px Arial';ctx.fillStyle='#111';ctx.textAlign='center';for(let t=Math.ceil(x0/50)*50;t<=x1;t+=50){const x=L+(t-x0)/(x1-x0)*w;ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(String(t),x,T+h+25)}for(let s=1;s<6;s++){const p=s*100;if(p<x0||p>x1)continue;const x=L+(p-x0)/(x1-x0)*w;ctx.strokeStyle='#999';ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.setLineDash([])}for(let s=1;s<=6;s++){const p=(s-.5)*100;if(p>=x0&&p<=x1)ctx.fillText('Set '+s,L+(p-x0)/(x1-x0)*w,T+20)}P.segments.forEach(seg=>{if(seg.missing)return;const start=(seg.set-1)*100,n=seg.values.length;ctx.strokeStyle='#3268A8';ctx.lineWidth=1;ctx.beginPath();const pxCount=Math.max(1,Math.floor(w*2));for(let px=0;px<pxCount;px++){const pa=x0+(x1-x0)*px/pxCount,pb=x0+(x1-x0)*(px+1)/pxCount;if(pb<start||pa>start+100)continue;const a=Math.max(0,Math.floor((pa-start)/100*n)),b=Math.min(n,Math.max(a+1,Math.ceil((pb-start)/100*n)));let lo=Infinity,hi=-Infinity;for(let i=a;i<b;i++){lo=Math.min(lo,seg.values[i]);hi=Math.max(hi,seg.values[i])}if(!Number.isFinite(lo))continue;const x=L+px/pxCount*w;ctx.moveTo(x,xy(pa,lo,w,h)[1]);ctx.lineTo(x,xy(pa,hi,w,h)[1])}ctx.stroke();ctx.strokeStyle='#D14B45';ctx.lineWidth=2;seg.peaks.forEach(i=>{const p=start+i/Math.max(1,n-1)*100;if(p<x0||p>x1)return;const [x,y]=xy(p,seg.values[i],w,h);ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.stroke()})});ctx.fillStyle='#111';ctx.font='20px Arial';ctx.fillText('Experimental Progress, %',L+w/2,cv.height-10);ctx.save();ctx.translate(22,T+h/2);ctx.rotate(-Math.PI/2);ctx.fillText('Filtered amplitude (µV)',0,0);ctx.restore();document.getElementById('status').textContent=`x ${x0.toFixed(1)}–${x1.toFixed(1)} %, y ±${ys.toFixed(1)} µV`}
-document.getElementById('xin').onclick=()=>zoom(.5);document.getElementById('xout').onclick=()=>zoom(2);document.getElementById('yin').onclick=()=>{ys=Math.max(.1,ys/1.5);draw()};document.getElementById('yout').onclick=()=>{ys*=1.5;draw()};document.getElementById('reset').onclick=()=>{x0=0;x1=600;ys=baseY;draw()};document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();startPan(e.key==='ArrowLeft'?-1:1)}});document.addEventListener('keyup',e=>{if(e.key.startsWith('Arrow'))stopPan()});window.addEventListener('blur',stopPan);cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),q=(e.clientX-r.left)/r.width;zoom(e.deltaY>0?1.5:.67,Math.max(0,Math.min(1,q)))},{passive:false});cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,a:x0,b:x1};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{drag=null;cv.style.cursor='grab'});cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();if(drag){const d=(e.clientX-drag.x)/r.width*(drag.b-drag.a);[x0,x1]=clamp(drag.a-d,drag.b-d);draw();return}const p=x0+(e.clientX-r.left)/r.width*(x1-x0),set=Math.min(6,Math.max(1,Math.floor(p/100)+1)),seg=P.segments[set-1];if(seg.missing){document.getElementById('readout').textContent=`Set ${set}: missing`;return}const q=Math.max(0,Math.min(1,(p-(set-1)*100)/100)),i=Math.min(seg.values.length-1,Math.round(q*(seg.values.length-1))),peak=seg.peaks.includes(i);document.getElementById('readout').textContent=`Set ${set} | progress ${p.toFixed(2)} % | set time ${(i/P.sfreq).toFixed(3)} s | ${seg.values[i].toFixed(2)} µV | peak ${peak?'yes':'no'}`});draw();</script></body></html>'''
-    html = (
-        html.replace("__SESSION__", result.session_id)
-        .replace("__PROMINENCE_PERCENTILE__", f"{prominence_percentile:g}")
-        .replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
+document.getElementById('xin').onclick=()=>zoom(.5);document.getElementById('xout').onclick=()=>zoom(2);document.getElementById('yin').onclick=()=>{ys=Math.max(.1,ys/1.5);draw()};document.getElementById('yout').onclick=()=>{ys*=1.5;draw()};document.getElementById('reset').onclick=()=>{x0=0;x1=600;ys=baseY;draw()};document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();startPan(e.key==='ArrowLeft'?-1:1)}});document.addEventListener('keyup',e=>{if(e.key.startsWith('Arrow'))stopPan()});window.addEventListener('blur',stopPan);cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),q=(e.clientX-r.left)/r.width;zoom(e.deltaY>0?1.5:.67,Math.max(0,Math.min(1,q)))},{passive:false});cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,a:x0,b:x1};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{drag=null;cv.style.cursor='grab'});cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();if(drag){const d=(e.clientX-drag.x)/r.width*(drag.b-drag.a);[x0,x1]=clamp(drag.a-d,drag.b-d);draw();return}const p=x0+(e.clientX-r.left)/r.width*(x1-x0),set=Math.min(6,Math.max(1,Math.floor(p/100)+1)),seg=P.segments[set-1];if(seg.missing){document.getElementById('readout').textContent=`Set ${set}: missing`;return}const q=Math.max(0,Math.min(1,(p-(set-1)*100)/100)),i=Math.min(seg.values.length-1,Math.round(q*(seg.values.length-1))),peak=seg.peaks.includes(i);document.getElementById('readout').textContent=`Set ${set} | progress ${p.toFixed(2)} % | set time ${(i/P.sfreq).toFixed(3)} s | ${seg.values[i].toFixed(2)} µV | peak ${peak?'yes':'no'}`});draw();</script></body></html>"""
+    html = html.replace("__SESSION__", result.session_id).replace(
+        "__PAYLOAD__", json.dumps(payload, separators=(",", ":"))
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")
 
 
-def process_participant(spec: ParticipantSpec, input_root: Path, output_root: Path) -> dict[str, object]:
+def process_participant(
+    spec: ParticipantSpec, input_root: Path, output_root: Path
+) -> dict[str, object]:
     product_dir, product_label, product_color, product_jp = normalize_product(spec.product)
     phase_root = output_root / "Phase3_瞬き解析" / "No1_BlinkRate"
     results = {
@@ -494,27 +532,11 @@ def process_participant(spec: ParticipantSpec, input_root: Path, output_root: Pa
             spec.drops_session_id,
             input_root,
             "Eye Drop",
-            MAIN_PROMINENCE_PERCENTILE,
         ),
         spec.control_session_id: detect_session(
             spec.control_session_id,
             input_root,
             "Control",
-            MAIN_PROMINENCE_PERCENTILE,
-        ),
-    }
-    comparison_results = {
-        spec.drops_session_id: detect_session(
-            spec.drops_session_id,
-            input_root,
-            "Eye Drop",
-            HTML_COMPARISON_PROMINENCE_PERCENTILE,
-        ),
-        spec.control_session_id: detect_session(
-            spec.control_session_id,
-            input_root,
-            "Control",
-            HTML_COMPARISON_PROMINENCE_PERCENTILE,
         ),
     }
     summaries = pd.concat(
@@ -522,7 +544,13 @@ def process_participant(spec: ParticipantSpec, input_root: Path, output_root: Pa
         ignore_index=True,
     )
     for configured_product_dir in ("CCube", "VRohtoPremium"):
-        for directory_name in ("Individual", "GrandAverage", "SetQuantification", "HTML"):
+        for directory_name in (
+            "Individual",
+            "GrandAverage",
+            "SetQuantification",
+            "HTML",
+            "ProminenceDistribution",
+        ):
             (phase_root / configured_product_dir / directory_name).mkdir(
                 parents=True,
                 exist_ok=True,
@@ -534,24 +562,17 @@ def process_participant(spec: ParticipantSpec, input_root: Path, output_root: Pa
         rate_frames[session_id] = pd.concat(
             [calculate_blink_rate(signal) for signal in result.sets.values()], ignore_index=True
         )
-        html_95_path = (
+        html_path = (
+            phase_root / product_dir / "HTML" / f"ID{session_id}_No1_BlinkDetection_MAD.html"
+        )
+        distribution_path = (
             phase_root
             / product_dir
-            / "HTML"
-            / f"ID{session_id}_No1_BlinkDetection_Prominence95.html"
+            / "ProminenceDistribution"
+            / f"ID{session_id}_No1_ProminenceDistribution_MADThreshold.png"
         )
-        html_90_path = (
-            phase_root
-            / product_dir
-            / "HTML"
-            / f"ID{session_id}_No1_BlinkDetection_Prominence90.html"
-        )
-        save_detection_html(result, html_95_path, MAIN_PROMINENCE_PERCENTILE)
-        save_detection_html(
-            comparison_results[session_id],
-            html_90_path,
-            HTML_COMPARISON_PROMINENCE_PERCENTILE,
-        )
+        save_detection_html(result, html_path)
+        plot_prominence_distribution(result, distribution_path)
         event_table(result).to_csv(
             pair_table_dir / f"ID{session_id}_No1_BlinkEvents.csv",
             index=False,
@@ -563,10 +584,7 @@ def process_participant(spec: ParticipantSpec, input_root: Path, output_root: Pa
     summary_path = pair_table_dir / f"ID{spec.pair_id}_No1_BlinkSetResults.csv"
     summaries.to_csv(summary_path, index=False)
     individual_path = (
-        phase_root
-        / product_dir
-        / "Individual"
-        / f"ID{spec.pair_id}_No1_BlinkRate_Timecourse.png"
+        phase_root / product_dir / "Individual" / f"ID{spec.pair_id}_No1_BlinkRate_Timecourse.png"
     )
     plot_pair_timecourse(rate_frames, spec, product_label, product_color, individual_path)
     quant_path = (
@@ -590,9 +608,10 @@ def process_participant(spec: ParticipantSpec, input_root: Path, output_root: Pa
             "bandpass_hz": [FILTER_LOW_HZ, FILTER_HIGH_HZ],
             "filter_order": FILTER_ORDER,
             "filter": "Butterworth SOS, zero-phase sosfiltfilt",
-            "height_percentile": None,
-            "main_prominence_percentile": MAIN_PROMINENCE_PERCENTILE,
-            "html_comparison_prominence_percentile": HTML_COMPARISON_PROMINENCE_PERCENTILE,
+            "height_threshold": None,
+            "prominence_threshold_method": "median + k * 1.4826 * MAD",
+            "prominence_mad_normal_consistency": MAD_NORMAL_CONSISTENCY,
+            "prominence_mad_multiplier": PROMINENCE_MAD_MULTIPLIER,
             "minimum_peak_distance": None,
             "rate_window_seconds": RATE_WINDOW_SECONDS,
             "rate_step_seconds": RATE_STEP_SECONDS,
@@ -601,10 +620,6 @@ def process_participant(spec: ParticipantSpec, input_root: Path, output_root: Pa
         },
         "session_thresholds": {
             session_id: result.thresholds for session_id, result in results.items()
-        },
-        "session_thresholds_html_comparison_90": {
-            session_id: result.thresholds
-            for session_id, result in comparison_results.items()
         },
         "outputs": {
             "individual_figure": str(individual_path),

@@ -92,7 +92,7 @@ Phase 2のNo1（RT解析）とNo2（ミスタッチ解析）は、解析対象40
 
 ## Phase 3瞬き解析の確定方針
 
-Phase 3解析1は、Phase 1のセット別瞬き解析用HDF5からFp1・Fp2平均信号を主解析として瞬きイベントを検出し、Blink Rate時間変化とセット別定量化を行います。Peak height基準は設けず、主解析はprominence 95%、比較HTMLはprominence 90%とします。Blink Rateは60秒窓で算出後、セット内15秒中心化平均をかけてから進捗軸へ変換します。Fp1・Fp2単独は検出数の補助QCに限定します。OneDriveは製品群ごとにIndividual、GrandAverage、SetQuantification、HTMLを置き、補助物はNo1直下のSubへ分離します。現行実装の確定仕様と結果記録項目は[Phase 3 瞬き解析仕様](docs/Phase3_瞬き解析仕様.md)を正本とします。
+Phase 3解析1は、Phase 1のセット別瞬き解析用HDF5からFp1・Fp2平均信号を主解析として瞬きイベントを検出し、Blink Rate時間変化とセット別定量化を行います。Peak height基準は設けず、セッション全体の候補prominence分布から `中央値 + 3 × 1.4826 × MAD` で閾値を定めます。Blink Rateは60秒窓で算出後、セット内15秒中心化平均をかけてから進捗軸へ変換します。Fp1・Fp2単独は検出数の補助QCに限定します。OneDriveは製品群ごとにIndividual、GrandAverage、SetQuantification、HTML、ProminenceDistributionを置き、補助物はNo1直下のSubへ分離します。現行実装の確定仕様と結果記録項目は[Phase 3 瞬き解析仕様](docs/Phase3_瞬き解析仕様.md)を正本とします。
 
 ## 文書構成
 

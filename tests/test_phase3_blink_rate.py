@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 
-
 SCRIPT = (
-    Path(__file__).parents[1]
-    / "解析プログラム"
-    / "Phase3_瞬き解析"
-    / "Phase3_No1_BlinkRate.py"
+    Path(__file__).parents[1] / "解析プログラム" / "Phase3_瞬き解析" / "Phase3_No1_BlinkRate.py"
 )
 SPEC = importlib.util.spec_from_file_location("phase3_blink", SCRIPT)
 assert SPEC and SPEC.loader
@@ -88,23 +84,35 @@ def test_peak_detection_uses_prominence_without_height_threshold():
     values = np.array([-10.0, -8.0, -10.0, -9.0, -10.0])
     for channel in signal.filtered_uv:
         signal.filtered_uv[channel] = values.copy()
-    thresholds = MODULE.calculate_session_thresholds({1: signal}, 0)
+    thresholds, distributions = MODULE.calculate_session_thresholds({1: signal})
     assert thresholds["Fp1_Fp2_mean"]["height_uv"] is None
+    assert distributions["Fp1_Fp2_mean"].tolist() == [2.0, 1.0]
     peaks, _ = MODULE.find_peaks(
         values,
         prominence=thresholds["Fp1_Fp2_mean"]["prominence_uv"],
     )
-    assert peaks.tolist() == [1, 3]
+    assert peaks.tolist() == []
+
+
+def test_prominence_threshold_uses_median_plus_three_robust_sd():
+    signal = _set_signal(1, [])
+    values = np.array([0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 10.0, 0.0])
+    for channel in signal.filtered_uv:
+        signal.filtered_uv[channel] = values.copy()
+    thresholds, _ = MODULE.calculate_session_thresholds({1: signal})
+    threshold = thresholds["Fp1_Fp2_mean"]
+    expected_median = 2.5
+    expected_mad = 1.0
+    expected = expected_median + 3.0 * 1.4826 * expected_mad
+    assert np.isclose(threshold["prominence_median_uv"], expected_median)
+    assert np.isclose(threshold["prominence_mad_uv"], expected_mad)
+    assert np.isclose(threshold["prominence_uv"], expected)
 
 
 def test_rate_smoothing_is_centered_and_keeps_raw_rate():
     signal = _set_signal(120, [5, 10, 20, 40, 90])
     frame = MODULE.calculate_blink_rate(signal)
-    expected = (
-        frame["BlinkRateBlinksPerMin"]
-        .rolling(window=15, center=True, min_periods=1)
-        .mean()
-    )
+    expected = frame["BlinkRateBlinksPerMin"].rolling(window=15, center=True, min_periods=1).mean()
     assert np.allclose(frame["BlinkRateSmoothed15sBlinksPerMin"], expected)
     assert not np.shares_memory(
         frame["BlinkRateBlinksPerMin"].to_numpy(),
