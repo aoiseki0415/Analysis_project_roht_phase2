@@ -153,8 +153,16 @@ def test_detection_reset_scale_matches_html_formula():
         {1: signal},
     )
     absolute = np.sort(np.abs(values))
-    expected = max(10.0, float(absolute[int(np.floor(absolute.size * 0.995))]) * 1.25)
+    expected = max(10.0, float(absolute[int(np.floor(absolute.size * 0.995))]) * 1.60)
     assert np.isclose(MODULE.detection_reset_scale_uv(result), expected)
+
+
+def test_individual_y_axis_places_maximum_near_seventy_percent():
+    assert MODULE.individual_figure_y_upper_limit(np.array([10.0, 34.0])) == 50.0
+
+
+def test_grand_y_axis_uses_mean_plus_sd_and_eighty_seven_point_five_percent():
+    assert MODULE.grand_figure_y_upper_limit(np.array([20.0, 43.0])) == 50.0
 
 
 def test_detection_html_uses_eye_blink_component_signal_labels(tmp_path):

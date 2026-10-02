@@ -18,10 +18,11 @@
 - Cキューブ群とVロートプレミアム群を分け、各群でEye Drop対Controlを被験者内比較
 - 個人時間変化、製品群別Grand-average、6パネルセット別定量化を同じNo1で出力
 - 欠測セットは補完しない。ID 109 Set 1、ID 120 Set 6、ID 135 Set 2、ID 225 Set 4を欠測として扱う
-- Phase 3専用色はControl `#4B5563`、C Cube `#21867A`、V Rohto Premium `#3268A8`
+- Blink Rate線・SD帯のPhase 3専用色はControl `#4A2C7A`、C Cube `#168C80`、V Rohto Premium `#2F6FB0`。セット別定量化は同じ条件対応の明度・彩度違いとして、Control `#75619A`、C Cube `#4CA79E`、V Rohto Premium `#5B8EC4`を使う
+- 個人Blink Rate図は0始まりで、2条件の線の最大値が縦軸上限の約70%となる5 blinks/min刻みの上限を使う。Grand-averageは `平均 + 1 SD` の最大値が縦軸上限の87.5%となる5 blinks/min刻みの上限を製品群ごとに使う
 - 指定OneDriveの `Phase3_瞬き解析/No1_BlinkRate/` 直下で `CCube/`、`VRohtoPremium/`、`Sub/` に分け、各製品群内を `Individual/`、`GrandAverage/`、`SetQuantification/`、`QualityCheck/` に分ける。HTML・横長PNGは `QualityCheck/BlinkDetection/`、prominence分布PNGは `QualityCheck/ProminenceDistribution/` に保存する。検出確認の凡例は `Eye Blink Component Signal`、縦軸は `Amplitude (µV)` とする。検出成果物は `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で並べ、表・ログはNo1直下の `Sub/` へ分離する
 - Phase 3ではローカルデスクトップへ新しい中間データを保存しない
-- Notionの結果表へID・Set別の平均信号／Fp1／Fp2検出数、セット時間、Blink Rate、閾値、欠測・備考を記録
+- Notionは親ページを確定事項の要約、子ページを詳細手法とする。結果は1行1被験者ペアの統合表とし、行ページ内へ2セッションのQCと、セッション・Set別の平均信号／Fp1／Fp2検出数、セット時間、Blink Rate、閾値、欠測・備考を記録する
 
 実行スクリプトは `Phase3_No1_BlinkRate.py` です。被験者ペアは、条件表で確認した1回目ID・2回目ID・目薬ありID・製品を明示します。
 

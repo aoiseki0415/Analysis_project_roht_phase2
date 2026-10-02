@@ -35,14 +35,19 @@ MAXIMUM_PEAK_WIDTH_SECONDS = 0.320
 RATE_WINDOW_SECONDS = 60.0
 RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
-CONTROL_COLOR = "#4B5563"
+CONTROL_COLOR = "#4A2C7A"
+CONTROL_QUANTIFICATION_COLOR = "#75619A"
+QUANTIFICATION_COLORS = {
+    "CCube": "#4CA79E",
+    "VRohtoPremium": "#5B8EC4",
+}
 PRODUCTS = {
-    "ccube": ("CCube", "C Cube", "#21867A", "Cキューブ"),
-    "c_cube": ("CCube", "C Cube", "#21867A", "Cキューブ"),
-    "cキューブ": ("CCube", "C Cube", "#21867A", "Cキューブ"),
-    "vrohtopremium": ("VRohtoPremium", "V Rohto Premium", "#3268A8", "Vロートプレミアム"),
-    "v_rohto_premium": ("VRohtoPremium", "V Rohto Premium", "#3268A8", "Vロートプレミアム"),
-    "vロートプレミアム": ("VRohtoPremium", "V Rohto Premium", "#3268A8", "Vロートプレミアム"),
+    "ccube": ("CCube", "C Cube", "#168C80", "Cキューブ"),
+    "c_cube": ("CCube", "C Cube", "#168C80", "Cキューブ"),
+    "cキューブ": ("CCube", "C Cube", "#168C80", "Cキューブ"),
+    "vrohtopremium": ("VRohtoPremium", "V Rohto Premium", "#2F6FB0", "Vロートプレミアム"),
+    "v_rohto_premium": ("VRohtoPremium", "V Rohto Premium", "#2F6FB0", "Vロートプレミアム"),
+    "vロートプレミアム": ("VRohtoPremium", "V Rohto Premium", "#2F6FB0", "Vロートプレミアム"),
 }
 DEFAULT_INPUT_ROOT = Path(
     "/Users/aoiseki/Desktop/SandBox_ロート案件（データ）/解析に必要なデータたち/"
@@ -416,7 +421,7 @@ def detection_reset_scale_uv(result: SessionResult) -> float:
     percentile_index = min(
         finite_absolute.size - 1, int(np.floor(finite_absolute.size * 0.995))
     )
-    return max(10.0, float(finite_absolute[percentile_index]) * 1.25)
+    return max(10.0, float(finite_absolute[percentile_index]) * 1.60)
 
 
 def plot_detection_overview(result: SessionResult, path: Path) -> None:
@@ -464,11 +469,13 @@ def plot_detection_overview(result: SessionResult, path: Path) -> None:
     for set_number in range(1, N_SETS + 1):
         axis.text(
             (set_number - 0.5) * 100,
-            y_half_range * 0.92,
+            0.94,
             f"Set {set_number}",
+            transform=axis.get_xaxis_transform(),
             ha="center",
             va="top",
             fontsize=17,
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.72, "pad": 1.5},
         )
     axis.set_xlabel("Experimental Progress, %", labelpad=14)
     axis.set_ylabel("Amplitude (µV)", labelpad=14)
@@ -510,6 +517,28 @@ def _decorate_progress_axis(axis: plt.Axes) -> None:
         )
 
 
+def individual_figure_y_upper_limit(values: np.ndarray) -> float:
+    """Place the largest individual Blink Rate near 70% of a zero-based axis."""
+
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return 5.0
+    target = float(np.max(finite)) / 0.70
+    return max(5.0, float(np.ceil(target / 5.0) * 5.0))
+
+
+def grand_figure_y_upper_limit(mean_plus_sd_values: np.ndarray) -> float:
+    """Place the largest grand-average mean + 1 SD near 87.5% of the axis."""
+
+    finite = np.asarray(mean_plus_sd_values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return 5.0
+    target = float(np.max(finite)) / 0.875
+    return max(5.0, float(np.ceil(target / 5.0) * 5.0))
+
+
 def plot_pair_timecourse(
     rates: dict[str, pd.DataFrame],
     spec: ParticipantSpec,
@@ -536,7 +565,13 @@ def plot_pair_timecourse(
             first_set = False
     axis.set_xlabel("Experimental Progress, %", labelpad=14)
     axis.set_ylabel("Blink Rate (blinks/min)", labelpad=14)
-    axis.set_ylim(bottom=0)
+    displayed = np.concatenate(
+        [
+            frame["BlinkRateSmoothed15sBlinksPerMin"].to_numpy(dtype=float)
+            for frame in rates.values()
+        ]
+    )
+    axis.set_ylim(0, individual_figure_y_upper_limit(displayed))
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.13), ncol=2, frameon=False)
     _decorate_progress_axis(axis)
     axis.spines[["top", "right"]].set_visible(False)
@@ -547,7 +582,11 @@ def plot_pair_timecourse(
 
 
 def plot_pair_quantification(
-    summary: pd.DataFrame, product_label: str, color: str, path: Path
+    summary: pd.DataFrame,
+    product_dir: str,
+    product_label: str,
+    color: str,
+    path: Path,
 ) -> None:
     _configure_plot()
     figure, axes = plt.subplots(1, 6, figsize=(25, 7), sharey=True)
@@ -562,10 +601,22 @@ def plot_pair_quantification(
                 float(series.iloc[0]) if len(series) and pd.notna(series.iloc[0]) else np.nan
             )
         x = np.array([-0.25, 0.25])
-        axis.bar(x, values, width=0.34, color=[color, CONTROL_COLOR], alpha=0.90)
+        quantification_color = QUANTIFICATION_COLORS[product_dir]
+        axis.bar(
+            x,
+            values,
+            width=0.34,
+            color=[quantification_color, CONTROL_QUANTIFICATION_COLOR],
+            alpha=0.90,
+        )
         if np.isfinite(values).all():
             axis.plot(x, values, color="#8A8A8A", linewidth=1.5, alpha=0.75, zorder=2)
-        for xpos, value, dot_color in zip(x, values, [color, CONTROL_COLOR], strict=True):
+        for xpos, value, dot_color in zip(
+            x,
+            values,
+            [quantification_color, CONTROL_QUANTIFICATION_COLOR],
+            strict=True,
+        ):
             if np.isfinite(value):
                 axis.scatter(
                     xpos,
@@ -632,7 +683,7 @@ def save_detection_html(
 <div class="tools"><button id="xin">x zoom in</button><button id="xout">x zoom out</button><button id="yin">y zoom in</button><button id="yout">y zoom out</button><button id="reset">Reset</button><span id="status"></span></div>
 <p class="hint">Drag or use Left/Right Arrow to move. Mouse wheel or x buttons change the x scale. All sets use equal 0–100 progress units; rest periods are omitted. Axes: Experimental Progress, %; Amplitude (µV).</p>
 <canvas id="plot" width="1700" height="620"></canvas><pre id="readout"></pre>
-<script id="payload" type="application/json">__PAYLOAD__</script><script>"use strict";const P=JSON.parse(document.getElementById('payload').textContent);function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}P.segments.forEach(s=>{if(!s.missing)s.values=decode(s.values)});const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),L=90,R=25,T=30,B=65;let x0=0,x1=600,drag=null,panTimer=null;let all=[];P.segments.forEach(s=>{if(!s.missing)for(const v of s.values)if(Number.isFinite(v))all.push(Math.abs(v))});all.sort((a,b)=>a-b);let baseY=Math.max(10,all[Math.floor(all.length*.995)]*1.25),ys=baseY;function clamp(a,b){const span=Math.max(2,Math.min(600,b-a));a=Math.max(0,Math.min(600-span,a));return[a,a+span]}function zoom(f,r=.5){const c=x0+r*(x1-x0),span=(x1-x0)*f;[x0,x1]=clamp(c-r*span,c+(1-r)*span);draw()}function pan(d){const shift=(x1-x0)*.05*d;[x0,x1]=clamp(x0+shift,x1+shift);draw()}function stopPan(){if(panTimer){clearInterval(panTimer);panTimer=null}}function startPan(d){stopPan();pan(d);panTimer=setInterval(()=>pan(d),80)}function xy(progress,value,w,h){return[L+(progress-x0)/(x1-x0)*w,T+h/2-value/ys*h*.43]}function draw(){ctx.clearRect(0,0,cv.width,cv.height);const w=cv.width-L-R,h=cv.height-T-B;ctx.strokeStyle='#222';ctx.strokeRect(L,T,w,h);ctx.font='16px Arial';ctx.fillStyle='#111';ctx.textAlign='center';for(let t=Math.ceil(x0/50)*50;t<=x1;t+=50){const x=L+(t-x0)/(x1-x0)*w;ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(String(t),x,T+h+25)}for(let s=1;s<6;s++){const p=s*100;if(p<x0||p>x1)continue;const x=L+(p-x0)/(x1-x0)*w;ctx.strokeStyle='#999';ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.setLineDash([])}for(let s=1;s<=6;s++){const p=(s-.5)*100;if(p>=x0&&p<=x1)ctx.fillText('Set '+s,L+(p-x0)/(x1-x0)*w,T+20)}P.segments.forEach(seg=>{if(seg.missing)return;const start=(seg.set-1)*100,n=seg.values.length;ctx.strokeStyle='#3268A8';ctx.lineWidth=1;ctx.beginPath();const pxCount=Math.max(1,Math.floor(w*2));for(let px=0;px<pxCount;px++){const pa=x0+(x1-x0)*px/pxCount,pb=x0+(x1-x0)*(px+1)/pxCount;if(pb<start||pa>start+100)continue;const a=Math.max(0,Math.floor((pa-start)/100*n)),b=Math.min(n,Math.max(a+1,Math.ceil((pb-start)/100*n)));let lo=Infinity,hi=-Infinity;for(let i=a;i<b;i++){lo=Math.min(lo,seg.values[i]);hi=Math.max(hi,seg.values[i])}if(!Number.isFinite(lo))continue;const x=L+px/pxCount*w;ctx.moveTo(x,xy(pa,lo,w,h)[1]);ctx.lineTo(x,xy(pa,hi,w,h)[1])}ctx.stroke();ctx.strokeStyle='#D14B45';ctx.lineWidth=2;seg.peaks.forEach(i=>{const p=start+i/Math.max(1,n-1)*100;if(p<x0||p>x1)return;const [x,y]=xy(p,seg.values[i],w,h);ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.stroke()})});ctx.fillStyle='#111';ctx.font='20px Arial';ctx.fillText('Experimental Progress, %',L+w/2,cv.height-10);ctx.save();ctx.translate(22,T+h/2);ctx.rotate(-Math.PI/2);ctx.fillText('Amplitude (µV)',0,0);ctx.restore();document.getElementById('status').textContent=`x ${x0.toFixed(1)}–${x1.toFixed(1)} %, y ±${ys.toFixed(1)} µV`}
+<script id="payload" type="application/json">__PAYLOAD__</script><script>"use strict";const P=JSON.parse(document.getElementById('payload').textContent);function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}P.segments.forEach(s=>{if(!s.missing)s.values=decode(s.values)});const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),L=90,R=25,T=30,B=65;let x0=0,x1=600,drag=null,panTimer=null;let all=[];P.segments.forEach(s=>{if(!s.missing)for(const v of s.values)if(Number.isFinite(v))all.push(Math.abs(v))});all.sort((a,b)=>a-b);let baseY=Math.max(10,all[Math.floor(all.length*.995)]*1.60),ys=baseY;function clamp(a,b){const span=Math.max(2,Math.min(600,b-a));a=Math.max(0,Math.min(600-span,a));return[a,a+span]}function zoom(f,r=.5){const c=x0+r*(x1-x0),span=(x1-x0)*f;[x0,x1]=clamp(c-r*span,c+(1-r)*span);draw()}function pan(d){const shift=(x1-x0)*.05*d;[x0,x1]=clamp(x0+shift,x1+shift);draw()}function stopPan(){if(panTimer){clearInterval(panTimer);panTimer=null}}function startPan(d){stopPan();pan(d);panTimer=setInterval(()=>pan(d),80)}function xy(progress,value,w,h){return[L+(progress-x0)/(x1-x0)*w,T+h/2-value/ys*h*.43]}function draw(){ctx.clearRect(0,0,cv.width,cv.height);const w=cv.width-L-R,h=cv.height-T-B;ctx.strokeStyle='#222';ctx.strokeRect(L,T,w,h);ctx.font='16px Arial';ctx.fillStyle='#111';ctx.textAlign='center';for(let t=Math.ceil(x0/50)*50;t<=x1;t+=50){const x=L+(t-x0)/(x1-x0)*w;ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(String(t),x,T+h+25)}for(let s=1;s<6;s++){const p=s*100;if(p<x0||p>x1)continue;const x=L+(p-x0)/(x1-x0)*w;ctx.strokeStyle='#999';ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.setLineDash([])}for(let s=1;s<=6;s++){const p=(s-.5)*100;if(p>=x0&&p<=x1){const tx=L+(p-x0)/(x1-x0)*w;ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillRect(tx-31,T+5,62,21);ctx.fillStyle='#111';ctx.fillText('Set '+s,tx,T+20)}}P.segments.forEach(seg=>{if(seg.missing)return;const start=(seg.set-1)*100,n=seg.values.length;ctx.strokeStyle='#3268A8';ctx.lineWidth=1;ctx.beginPath();const pxCount=Math.max(1,Math.floor(w*2));for(let px=0;px<pxCount;px++){const pa=x0+(x1-x0)*px/pxCount,pb=x0+(x1-x0)*(px+1)/pxCount;if(pb<start||pa>start+100)continue;const a=Math.max(0,Math.floor((pa-start)/100*n)),b=Math.min(n,Math.max(a+1,Math.ceil((pb-start)/100*n)));let lo=Infinity,hi=-Infinity;for(let i=a;i<b;i++){lo=Math.min(lo,seg.values[i]);hi=Math.max(hi,seg.values[i])}if(!Number.isFinite(lo))continue;const x=L+px/pxCount*w;ctx.moveTo(x,xy(pa,lo,w,h)[1]);ctx.lineTo(x,xy(pa,hi,w,h)[1])}ctx.stroke();ctx.strokeStyle='#D14B45';ctx.lineWidth=2;seg.peaks.forEach(i=>{const p=start+i/Math.max(1,n-1)*100;if(p<x0||p>x1)return;const [x,y]=xy(p,seg.values[i],w,h);ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.stroke()})});ctx.fillStyle='#111';ctx.font='20px Arial';ctx.fillText('Experimental Progress, %',L+w/2,cv.height-10);ctx.save();ctx.translate(22,T+h/2);ctx.rotate(-Math.PI/2);ctx.fillText('Amplitude (µV)',0,0);ctx.restore();document.getElementById('status').textContent=`x ${x0.toFixed(1)}–${x1.toFixed(1)} %, y ±${ys.toFixed(1)} µV`}
 document.getElementById('xin').onclick=()=>zoom(.5);document.getElementById('xout').onclick=()=>zoom(2);document.getElementById('yin').onclick=()=>{ys=Math.max(.1,ys/1.5);draw()};document.getElementById('yout').onclick=()=>{ys*=1.5;draw()};document.getElementById('reset').onclick=()=>{x0=0;x1=600;ys=baseY;draw()};document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();startPan(e.key==='ArrowLeft'?-1:1)}});document.addEventListener('keyup',e=>{if(e.key.startsWith('Arrow'))stopPan()});window.addEventListener('blur',stopPan);cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),q=(e.clientX-r.left)/r.width;zoom(e.deltaY>0?1.5:.67,Math.max(0,Math.min(1,q)))},{passive:false});cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,a:x0,b:x1};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{drag=null;cv.style.cursor='grab'});cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();if(drag){const d=(e.clientX-drag.x)/r.width*(drag.b-drag.a);[x0,x1]=clamp(drag.a-d,drag.b-d);draw();return}const p=x0+(e.clientX-r.left)/r.width*(x1-x0),set=Math.min(6,Math.max(1,Math.floor(p/100)+1)),seg=P.segments[set-1];if(seg.missing){document.getElementById('readout').textContent=`Set ${set}: missing`;return}const q=Math.max(0,Math.min(1,(p-(set-1)*100)/100)),i=Math.min(seg.values.length-1,Math.round(q*(seg.values.length-1))),peak=seg.peaks.includes(i);document.getElementById('readout').textContent=`Set ${set} | progress ${p.toFixed(2)} % | set time ${(i/P.sfreq).toFixed(3)} s | ${seg.values[i].toFixed(2)} µV | peak ${peak?'yes':'no'}`});draw();</script></body></html>"""
     html = (
         html.replace("__SESSION__", result.session_id)
@@ -740,7 +791,13 @@ def process_participant(
         / "SetQuantification"
         / f"ID{spec.pair_id}_No1_BlinkRate_SetQuantification.png"
     )
-    plot_pair_quantification(summaries, product_label, product_color, quant_path)
+    plot_pair_quantification(
+        summaries,
+        product_dir,
+        product_label,
+        product_color,
+        quant_path,
+    )
     run_summary = {
         "created_at": datetime.now().astimezone().isoformat(),
         "script": Path(__file__).name,
