@@ -29,25 +29,34 @@ FILTER_HIGH_HZ = 10.0
 FILTER_ORDER = 4
 MAD_NORMAL_CONSISTENCY = 1.4826
 PROMINENCE_MAD_MULTIPLIER = 10.0
+PROMINENCE_MULTIPLIER_BASIS = (
+    "exploratory pilot comparison of k=8, 10, and 12 in four participant pairs "
+    "(eight sessions); not a literature-recommended value"
+)
+PERCENTILE_THRESHOLD_REJECTION_REASON = (
+    "A within-session percentile selects a similar upper fraction for every ID and can "
+    "make extracted totals artificially similar across IDs, weakening genuine ID and "
+    "condition differences."
+)
 MINIMUM_PEAK_DISTANCE_SECONDS = 0.100
 MINIMUM_PEAK_WIDTH_SECONDS = 0.020
 MAXIMUM_PEAK_WIDTH_SECONDS = 0.320
 RATE_WINDOW_SECONDS = 60.0
 RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
-CONTROL_COLOR = "#4A2C7A"
-CONTROL_QUANTIFICATION_COLOR = "#75619A"
+CONTROL_COLOR = "#402B5D"
+CONTROL_QUANTIFICATION_COLOR = "#66547D"
 QUANTIFICATION_COLORS = {
     "CCube": "#4CA79E",
-    "VRohtoPremium": "#5B8EC4",
+    "VRohtoPremium": "#62AFC6",
 }
 PRODUCTS = {
     "ccube": ("CCube", "C Cube", "#168C80", "Cキューブ"),
     "c_cube": ("CCube", "C Cube", "#168C80", "Cキューブ"),
     "cキューブ": ("CCube", "C Cube", "#168C80", "Cキューブ"),
-    "vrohtopremium": ("VRohtoPremium", "V Rohto Premium", "#2F6FB0", "Vロートプレミアム"),
-    "v_rohto_premium": ("VRohtoPremium", "V Rohto Premium", "#2F6FB0", "Vロートプレミアム"),
-    "vロートプレミアム": ("VRohtoPremium", "V Rohto Premium", "#2F6FB0", "Vロートプレミアム"),
+    "vrohtopremium": ("VRohtoPremium", "V Rohto Premium", "#2A91B3", "Vロートプレミアム"),
+    "v_rohto_premium": ("VRohtoPremium", "V Rohto Premium", "#2A91B3", "Vロートプレミアム"),
+    "vロートプレミアム": ("VRohtoPremium", "V Rohto Premium", "#2A91B3", "Vロートプレミアム"),
 }
 DEFAULT_INPUT_ROOT = Path(
     "/Users/aoiseki/Desktop/SandBox_ロート案件（データ）/解析に必要なデータたち/"
@@ -528,15 +537,35 @@ def individual_figure_y_upper_limit(values: np.ndarray) -> float:
     return max(5.0, float(np.ceil(target / 5.0) * 5.0))
 
 
-def grand_figure_y_upper_limit(mean_plus_sd_values: np.ndarray) -> float:
-    """Place the largest grand-average mean + 1 SD near 87.5% of the axis."""
+def grand_figure_y_upper_limit(mean_plus_sem_values: np.ndarray) -> float:
+    """Place the largest grand-average mean + SEM near 87.5% of the axis."""
 
-    finite = np.asarray(mean_plus_sd_values, dtype=float)
+    finite = np.asarray(mean_plus_sem_values, dtype=float)
     finite = finite[np.isfinite(finite)]
     if finite.size == 0:
         return 5.0
     target = float(np.max(finite)) / 0.875
     return max(5.0, float(np.ceil(target / 5.0) * 5.0))
+
+
+def calculate_grand_average_statistics(values: np.ndarray) -> dict[str, np.ndarray]:
+    """Return pointwise mean, sample SD, SEM, and valid N without interpolation."""
+
+    matrix = np.asarray(values, dtype=float)
+    if matrix.ndim != 2:
+        raise ValueError("values must be a 2D participant-by-position array")
+    valid_n = np.sum(np.isfinite(matrix), axis=0).astype(int)
+    mean = np.full(matrix.shape[1], np.nan, dtype=float)
+    sample_sd = np.full(matrix.shape[1], np.nan, dtype=float)
+    sem = np.full(matrix.shape[1], np.nan, dtype=float)
+    for position in range(matrix.shape[1]):
+        finite = matrix[:, position][np.isfinite(matrix[:, position])]
+        if finite.size:
+            mean[position] = float(np.mean(finite))
+        if finite.size >= 2:
+            sample_sd[position] = float(np.std(finite, ddof=1))
+            sem[position] = sample_sd[position] / np.sqrt(finite.size)
+    return {"mean": mean, "sample_sd": sample_sd, "sem": sem, "valid_n": valid_n}
 
 
 def plot_pair_timecourse(
@@ -816,6 +845,9 @@ def process_participant(
             "prominence_threshold_method": "median + k * 1.4826 * MAD",
             "prominence_mad_normal_consistency": MAD_NORMAL_CONSISTENCY,
             "prominence_mad_multiplier": prominence_mad_multiplier,
+            "prominence_mad_multiplier_basis": PROMINENCE_MULTIPLIER_BASIS,
+            "percentile_threshold_used": False,
+            "percentile_threshold_rejection_reason": PERCENTILE_THRESHOLD_REJECTION_REASON,
             "comparison_label": comparison_label,
             "minimum_peak_distance_seconds": MINIMUM_PEAK_DISTANCE_SECONDS,
             "peak_width_seconds": [
@@ -826,6 +858,9 @@ def process_participant(
             "rate_step_seconds": RATE_STEP_SECONDS,
             "rate_smoothing_seconds": RATE_SMOOTHING_SECONDS,
             "rate_smoothing": "centered simple moving average within each set",
+            "grand_average_center": "pointwise between-participant mean",
+            "grand_average_shade": "mean +/- SEM",
+            "grand_average_sem": "sample SD (ddof=1) / sqrt(valid N), no interpolation",
         },
         "session_thresholds": {
             session_id: result.thresholds for session_id, result in results.items()

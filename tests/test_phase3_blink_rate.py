@@ -161,8 +161,25 @@ def test_individual_y_axis_places_maximum_near_seventy_percent():
     assert MODULE.individual_figure_y_upper_limit(np.array([10.0, 34.0])) == 50.0
 
 
-def test_grand_y_axis_uses_mean_plus_sd_and_eighty_seven_point_five_percent():
+def test_grand_y_axis_uses_mean_plus_sem_and_eighty_seven_point_five_percent():
     assert MODULE.grand_figure_y_upper_limit(np.array([20.0, 43.0])) == 50.0
+
+
+def test_grand_average_statistics_use_sample_sem_and_valid_n():
+    values = np.array([[1.0, 2.0, np.nan], [3.0, 4.0, 9.0], [5.0, np.nan, np.nan]])
+    result = MODULE.calculate_grand_average_statistics(values)
+    assert np.allclose(result["mean"][:2], [3.0, 3.0])
+    assert np.allclose(result["sample_sd"][:2], [2.0, np.sqrt(2.0)])
+    assert np.allclose(result["sem"][:2], [2.0 / np.sqrt(3.0), 1.0])
+    assert result["valid_n"].tolist() == [3, 2, 1]
+    assert np.isnan(result["sample_sd"][2])
+    assert np.isnan(result["sem"][2])
+
+
+def test_production_threshold_basis_is_explicitly_exploratory_not_literature():
+    assert "exploratory" in MODULE.PROMINENCE_MULTIPLIER_BASIS
+    assert "not a literature" in MODULE.PROMINENCE_MULTIPLIER_BASIS
+    assert "similar" in MODULE.PERCENTILE_THRESHOLD_REJECTION_REASON
 
 
 def test_detection_html_uses_eye_blink_component_signal_labels(tmp_path):

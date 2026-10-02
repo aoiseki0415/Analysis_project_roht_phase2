@@ -7,9 +7,10 @@
 ## No1：瞬き検出・Blink Rate解析
 
 - 入力はPhase 1のセット別 `IDxxx_SetN_blink_signal.h5`
-- 主解析信号の表示名は `Eye Blink Component Signal`。Phase 1でICLabelのEye成分として除去したICをセンサー空間へ復元し、そのFp1・Fp2を時点ごとに平均した `Fp1_Fp2_mean` へ、Phase 3で1–10 Hzのゼロ位相フィルタを適用して作る。Fp1・Fp2単独はセット別検出数の補助QCのみ
+- 主解析信号の表示名は `Eye Blink Component Signal`。計算は「ICAでICへ分解 → ICLabel eye blink確率0.80以上のICを選択 → そのICのチャンネル別寄与をセンサー空間へ戻す（ICA前EEG−除去後EEGと同値）→ Fp1・Fp2を時点ごとに平均 → Phase 3で1–10 Hzゼロ位相フィルタ」の順で行う。Phase 1 HDF5の `Fp1_Fp2_mean` はフィルタ前までの結果で、Fp1・Fp2単独はセット別検出数の補助QCのみ
 - 検出用フィルタは1–10 Hz、ピーク検出は `scipy.signal.find_peaks`
-- Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 10 × 1.4826 × MAD`を全セットへ共通適用
+- Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 10 × 1.4826 × MAD`を全セットへ共通適用する。係数10は文献推奨値ではなく、4被験者ペア・8セッションで8／10／12を探索比較して選んだ固定値
+- パーセンタイル閾値は、IDごとに上位一定割合を選んで抽出割合と総数を似通わせ、実際のID差・条件差を弱めるおそれがあるため使用しない
 - 同一瞬きの重複検出を避ける安全条件としてminimum peak distanceを100 ms、瞬きらしい時間幅を保つ形状条件としてpeak widthを20–320 msに固定する
 - 検出確認HTMLはセッションIDごとにMAD方式の1ファイルを作り、同じResetスケールの横長PNGも作る
 - 全候補prominenceの分布とMAD閾値線を、横軸0–500 µV・縦軸対数のPNGとしてセッションIDごとに作り、500 µV超の候補数も図中へ記す
@@ -18,8 +19,8 @@
 - Cキューブ群とVロートプレミアム群を分け、各群でEye Drop対Controlを被験者内比較
 - 個人時間変化、製品群別Grand-average、6パネルセット別定量化を同じNo1で出力
 - 欠測セットは補完しない。ID 109 Set 1、ID 120 Set 6、ID 135 Set 2、ID 225 Set 4を欠測として扱う
-- Blink Rate線・SD帯のPhase 3専用色はControl `#4A2C7A`、C Cube `#168C80`、V Rohto Premium `#2F6FB0`。セット別定量化は同じ条件対応の明度・彩度違いとして、Control `#75619A`、C Cube `#4CA79E`、V Rohto Premium `#5B8EC4`を使う
-- 個人Blink Rate図は0始まりで、2条件の線の最大値が縦軸上限の約70%となる5 blinks/min刻みの上限を使う。Grand-averageは `平均 + 1 SD` の最大値が縦軸上限の87.5%となる5 blinks/min刻みの上限を製品群ごとに使う
+- Blink Rate線・SEM帯のPhase 3専用色はControl `#402B5D`、C Cube `#168C80`、V Rohto Premium `#2A91B3`。セット別定量化は同じ条件対応の明度・彩度違いとして、Control `#66547D`、C Cube `#4CA79E`、V Rohto Premium `#62AFC6`を使う
+- 個人Blink Rate図は0始まりで、2条件の線の最大値が縦軸上限の約70%となる5 blinks/min刻みの上限を使う。Grand-averageは各進捗位置の標本SD（`ddof=1`）を有効人数Nの平方根で割ったSEMを用いて平均±SEMを描き、`平均 + SEM` の最大値が縦軸上限の87.5%となる5 blinks/min刻みの上限を製品群ごとに使う
 - 指定OneDriveの `Phase3_瞬き解析/No1_BlinkRate/` 直下で `CCube/`、`VRohtoPremium/`、`Sub/` に分け、各製品群内を `Individual/`、`GrandAverage/`、`SetQuantification/`、`QualityCheck/` に分ける。HTML・横長PNGは `QualityCheck/BlinkDetection/`、prominence分布PNGは `QualityCheck/ProminenceDistribution/` に保存する。検出確認の凡例は `Eye Blink Component Signal`、縦軸は `Amplitude (µV)` とする。検出成果物は `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で並べ、表・ログはNo1直下の `Sub/` へ分離する
 - Phase 3ではローカルデスクトップへ新しい中間データを保存しない
 - Notionは親ページを確定事項の要約、子ページを詳細手法とする。結果は1行1被験者ペアの統合表とし、行ページ内へ2セッションのQCと、セッション・Set別の平均信号／Fp1／Fp2検出数、セット時間、Blink Rate、閾値、欠測・備考を記録する
