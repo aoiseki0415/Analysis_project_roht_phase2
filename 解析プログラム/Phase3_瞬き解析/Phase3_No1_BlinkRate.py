@@ -28,10 +28,11 @@ FILTER_LOW_HZ = 1.0
 FILTER_HIGH_HZ = 10.0
 FILTER_ORDER = 4
 MAD_NORMAL_CONSISTENCY = 1.4826
-PROMINENCE_MAD_MULTIPLIER = 10.0
+PROMINENCE_MAD_MULTIPLIER = 12.0
 PROMINENCE_MULTIPLIER_BASIS = (
-    "exploratory pilot comparison of k=8, 10, and 12 in four participant pairs "
-    "(eight sessions); not a literature-recommended value"
+    "exploratory comparison of k=8, 10, and 12 followed by review of the initial "
+    "all-participant k=10 outputs; k=12 was selected to reduce over-detection and is "
+    "not a literature-recommended value"
 )
 PERCENTILE_THRESHOLD_REJECTION_REASON = (
     "A within-session percentile selects a similar upper fraction for every ID and can "
@@ -54,6 +55,11 @@ RATE_WINDOW_SECONDS = 60.0
 RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
 GROUP_PROGRESS_POINTS_PER_SET = 100
+CONDITION_BLINK_COUNT_REVIEW_RATIO = 2.0
+QUANTIFICATION_BAR_CENTERS = np.array([-0.32, 0.32])
+QUANTIFICATION_BAR_WIDTH = 0.42
+QUANTIFICATION_DOT_SIZE = 150.0
+QUANTIFICATION_JITTER_HALF_WIDTH = 0.055
 CONTROL_COLOR = "#402B5D"
 CONTROL_QUANTIFICATION_COLOR = "#66547D"
 QUANTIFICATION_COLORS = {
@@ -620,12 +626,15 @@ def plot_detection_overview(result: SessionResult, path: Path) -> None:
             transform=axis.get_xaxis_transform(),
             ha="center",
             va="top",
-            fontsize=17,
+            fontsize=22,
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.72, "pad": 1.5},
         )
-    axis.set_xlabel("Experimental Progress, %", labelpad=14)
-    axis.set_ylabel("Amplitude (µV)", labelpad=14)
-    axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.12), ncol=2, frameon=False)
+    axis.set_xlabel("Experimental Progress, %", fontsize=28, labelpad=18)
+    axis.set_ylabel("Amplitude (µV)", fontsize=28, labelpad=14)
+    axis.tick_params(axis="both", labelsize=20, width=1.5, length=6)
+    axis.legend(
+        loc="upper center", bbox_to_anchor=(0.5, 1.14), ncol=2, frameon=False, fontsize=20
+    )
     axis.spines[["top", "right"]].set_visible(False)
     figure.tight_layout(rect=(0, 0, 1, 0.94))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -638,10 +647,10 @@ def _configure_plot() -> None:
         {
             "font.family": "Arial",
             "axes.linewidth": 1.5,
-            "axes.labelsize": 26,
-            "xtick.labelsize": 18,
-            "ytick.labelsize": 18,
-            "legend.fontsize": 17,
+            "axes.labelsize": 28,
+            "xtick.labelsize": 20,
+            "ytick.labelsize": 20,
+            "legend.fontsize": 20,
         }
     )
 
@@ -659,7 +668,7 @@ def _decorate_progress_axis(axis: plt.Axes) -> None:
             f"Set {set_number}",
             ha="center",
             va="top",
-            fontsize=17,
+            fontsize=22,
         )
 
 
@@ -675,13 +684,13 @@ def individual_figure_y_upper_limit(values: np.ndarray) -> float:
 
 
 def grand_figure_y_upper_limit(mean_plus_sem_values: np.ndarray) -> float:
-    """Place the largest grand-average mean + SEM near 87.5% of the axis."""
+    """Place the largest grand-average mean + SEM near 75% of the axis."""
 
     finite = np.asarray(mean_plus_sem_values, dtype=float)
     finite = finite[np.isfinite(finite)]
     if finite.size == 0:
         return 5.0
-    target = float(np.max(finite)) / 0.875
+    target = float(np.max(finite)) / 0.75
     return max(5.0, float(np.ceil(target / 5.0) * 5.0))
 
 
@@ -825,7 +834,7 @@ def plot_group_grand_average(
     table_path: Path,
 ) -> None:
     """Plot product-specific pointwise between-participant mean +/- SEM."""
-    matrices, progress, pair_ids = _group_rate_matrices(processed_items, product_dir)
+    matrices, progress, _ = _group_rate_matrices(processed_items, product_dir)
     statistics = {
         condition: calculate_grand_average_statistics(matrix)
         for condition, matrix in matrices.items()
@@ -872,16 +881,6 @@ def plot_group_grand_average(
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.13), ncol=2, frameon=False)
     _decorate_progress_axis(axis)
     axis.spines[["top", "right"]].set_visible(False)
-    axis.text(
-        0.995,
-        0.015,
-        f"N = {len(pair_ids)}; shade = mean ± SEM",
-        transform=axis.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=14,
-        color="#555555",
-    )
     figure.tight_layout(rect=(0, 0, 1, 0.94))
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
@@ -927,6 +926,49 @@ def _group_quantification_frame(
     return pd.DataFrame(rows)
 
 
+def condition_blink_count_balance(
+    summaries: pd.DataFrame, spec: ParticipantSpec
+) -> dict[str, object]:
+    """Compare condition totals on sets available in both paired sessions."""
+
+    usable_sets: set[int] | None = None
+    for session_id in (spec.drops_session_id, spec.control_session_id):
+        session_rows = summaries.loc[
+            (summaries["SessionID"].astype(str) == session_id)
+            & (summaries["Status"] == "使用")
+            & summaries["MeanSignalBlinkCount"].notna()
+        ]
+        current = set(session_rows["Set"].astype(int).tolist())
+        usable_sets = current if usable_sets is None else usable_sets & current
+    paired_sets = sorted(usable_sets or set())
+
+    totals: dict[str, int] = {}
+    for condition, session_id in (
+        ("eye_drop", spec.drops_session_id),
+        ("control", spec.control_session_id),
+    ):
+        selected = summaries.loc[
+            (summaries["SessionID"].astype(str) == session_id)
+            & summaries["Set"].isin(paired_sets),
+            "MeanSignalBlinkCount",
+        ]
+        totals[condition] = int(selected.fillna(0).sum())
+
+    lower = min(totals.values())
+    upper = max(totals.values())
+    ratio = float(upper / lower) if lower > 0 else (float("inf") if upper > 0 else 1.0)
+    status = "要確認" if ratio >= CONDITION_BLINK_COUNT_REVIEW_RATIO else "概ね同程度"
+    return {
+        "paired_sets": paired_sets,
+        "eye_drop_total_blinks": totals["eye_drop"],
+        "control_total_blinks": totals["control"],
+        "larger_to_smaller_ratio": ratio,
+        "review_threshold_ratio": CONDITION_BLINK_COUNT_REVIEW_RATIO,
+        "balance_status": status,
+        "use_for_exclusion": False,
+    }
+
+
 def plot_group_quantification(
     processed_items: list[dict[str, object]],
     product_dir: str,
@@ -939,44 +981,86 @@ def plot_group_quantification(
     table_path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(table_path, index=False)
     _configure_plot()
-    figure, axes = plt.subplots(1, 6, figsize=(25, 7), sharey=True)
+    figure, axes = plt.subplots(1, 6, figsize=(34, 9), sharey=True)
     finite = frame["BlinkRateBlinksPerMin"].dropna().to_numpy(dtype=float)
     ymax = max(5.0, float(np.ceil((np.max(finite) / 0.78) / 5.0) * 5.0)) if finite.size else 5.0
-    x = np.array([-0.25, 0.25])
+    x = QUANTIFICATION_BAR_CENTERS
     eye_color = QUANTIFICATION_COLORS[product_dir]
     for set_number, axis in enumerate(axes, 1):
         part = frame.loc[frame["Set"] == set_number]
         pivot = part.pivot(index="PairID", columns="Condition", values="BlinkRateBlinksPerMin")
         means = [pivot["Eye Drop"].mean(skipna=True), pivot["Control"].mean(skipna=True)]
-        axis.bar(x, means, width=0.34, color=[eye_color, CONTROL_QUANTIFICATION_COLOR], alpha=0.90)
-        for _, row in pivot.iterrows():
+        axis.bar(
+            x,
+            means,
+            width=QUANTIFICATION_BAR_WIDTH,
+            color=[eye_color, CONTROL_QUANTIFICATION_COLOR],
+            alpha=0.82,
+            edgecolor="#222222",
+            linewidth=1.0,
+            zorder=1,
+        )
+        offsets = np.random.default_rng(3000 + set_number).uniform(
+            -QUANTIFICATION_JITTER_HALF_WIDTH,
+            QUANTIFICATION_JITTER_HALF_WIDTH,
+            size=len(pivot),
+        )
+        for offset, (_, row) in zip(offsets, pivot.iterrows(), strict=True):
             values = np.array(
                 [row.get("Eye Drop", np.nan), row.get("Control", np.nan)], dtype=float
             )
             if np.isfinite(values).all():
-                axis.plot(x, values, color="#8A8A8A", linewidth=1.1, alpha=0.55, zorder=2)
+                axis.plot(
+                    x + offset,
+                    values,
+                    color="#777777",
+                    linewidth=1.2,
+                    alpha=0.34,
+                    zorder=2,
+                )
             for xpos, value, color in zip(
                 x, values, [eye_color, CONTROL_QUANTIFICATION_COLOR], strict=True
             ):
                 if np.isfinite(value):
                     axis.scatter(
-                        xpos,
+                        xpos + offset,
                         value,
-                        s=105,
+                        s=QUANTIFICATION_DOT_SIZE,
                         color=color,
                         edgecolor="white",
                         linewidth=1.2,
-                        alpha=0.72,
+                        alpha=0.68,
                         zorder=3,
                     )
-        axis.set_xlim(-0.75, 0.75)
+        axis.set_xlim(-0.92, 0.92)
         axis.set_ylim(0, ymax)
-        axis.set_xticks(x, [f"Eye Drop\n({product_label})", "Control"], fontsize=14)
-        axis.text(0, ymax * 0.94, f"Set {set_number}", ha="center", va="top", fontsize=18)
+        axis.set_xticks(x)
+        axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
+        axis.text(
+            x[0],
+            -0.105,
+            f"({product_label})",
+            transform=axis.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            fontsize=18,
+            clip_on=False,
+        )
+        axis.text(
+            0.5,
+            0.94,
+            f"Set {set_number}",
+            transform=axis.transAxes,
+            ha="center",
+            va="top",
+            fontsize=26,
+        )
+        axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
+        axis.tick_params(axis="y", labelsize=23, labelleft=True, width=1.5, length=6)
         axis.spines[["top", "right"]].set_visible(False)
         if set_number == 1:
-            axis.set_ylabel("Blink Rate (blinks/min)", labelpad=12)
-    figure.tight_layout(w_pad=1.2)
+            axis.set_ylabel("Blink Rate (blinks/min)", fontsize=30, labelpad=12)
+    figure.subplots_adjust(left=0.06, right=0.995, top=0.94, bottom=0.25, wspace=0.24)
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
@@ -1065,12 +1149,12 @@ def save_detection_html(
         "prominence_mad_multiplier": result.thresholds["Fp1_Fp2_mean"]["prominence_mad_multiplier"],
     }
     html = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Blink detection QC</title>
-<style>body{font-family:Arial,sans-serif;margin:16px;color:#202124}.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button{padding:6px 12px}canvas{border:1px solid #777;width:100%;height:620px;cursor:grab;touch-action:none}.hint{color:#555}.line{display:inline-block;width:24px;height:3px;background:#3268A8;margin-right:5px}.dot{display:inline-block;width:10px;height:10px;border:2px solid #D14B45;border-radius:50%;margin-right:5px}</style></head><body>
+<style>body{font-family:Arial,sans-serif;margin:16px;color:#202124;font-size:20px}h1{font-size:30px}.tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}button{padding:8px 14px;font:20px Arial,sans-serif}canvas{border:1px solid #777;width:100%;height:680px;cursor:grab;touch-action:none}.hint{color:#555;font-size:19px}.line{display:inline-block;width:28px;height:4px;background:#3268A8;margin-right:6px}.dot{display:inline-block;width:12px;height:12px;border:2px solid #D14B45;border-radius:50%;margin-right:6px}</style></head><body>
 <h1>ID__SESSION__: Blink detection quality check (MAD-based prominence threshold, k=__MAD_K__)</h1><p><span class="line"></span>Eye Blink Component Signal &nbsp; <span class="dot"></span>Detected blink</p>
 <div class="tools"><button id="xin">x zoom in</button><button id="xout">x zoom out</button><button id="yin">y zoom in</button><button id="yout">y zoom out</button><button id="reset">Reset</button><span id="status"></span></div>
 <p class="hint">Drag or use Left/Right Arrow to move. Mouse wheel or x buttons change the x scale. All sets use equal 0–100 progress units; rest periods are omitted. Axes: Experimental Progress, %; Amplitude (µV).</p>
-<canvas id="plot" width="1700" height="620"></canvas><pre id="readout"></pre>
-<script id="payload" type="application/json">__PAYLOAD__</script><script>"use strict";const P=JSON.parse(document.getElementById('payload').textContent);function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}P.segments.forEach(s=>{if(!s.missing)s.values=decode(s.values)});const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),L=90,R=25,T=30,B=65;let x0=0,x1=600,drag=null,panTimer=null;let all=[];P.segments.forEach(s=>{if(!s.missing)for(const v of s.values)if(Number.isFinite(v))all.push(Math.abs(v))});all.sort((a,b)=>a-b);let baseY=Math.max(10,all[Math.floor(all.length*.995)]*1.60),ys=baseY;function clamp(a,b){const span=Math.max(2,Math.min(600,b-a));a=Math.max(0,Math.min(600-span,a));return[a,a+span]}function zoom(f,r=.5){const c=x0+r*(x1-x0),span=(x1-x0)*f;[x0,x1]=clamp(c-r*span,c+(1-r)*span);draw()}function pan(d){const shift=(x1-x0)*.05*d;[x0,x1]=clamp(x0+shift,x1+shift);draw()}function stopPan(){if(panTimer){clearInterval(panTimer);panTimer=null}}function startPan(d){stopPan();pan(d);panTimer=setInterval(()=>pan(d),80)}function xy(progress,value,w,h){return[L+(progress-x0)/(x1-x0)*w,T+h/2-value/ys*h*.43]}function draw(){ctx.clearRect(0,0,cv.width,cv.height);const w=cv.width-L-R,h=cv.height-T-B;ctx.strokeStyle='#222';ctx.strokeRect(L,T,w,h);ctx.font='16px Arial';ctx.fillStyle='#111';ctx.textAlign='center';for(let t=Math.ceil(x0/50)*50;t<=x1;t+=50){const x=L+(t-x0)/(x1-x0)*w;ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(String(t),x,T+h+25)}for(let s=1;s<6;s++){const p=s*100;if(p<x0||p>x1)continue;const x=L+(p-x0)/(x1-x0)*w;ctx.strokeStyle='#999';ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.setLineDash([])}for(let s=1;s<=6;s++){const p=(s-.5)*100;if(p>=x0&&p<=x1){const tx=L+(p-x0)/(x1-x0)*w;ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillRect(tx-31,T+5,62,21);ctx.fillStyle='#111';ctx.fillText('Set '+s,tx,T+20)}}P.segments.forEach(seg=>{if(seg.missing)return;const start=(seg.set-1)*100,n=seg.values.length;ctx.strokeStyle='#3268A8';ctx.lineWidth=1;ctx.beginPath();const pxCount=Math.max(1,Math.floor(w*2));for(let px=0;px<pxCount;px++){const pa=x0+(x1-x0)*px/pxCount,pb=x0+(x1-x0)*(px+1)/pxCount;if(pb<start||pa>start+100)continue;const a=Math.max(0,Math.floor((pa-start)/100*n)),b=Math.min(n,Math.max(a+1,Math.ceil((pb-start)/100*n)));let lo=Infinity,hi=-Infinity;for(let i=a;i<b;i++){lo=Math.min(lo,seg.values[i]);hi=Math.max(hi,seg.values[i])}if(!Number.isFinite(lo))continue;const x=L+px/pxCount*w;ctx.moveTo(x,xy(pa,lo,w,h)[1]);ctx.lineTo(x,xy(pa,hi,w,h)[1])}ctx.stroke();ctx.strokeStyle='#D14B45';ctx.lineWidth=2;seg.peaks.forEach(i=>{const p=start+i/Math.max(1,n-1)*100;if(p<x0||p>x1)return;const [x,y]=xy(p,seg.values[i],w,h);ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.stroke()})});ctx.fillStyle='#111';ctx.font='20px Arial';ctx.fillText('Experimental Progress, %',L+w/2,cv.height-10);ctx.save();ctx.translate(22,T+h/2);ctx.rotate(-Math.PI/2);ctx.fillText('Amplitude (µV)',0,0);ctx.restore();document.getElementById('status').textContent=`x ${x0.toFixed(1)}–${x1.toFixed(1)} %, y ±${ys.toFixed(1)} µV`}
+<canvas id="plot" width="1800" height="680"></canvas><pre id="readout"></pre>
+<script id="payload" type="application/json">__PAYLOAD__</script><script>"use strict";const P=JSON.parse(document.getElementById('payload').textContent);function decode(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Float32Array(u.buffer)}P.segments.forEach(s=>{if(!s.missing)s.values=decode(s.values)});const cv=document.getElementById('plot'),ctx=cv.getContext('2d'),L=110,R=30,T=36,B=78;let x0=0,x1=600,drag=null,panTimer=null;let all=[];P.segments.forEach(s=>{if(!s.missing)for(const v of s.values)if(Number.isFinite(v))all.push(Math.abs(v))});all.sort((a,b)=>a-b);let baseY=Math.max(10,all[Math.floor(all.length*.995)]*1.60),ys=baseY;function clamp(a,b){const span=Math.max(2,Math.min(600,b-a));a=Math.max(0,Math.min(600-span,a));return[a,a+span]}function zoom(f,r=.5){const c=x0+r*(x1-x0),span=(x1-x0)*f;[x0,x1]=clamp(c-r*span,c+(1-r)*span);draw()}function pan(d){const shift=(x1-x0)*.05*d;[x0,x1]=clamp(x0+shift,x1+shift);draw()}function stopPan(){if(panTimer){clearInterval(panTimer);panTimer=null}}function startPan(d){stopPan();pan(d);panTimer=setInterval(()=>pan(d),80)}function xy(progress,value,w,h){return[L+(progress-x0)/(x1-x0)*w,T+h/2-value/ys*h*.43]}function draw(){ctx.clearRect(0,0,cv.width,cv.height);const w=cv.width-L-R,h=cv.height-T-B;ctx.strokeStyle='#222';ctx.strokeRect(L,T,w,h);ctx.font='20px Arial';ctx.fillStyle='#111';ctx.textAlign='center';for(let t=Math.ceil(x0/50)*50;t<=x1;t+=50){const x=L+(t-x0)/(x1-x0)*w;ctx.strokeStyle='#ddd';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.fillStyle='#111';ctx.fillText(String(t),x,T+h+30)}for(let s=1;s<6;s++){const p=s*100;if(p<x0||p>x1)continue;const x=L+(p-x0)/(x1-x0)*w;ctx.strokeStyle='#999';ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+h);ctx.stroke();ctx.setLineDash([])}for(let s=1;s<=6;s++){const p=(s-.5)*100;if(p>=x0&&p<=x1){const tx=L+(p-x0)/(x1-x0)*w;ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillRect(tx-43,T+5,86,28);ctx.fillStyle='#111';ctx.font='22px Arial';ctx.fillText('Set '+s,tx,T+27);ctx.font='20px Arial'}}P.segments.forEach(seg=>{if(seg.missing)return;const start=(seg.set-1)*100,n=seg.values.length;ctx.strokeStyle='#3268A8';ctx.lineWidth=1;ctx.beginPath();const pxCount=Math.max(1,Math.floor(w*2));for(let px=0;px<pxCount;px++){const pa=x0+(x1-x0)*px/pxCount,pb=x0+(x1-x0)*(px+1)/pxCount;if(pb<start||pa>start+100)continue;const a=Math.max(0,Math.floor((pa-start)/100*n)),b=Math.min(n,Math.max(a+1,Math.ceil((pb-start)/100*n)));let lo=Infinity,hi=-Infinity;for(let i=a;i<b;i++){lo=Math.min(lo,seg.values[i]);hi=Math.max(hi,seg.values[i])}if(!Number.isFinite(lo))continue;const x=L+px/pxCount*w;ctx.moveTo(x,xy(pa,lo,w,h)[1]);ctx.lineTo(x,xy(pa,hi,w,h)[1])}ctx.stroke();ctx.strokeStyle='#D14B45';ctx.lineWidth=2;seg.peaks.forEach(i=>{const p=start+i/Math.max(1,n-1)*100;if(p<x0||p>x1)return;const [x,y]=xy(p,seg.values[i],w,h);ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.stroke()})});ctx.fillStyle='#111';ctx.font='28px Arial';ctx.fillText('Experimental Progress, %',L+w/2,cv.height-14);ctx.save();ctx.translate(30,T+h/2);ctx.rotate(-Math.PI/2);ctx.fillText('Amplitude (µV)',0,0);ctx.restore();document.getElementById('status').textContent=`x ${x0.toFixed(1)}–${x1.toFixed(1)} %, y ±${ys.toFixed(1)} µV`}
 document.getElementById('xin').onclick=()=>zoom(.5);document.getElementById('xout').onclick=()=>zoom(2);document.getElementById('yin').onclick=()=>{ys=Math.max(.1,ys/1.5);draw()};document.getElementById('yout').onclick=()=>{ys*=1.5;draw()};document.getElementById('reset').onclick=()=>{x0=0;x1=600;ys=baseY;draw()};document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();startPan(e.key==='ArrowLeft'?-1:1)}});document.addEventListener('keyup',e=>{if(e.key.startsWith('Arrow'))stopPan()});window.addEventListener('blur',stopPan);cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),q=(e.clientX-r.left)/r.width;zoom(e.deltaY>0?1.5:.67,Math.max(0,Math.min(1,q)))},{passive:false});cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,a:x0,b:x1};cv.style.cursor='grabbing'});cv.addEventListener('pointerup',e=>{drag=null;cv.style.cursor='grab'});cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();if(drag){const d=(e.clientX-drag.x)/r.width*(drag.b-drag.a);[x0,x1]=clamp(drag.a-d,drag.b-d);draw();return}const p=x0+(e.clientX-r.left)/r.width*(x1-x0),set=Math.min(6,Math.max(1,Math.floor(p/100)+1)),seg=P.segments[set-1];if(seg.missing){document.getElementById('readout').textContent=`Set ${set}: missing`;return}const q=Math.max(0,Math.min(1,(p-(set-1)*100)/100)),i=Math.min(seg.values.length-1,Math.round(q*(seg.values.length-1))),peak=seg.peaks.includes(i);document.getElementById('readout').textContent=`Set ${set} | progress ${p.toFixed(2)} % | set time ${(i/P.sfreq).toFixed(3)} s | ${seg.values[i].toFixed(2)} µV | peak ${peak?'yes':'no'}`});draw();</script></body></html>"""
     html = (
         html.replace("__SESSION__", result.session_id)
@@ -1126,6 +1210,7 @@ def process_participant(
         [set_summary(result, spec.pair_id, product_jp) for result in results.values()],
         ignore_index=True,
     )
+    blink_count_balance = condition_blink_count_balance(summaries, spec)
     for configured_product_dir in ("CCube", "VRohtoPremium"):
         configured_product_root = phase_root / configured_product_dir
         for relative_directory in (
@@ -1164,6 +1249,8 @@ def process_participant(
         )
     summary_path = pair_table_dir / f"ID{spec.pair_id}_No1_BlinkSetResults.csv"
     summaries.to_csv(summary_path, index=False)
+    balance_path = pair_table_dir / f"ID{spec.pair_id}_No1_ConditionBlinkCountBalance.csv"
+    pd.DataFrame([blink_count_balance]).to_csv(balance_path, index=False)
     individual_path = (
         phase_root / product_dir / "Individual" / f"ID{spec.pair_id}_No1_BlinkRate_Timecourse.png"
     )
@@ -1173,6 +1260,7 @@ def process_participant(
         "script": Path(__file__).name,
         "participant": asdict(spec),
         "pair_id": spec.pair_id,
+        "condition_blink_count_balance": blink_count_balance,
         "product_directory": product_dir,
         "product_label": product_label,
         "input_root": str(input_root),
@@ -1209,6 +1297,7 @@ def process_participant(
         "outputs": {
             "individual_figure": str(individual_path),
             "set_results_csv": str(summary_path),
+            "condition_blink_count_balance_csv": str(balance_path),
             "blink_detection_qc": {
                 session_id: {
                     "html": str(
@@ -1261,7 +1350,7 @@ def parse_args() -> argparse.Namespace:
         "--prominence-mad-multiplier",
         type=float,
         default=PROMINENCE_MAD_MULTIPLIER,
-        help="MAD multiplier k in median + k * 1.4826 * MAD (default: 10)",
+        help="MAD multiplier k in median + k * 1.4826 * MAD (default: 12)",
     )
     parser.add_argument(
         "--comparison-label",

@@ -9,7 +9,7 @@
 - 入力はPhase 1のセット別 `IDxxx_SetN_blink_signal.h5`
 - 主解析信号の表示名は `Eye Blink Component Signal`。計算は「ICAでICへ分解 → ICLabel eye blink確率0.80以上のICを選択 → そのICのチャンネル別寄与をセンサー空間へ戻す（ICA前EEG−除去後EEGと同値）→ 使用可能なFp1・Fp2を時点ごとに平均 → Phase 3で1–10 Hzゼロ位相フィルタ」の順で行う。通常はFp1・Fp2平均だが、一方がICA学習除外なら残るFp信号を主解析列とする。ID124・209はFp2補助列が全SetでNaNのため主解析列の実体はFp1のみだが、他IDと同じ処理を行う。Phase 1 HDF5の `Fp1_Fp2_mean` はフィルタ前までの結果で、Fp1・Fp2単独はセット別検出数の補助QCのみ
 - 検出用フィルタは1–10 Hz、ピーク検出は `scipy.signal.find_peaks`
-- Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 10 × 1.4826 × MAD`を全セットへ共通適用する。係数10は文献推奨値ではなく、4被験者ペア・8セッションで8／10／12を探索比較して選んだ固定値
+- Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 12 × 1.4826 × MAD`を全セットへ共通適用する。係数12は文献推奨値ではなく、8／10／12の探索比較と係数10による初回全対象出力の過剰検出確認を踏まえて選んだ固定値
 - パーセンタイル閾値は、IDごとに上位一定割合を選んで抽出割合と総数を似通わせ、実際のID差・条件差を弱めるおそれがあるため使用しない
 - 同一瞬きの重複検出を避ける安全条件としてminimum peak distanceを100 ms、瞬きらしい時間幅を保つ形状条件としてpeak widthを20–320 msに固定する
 - 検出確認HTMLはセッションIDごとにMAD方式の1ファイルを作り、同じResetスケールの横長PNGも作る
@@ -20,10 +20,12 @@
 - 個人時間変化、製品群別Grand-average、6パネルセット別定量化を同じNo1の一括実行で出力する。Grand-averageはセット内0〜100%の100点固定グリッドへ、セット境界を越えずに補間して被験者間集計する。セット別定量化は個人ペア図ではなく、条件内の被験者間平均バー・被験者値ドット・被験者内対応線を示す製品群別図とする
 - 欠測セットは補完しない。ID 109 Set 1、ID 120 Set 6、ID 135 Set 2、ID 225 Set 4を欠測として扱う
 - Blink Rate線・SEM帯のPhase 3専用色はControl `#402B5D`、C Cube `#168C80`、V Rohto Premium `#2A91B3`。セット別定量化は同じ条件対応の明度・彩度違いとして、Control `#66547D`、C Cube `#4CA79E`、V Rohto Premium `#62AFC6`を使う
-- 個人Blink Rate図は0始まりで、2条件の線の最大値が縦軸上限の約70%となる5 blinks/min刻みの上限を使う。Grand-averageは各進捗位置の標本SD（`ddof=1`）を有効人数Nの平方根で割ったSEMを用いて平均±SEMを描き、`平均 + SEM` の最大値が縦軸上限の87.5%となる5 blinks/min刻みの上限を製品群ごとに使う
+- 個人Blink Rate図は0始まりで、2条件の線の最大値が縦軸上限の約70%となる5 blinks/min刻みの上限を使う。Grand-averageは各進捗位置の標本SD（`ddof=1`）を有効人数Nの平方根で割ったSEMを用いて平均±SEMを描き、`平均 + SEM` の最大値が縦軸上限の約75%となる5 blinks/min刻みの上限を製品群ごとに使う。Grand-average右下のN・shade説明は表示しない
 - 指定OneDriveの `Phase3_瞬き解析/No1_BlinkRate/` 直下で `CCube/`、`VRohtoPremium/`、`Sub/` に分け、各製品群内を `Individual/`、`GrandAverage/`、`SetQuantification/`、`QualityCheck/` に分ける。HTML・横長PNGは `QualityCheck/BlinkDetection/`、prominence分布PNGは `QualityCheck/ProminenceDistribution/` に保存する。検出確認の凡例は `Eye Blink Component Signal`、縦軸は `Amplitude (µV)` とする。検出成果物は `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で並べ、表・ログはNo1直下の `Sub/` へ分離する
 - Phase 3ではローカルデスクトップへ新しい中間データを保存しない
-- Notionは親ページを確定事項の要約、子ページを詳細手法とする。結果は1行1被験者ペアの統合表とし、行ページ内へ2セッションのQCと、セッション・Set別の平均信号／Fp1／Fp2検出数、セット時間、Blink Rate、閾値、欠測・備考を記録する
+- FigureのSet名・軸名・目盛・凡例はPhase 2と同等の大きさとする。セット別定量化の被験者ドットは固定seedのランダム左右ジッターを加え、同一被験者の2条件を同じoffsetの線で結ぶ
+- Notionは親ページを確定事項の要約、子ページを詳細手法とする。結果は1行1被験者ペアの統合表とし、行ページ内へ2セッションのQCと、セッション・Set別の平均信号／Fp1／Fp2検出数、セット時間、Blink Rate、閾値、欠測・備考を記録する。共通SetのEye Drop／Control総検出数の大きい方÷小さい方が2倍以上なら `条件間瞬き数バランス=要確認` とし、除外判定には使わない
+- 各セッションの目視QCは最大3分。HTMLのx軸を個々のスパイクが見える幅まで拡大し、先頭から末尾まで表示窓を連続的に送って全使用時間を確認する。Reset全景だけの確認は禁止し、終了後はHTMLを閉じる
 
 実行スクリプトは `Phase3_No1_BlinkRate.py` です。被験者ペアは、条件表で確認した1回目ID・2回目ID・目薬ありID・製品を明示します。
 
@@ -39,7 +41,7 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
 
 ## MAD係数の比較実行
 
-正式実行の既定値は係数10のまま固定します。係数比較では `--prominence-mad-multiplier` と `--comparison-label` を明示し、正式成果物を上書きせず `No1_BlinkRate_ParameterComparison/<label>/` へ分離します。3条件の差分確認HTMLは `Phase3_No1_BlinkMADComparison.py` で作成します。比較結果とCodex目視評価は [MAD係数比較記録](../../docs/Phase3_MAD係数比較.md) に記録します。
+正式実行の既定値は係数12に固定します。係数比較を再開する場合だけ `--prominence-mad-multiplier` と `--comparison-label` を明示し、正式成果物を上書きせず `No1_BlinkRate_ParameterComparison/<label>/` へ分離します。過去の比較結果は [MAD係数比較記録](../../docs/Phase3_MAD係数比較.md) に履歴として残します。
 
 ## 実装・実行の完了条件
 

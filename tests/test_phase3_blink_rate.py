@@ -132,7 +132,7 @@ def test_auxiliary_all_nan_channel_is_allowed_but_has_no_threshold():
     assert distributions["Fp2"].size == 0
 
 
-def test_prominence_threshold_uses_median_plus_ten_robust_sd():
+def test_prominence_threshold_uses_median_plus_twelve_robust_sd():
     signal = _set_signal(1, [])
     values = np.array([0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 10.0, 0.0])
     for channel in signal.filtered_uv:
@@ -141,7 +141,7 @@ def test_prominence_threshold_uses_median_plus_ten_robust_sd():
     threshold = thresholds["Fp1_Fp2_mean"]
     expected_median = 2.5
     expected_mad = 1.0
-    expected = expected_median + 10.0 * 1.4826 * expected_mad
+    expected = expected_median + 12.0 * 1.4826 * expected_mad
     assert np.isclose(threshold["prominence_median_uv"], expected_median)
     assert np.isclose(threshold["prominence_mad_uv"], expected_mad)
     assert np.isclose(threshold["prominence_uv"], expected)
@@ -195,8 +195,8 @@ def test_individual_y_axis_places_maximum_near_seventy_percent():
     assert MODULE.individual_figure_y_upper_limit(np.array([10.0, 34.0])) == 50.0
 
 
-def test_grand_y_axis_uses_mean_plus_sem_and_eighty_seven_point_five_percent():
-    assert MODULE.grand_figure_y_upper_limit(np.array([20.0, 43.0])) == 50.0
+def test_grand_y_axis_uses_mean_plus_sem_and_seventy_five_percent():
+    assert MODULE.grand_figure_y_upper_limit(np.array([20.0, 43.0])) == 60.0
 
 
 def test_grand_average_statistics_use_sample_sem_and_valid_n():
@@ -271,7 +271,7 @@ def test_detection_html_uses_eye_blink_component_signal_labels(tmp_path):
             "Fp1_Fp2_mean": {
                 "height_uv": None,
                 "prominence_uv": 1.0,
-                "prominence_mad_multiplier": 10.0,
+                "prominence_mad_multiplier": 12.0,
             }
         },
         {"Fp1_Fp2_mean": np.array([1.0])},
@@ -283,3 +283,22 @@ def test_detection_html_uses_eye_blink_component_signal_labels(tmp_path):
     assert "Eye Blink Component Signal" in html
     assert "Amplitude (µV)" in html
     assert "Filtered amplitude (µV)" not in html
+
+
+def test_condition_blink_count_balance_uses_only_paired_available_sets():
+    spec = MODULE.ParticipantSpec("101", "201", "101", "VRohtoPremium")
+    summaries = MODULE.pd.DataFrame(
+        [
+            {"SessionID": "101", "Set": 1, "Status": "使用", "MeanSignalBlinkCount": 10},
+            {"SessionID": "101", "Set": 2, "Status": "使用", "MeanSignalBlinkCount": 100},
+            {"SessionID": "201", "Set": 1, "Status": "使用", "MeanSignalBlinkCount": 25},
+            {"SessionID": "201", "Set": 2, "Status": "欠測", "MeanSignalBlinkCount": np.nan},
+        ]
+    )
+    balance = MODULE.condition_blink_count_balance(summaries, spec)
+    assert balance["paired_sets"] == [1]
+    assert balance["eye_drop_total_blinks"] == 10
+    assert balance["control_total_blinks"] == 25
+    assert balance["larger_to_smaller_ratio"] == 2.5
+    assert balance["balance_status"] == "要確認"
+    assert balance["use_for_exclusion"] is False
