@@ -114,7 +114,7 @@ Phase3_瞬き解析/
 ```
 
 - 各製品群の `HTML/`：セッションID別にMAD方式の検出確認HTMLを保存する
-- 各製品群の `ProminenceDistribution/`：セッションID別に、全候補prominenceの線形軸ヒストグラムとMAD閾値線を示すPNGを保存する
+- 各製品群の `ProminenceDistribution/`：セッションID別に、全候補prominenceの0–500 µVヒストグラムを対数縦軸で表示し、MAD閾値線と500 µV超の候補数を示すPNGを保存する
 - 各製品群の `Individual/`：被験者ペア別PNGを直下へ保存し、被験者別サブフォルダを作らない
 - 各製品群の `GrandAverage/`：製品群別PNGだけを保存する
 - 各製品群の `SetQuantification/`：6パネルPNGを直下へ保存し、被験者別サブフォルダを作らない
@@ -143,6 +143,6 @@ Notionの「フェーズ３：まばたきの解析」配下に、ID・Setごと
 - 実行前にルートREADME、運用ルール、解析上の注意事項、本仕様、Phase 3実行README、NotionのPhase 3ページを確認します。
 - 全対象を同じPythonコードと固定パラメータのループで処理し、IDごとにコードや閾値を手修正しません。
 - まずパイロットIDで、HDF5読込、閾値、ピーク重複、HTML操作、Blink Rate、定量化、欠測、保存、Notion記録を検証します。
-- パイロットID 101／201では、height基準を設けず、prominenceの `中央値 + 10 × 1.4826 × MAD` をセッション共通閾値とし、minimum peak distance 100 ms・peak width 20–320 msを併用する方式を検証します。HTML、線形軸のprominence分布PNG、Blink Rate、定量化、補助表、Notion記録を確認します。
+- パイロットID 101／201では、height基準を設けず、prominenceの `中央値 + 10 × 1.4826 × MAD` をセッション共通閾値とし、minimum peak distance 100 ms・peak width 20–320 msを併用する方式を検証します。HTML、0–500 µV・対数縦軸のprominence分布PNG、Blink Rate、定量化、補助表、Notion記録を確認します。
 - 実行成功だけで完了とせず、OneDrive成果物、CSV・JSONの読み戻し、HTML操作、Notion読み戻しを確認します。
 - 許可済み範囲の通常実行、出力確認、Notion更新、Git操作に利用者承認を求めません。許可範囲外、安全上の問題、または自力で解決できない阻害要因がある場合だけ停止します。

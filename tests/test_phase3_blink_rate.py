@@ -111,6 +111,19 @@ def test_prominence_threshold_uses_median_plus_ten_robust_sd():
     assert np.isclose(threshold["prominence_uv"], expected)
 
 
+def test_prominence_threshold_accepts_explicit_comparison_multiplier():
+    signal = _set_signal(1, [])
+    values = np.array([0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 10.0, 0.0])
+    for channel in signal.filtered_uv:
+        signal.filtered_uv[channel] = values.copy()
+    thresholds, _ = MODULE.calculate_session_thresholds(
+        {1: signal}, prominence_mad_multiplier=8.0
+    )
+    threshold = thresholds["Fp1_Fp2_mean"]
+    assert np.isclose(threshold["prominence_uv"], 2.5 + 8.0 * 1.4826)
+    assert threshold["prominence_mad_multiplier"] == 8.0
+
+
 def test_rate_smoothing_is_centered_and_keeps_raw_rate():
     signal = _set_signal(120, [5, 10, 20, 40, 90])
     frame = MODULE.calculate_blink_rate(signal)

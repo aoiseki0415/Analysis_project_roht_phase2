@@ -12,7 +12,7 @@
 - Peak height基準は設けず、同一セッションの使用可能な全セットからprominenceの中央値・MADを求め、`中央値 + 10 × 1.4826 × MAD`を全セットへ共通適用
 - 同一瞬きの重複検出を避ける安全条件としてminimum peak distanceを100 ms、瞬きらしい時間幅を保つ形状条件としてpeak widthを20–320 msに固定する
 - 検出確認HTMLはセッションIDごとにMAD方式の1ファイルを作る
-- 全候補prominenceの分布とMAD閾値線を、通常の線形軸のPNGとしてセッションIDごとに作る
+- 全候補prominenceの分布とMAD閾値線を、横軸0–500 µV・縦軸対数のPNGとしてセッションIDごとに作り、500 µV超の候補数も図中へ記す
 - Blink Rate時間変化は60秒中心化窓、1秒刻み、端点は実際の窓長で補正する。さらにセット内だけで15秒中心化単純移動平均を適用し、その後0〜600へ変換する
 - セット別定量値は検出総数をセット実時間（分）で割る。移動窓値の時間平均は使用しない
 - Cキューブ群とVロートプレミアム群を分け、各群でEye Drop対Controlを被験者内比較
@@ -32,6 +32,10 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
 ```
 
 複数被験者は `--participant` を繰り返すか、`first_session_id`、`second_session_id`、`drops_session_id`、`product` の4列を持つ非公開manifestを `--manifest` で指定します。ID番号帯から条件を推測しません。
+
+## MAD係数の比較実行
+
+正式実行の既定値は係数10のまま固定します。係数比較では `--prominence-mad-multiplier` と `--comparison-label` を明示し、正式成果物を上書きせず `No1_BlinkRate_ParameterComparison/<label>/` へ分離します。3条件の差分確認HTMLは `Phase3_No1_BlinkMADComparison.py` で作成します。比較結果とCodex目視評価は [MAD係数比較記録](../../docs/Phase3_MAD係数比較.md) に記録します。
 
 ## 実装・実行の完了条件
 
