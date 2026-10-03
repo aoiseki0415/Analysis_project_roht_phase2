@@ -1,105 +1,264 @@
 # Phase 4 脳波解析仕様
 
-## 1. 位置づけ
+## 1. 文書の位置づけ
 
-Phase 4では、事前定義した単一チャンネル×周波数帯について、目薬あり条件とコントロール条件の脳活動を比較します。使用した目薬で被験者をCキューブ群とVロートプレミアム群に分け、製品群ごとに解析します。
+本書は、Phase 4の解析スクリプトを同じ入力から同じ計算・同じfigureとして再現するための現行正本です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。
+
+Phase 4は、使用した目薬で被験者をCキューブ群とVロートプレミアム群に分け、製品群ごとにEye DropとControlを被験者内比較します。
 
 | No | 指標 | 代表ch | 周波数帯 | 主な解釈 | 状態 |
 |---|---|---:|---:|---|---|
-| No1 | frontal-midline theta（Fmθ） | Fz | 4–7 Hz（両端を含む） | 認知負荷 | 本書で確定 |
-| No2 | occipital alpha | Oz | 8–15 Hz（両端を含む） | 不注意・マインドワンダリング | 代表chと帯域のみ確定 |
-| No3 | frontal delta | Fz | 未確定 | 疲労・眠気 | 代表chのみ確定 |
+| No1 | frontal-midline theta（Fmθ） | Fz | 4–7 Hz（両端を含む） | 認知負荷・認知的努力 | 本書で実装仕様を確定 |
+| No2 | occipital alpha | Oz | 8–15 Hz（両端を含む） | 不注意・マインドワンダリング | 代表ch・帯域・配色のみ確定 |
+| No3 | frontal delta | Fz | 未確定 | 疲労・眠気 | 代表ch・配色のみ確定 |
 
 代表chの文献根拠は[Phase 4 解析対象チャンネル文献調査](Phase4_解析対象チャンネル文献調査.md)を参照します。
 
-## 2. No1 Fmθ解析の目的
+## 2. No1の目的と成果物
 
-Fzの4–7 Hzパワーについて、次を作成します。
+No1は、Phase 1で作成した連続EEGから全32chの4–7 Hzパワー時間変化を一度だけ計算・保存し、その保存データから次を作成します。
 
-1. 個人ごとの時間変化
-2. 製品群別Grand-average
-3. Set別および全Set統合の定量化と条件間比較
-4. 全32chの条件差から作る、Set別topography
+1. Fzの個人時間変化figure
+2. Fzの製品群別Grand-average figureと集計表
+3. FzのSet別定量化figure、全Set統合figure、統計表
+4. 全32chの `Eye Drop − Control` 差を示す個人topography
+5. 製品群別Grand-average topography
+6. 入力検査、計算、欠測、有効N、出力を追跡する表とログ
 
-## 3. 入力データ
+試行epochは作りません。Set内の連続EEGを解析します。
 
-- Phase 1で保存した `IDxxx_SetN_brain_activity.h5` を入力とします。
-- サンプリング周波数は256 Hzです。
-- 保存信号はV単位のため、PSD計算前にµVへ変換します。
-- 平均参照とラプラシアンは追加しません。
-- 代表chのfigureはFzを使いますが、PSDは最初から全32chで一度だけ計算します。
-- Phase 1の区間除外mask、ICA除外チャンネルmask・名称・理由を読み込み、キャッシュへ引き継ぎます。
+## 3. 対象者・条件対応・実行前検査
 
-## 4. PSD時間変化の計算
+### 3.1 manifest
 
-MNE-PythonのWelch法を用い、次を固定します。
+Phase 2・3と同じ非公開manifestを使用します。必須列は次の4列です。
+
+```text
+first_session_id,second_session_id,drops_session_id,product
+```
+
+- `drops_session_id` は2セッションのいずれかでなければなりません。
+- Control IDは、2セッションのうち `drops_session_id` ではない方として決定します。
+- 製品群と目薬実施回はGoogle Driveの匿名共有スプレッドシートと照合します。
+- IDの100番台／200番台だけで条件を推測しません。
+- 本番対象は40被験者ペア、80セッション、製品群各20名です。
+- ID130・230を含めません。
+- 被験者ペア重複、セッションID再利用、対象外ID混入をエラーにします。
+
+### 3.2 入力HDF5の全件preflight
+
+本計算前に、OneDriveへ出力せず全入力を検査します。
+
+- ファイル名：`IDxxx_SetN_brain_activity.h5`
+- `participant_id`、`set_number`が対象と一致
+- `data_kind == brain_activity_eeg`
+- `sampling_frequency_hz == 256`
+- `signal_unit == V`
+- `signal/data` が `n_samples × 32`
+- `signal/channel_names` がPhase 1の固定32ch順と完全一致
+- `time/relative_seconds`、`time/OriginalTimestamp`、`qc/ica_training_excluded_mask` の長さが `n_samples` と一致
+- `qc/ica_channel_excluded_mask` が32要素
+- EEG値が有限値であること
+- 既知の欠測Set以外が存在し、既知の欠測Setが誤って存在しないこと
+
+検査不合格時はPSDを計算せず、対象、ファイル、理由をログへ記録して停止します。IDごとの場当たり的な補正は行いません。
+
+## 4. Phase 1入力の読み方
+
+| 内容 | HDF5位置 | 型・単位 | 用途 |
+|---|---|---|---|
+| EEG | `signal/data` | `n_samples × 32`, float, V | PSD入力 |
+| ch名 | `signal/channel_names` | 32要素 | Fz抽出・topography |
+| Set内時刻 | `time/relative_seconds` | 秒 | 窓中心・progress |
+| 実時刻 | `time/OriginalTimestamp` | 秒 | 出力時刻対応 |
+| ICA用区間除外 | `qc/ica_training_excluded_mask` | `n_samples` bool | 保存のみ。現行PSD除外には使わない |
+| ICA用ch除外 | `qc/ica_channel_excluded_mask` | 32要素bool | 保存のみ。現行PSD除外には使わない |
+| ch除外詳細 | `qc/ica_excluded_channel_records_json` | JSON | 監査情報 |
+| 区間除外詳細 | `qc/ica_training_exclusions_json` | JSON | 監査情報 |
+
+- `signal/data` をfloat64として読み、`× 1e6`でVからµVへ変換してからPSDを計算します。
+- 平均参照、再参照、ラプラシアン、追加フィルタ、追加detrendを行いません。
+- Phase 1でEye成分除去済みの脳活動解析用EEGをそのまま使用します。
+- 代表figureはFzですが、PSDは全32chで同時に計算します。
+
+## 5. PSD計算の完全仕様
+
+### 5.1 使用関数
+
+`mne.time_frequency.psd_array_welch()` を使用します。時間窓の切り出しはNumPyで行い、各1秒窓に対してWelch PSDを計算します。
+
+```python
+psd, freqs = mne.time_frequency.psd_array_welch(
+    window_uv.T,
+    sfreq=256.0,
+    fmin=4.0,
+    fmax=7.0,
+    n_fft=256,
+    n_per_seg=256,
+    n_overlap=0,
+    window="hann",
+    average="mean",
+    output="power",
+    remove_dc=True,
+    verbose=False,
+)
+```
+
+外側の時間窓を128 samplesずつ移動するため、関数内部では1つの256-sample segmentだけを評価し、`n_overlap=0`とします。窓内平均除去は `remove_dc=True` で明示します。
+
+### 5.2 固定パラメータ
 
 | 項目 | 設定 |
 |---|---|
-| 手法 | Welch PSD |
-| 窓 | Hann窓、1秒（256 samples） |
-| 移動幅 | 0.5秒（128 samples） |
-| overlap | 50% |
-| FFT長 | 256 |
+| サンプリング周波数 | 256 Hz |
+| 入力単位 | µV |
+| 外側窓長 | 256 samples = 1秒 |
+| 通常の窓移動 | 128 samples = 0.5秒 |
+| 窓関数 | Hann |
+| `n_fft` | 256 |
+| `n_per_seg` | 256 |
+| 関数内overlap | 0 |
 | 周波数分解能 | 1 Hz |
-| No1の帯域 | 4、5、6、7 Hzの算術平均 |
-| 単位 | µV²/Hz |
-| Set両端 | 反射paddingを前後0.5秒付加し、Set開始・終了を窓中心として評価 |
-| 時間平滑化 | 現時点では行わない |
-| 区間maskによるPSD除外 | 現時点では行わない |
-| ICA除外chによるPSD除外 | 現時点では行わない |
+| 対象bin | 4、5、6、7 Hz |
+| 帯域代表値 | 4 binの算術平均 |
+| PSD単位 | µV²/Hz |
+| 対数変換 | なし |
+| dB変換 | なし |
+| 時間平滑化 | 現時点ではなし |
+| 区間maskによるNaN化 | 現時点ではなし |
+| ch除外 | 現時点ではなし |
 
-PSDは線形値のまま扱い、対数変換やdB変換は行いません。平滑化、区間maskによるNaN化、チャンネル除外は将来追加する可能性がありますが、現行主解析には含めません。
+現行MNE 1.13の実シグネチャで利用可能な `output="power"` を明示し、パワーPSDを取得します。返された周波数が `[4., 5., 6., 7.]` と一致しない場合はエラーにします。周波数方向は `np.mean(psd, axis=-1)` で平均します。
 
-## 5. 計算データの保存と再利用
+### 5.3 Set端の反射paddingと窓中心
 
-PSD計算とfigure作成を分離し、figure調整のたびにPSDを再計算しません。全32chについて4–7 Hz平均後のPSD時間変化を、セッションIDごとに1つのHDF5へ保存します。HDF5内はSet単位で分けます。
+Setの先頭・末尾までPSDを定義するため、各chのSet信号を前後128 samplesずつ `np.pad(..., mode="reflect")` で延長します。
 
-保存内容は次のとおりです。
+- 窓中心sampleは `0, 128, 256, ...` とします。
+- 最後の中心が元信号の `n_samples - 1` でない場合、`n_samples - 1` を追加します。
+- 各中心 `c` に対し、元信号上の `c - 128` から `c + 127` に相当する256 samplesを反射padding後の配列から取得します。
+- 最初の窓中心はSet開始、最後の窓中心はSet終了です。
+- 通常点の間隔は0.5秒ですが、最後だけ直前の中心との間隔が0.5秒未満になることがあります。
+- padding部分はPSD計算の文脈だけに使い、保存時刻は元Set内の中心時刻を使います。
 
-- 全32chの帯域平均PSD時間変化
-- 固定したチャンネル順
-- Set内相対秒
-- 各窓中心の `OriginalTimestamp`
-- Set内progressと、6 Setを連結した全体progress
-- PSDパラメータと単位
-- Phase 1の区間mask、ICA除外ch mask・名称・理由
-- 元入力ファイルとSet番号
+### 5.4 窓中心時刻とprogress
 
-ファイルは同一被験者の2セッションが連続する名称にします。
+- `relative_seconds_center = time/relative_seconds[c]`
+- `OriginalTimestamp_center = time/OriginalTimestamp[c]`
+- `set_progress_pct = c / (n_samples - 1) × 100`
+- `global_progress_pct = (Set番号 - 1) × 100 + set_progress_pct`
+
+Set実時間の違いはprogress軸だけで線形伸縮します。PSDの1秒窓・0.5秒移動は必ず実時間で計算し、progress変換後に計算しません。
+
+## 6. 現時点で適用しない処理
+
+次は将来追加される可能性がありますが、現行主解析には含めません。
+
+### 6.1 時間平滑化
+
+- PSD時間変化に移動平均、Gaussian、LOESS等をかけません。
+- 後日追加する場合は、保存済みの未平滑PSDから派生列を作り、未平滑値を上書きしません。
+- 窓幅、型、端処理を仕様書とメタデータへ追加してから実行します。
+
+### 6.2 Phase 1区間除外mask
+
+- `ica_training_excluded_mask` はICA学習専用の除外情報です。
+- 現行PSDでは、その時刻を削除、補間、NaN化しません。
+- maskはPSD窓との重なり率を後から求められる形でキャッシュへ保持します。
+- 後日除外する場合は、窓内mask率の閾値を先に確定し、PSD値を詰めずにNaN化します。時間軸は保持します。
+
+### 6.3 ICA用ch除外mask
+
+- 最終脳活動HDF5には32chが保持されているため、現行PSDでは全32chを計算します。
+- `ica_channel_excluded_mask` がtrueのchも削除・NaN化しません。
+- 後日除外する場合も列順を変えず、対象chのPSDをNaN化し、ch maskを保持します。
+
+## 7. PSDキャッシュHDF5
+
+### 7.1 保存先と命名
 
 ```text
-Pair101-201_01_ID101_FmTheta_AllChannelsPSD.h5
-Pair101-201_02_ID201_FmTheta_AllChannelsPSD.h5
-Pair102-202_01_ID102_FmTheta_AllChannelsPSD.h5
-Pair102-202_02_ID202_FmTheta_AllChannelsPSD.h5
+/Users/aoiseki/Desktop/SandBox_ロート案件（データ）/解析に必要なデータたち/
+  Phase4_脳波解析/
+    No1_FmTheta/
+      PSDTimeSeries/
+        Pair101-201_01_ID101_FmTheta_AllChannelsPSD.h5
+        Pair101-201_02_ID201_FmTheta_AllChannelsPSD.h5
 ```
 
-将来作る同一スクリプト内では、少なくとも「PSD計算・保存」「個人figure」「Grand-average」「定量化・統計」「topography」を独立して実行できる構成にします。
+同じ被験者の1回目・2回目がファイル名順で連続するよう、`Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` を使います。
 
-## 6. 時間変化figure
+### 7.2 HDF5構造
 
-### 6.1 個人figure
+```text
+attrs/
+  participant_id, pair_id, session_order, condition, product
+  source_pipeline, sampling_frequency_hz, input_signal_unit
+  psd_unit, psd_method, window_samples, step_samples
+  n_fft, n_per_seg, n_overlap, window_function
+  fmin_hz, fmax_hz, included_frequencies_hz
+  time_smoothing, interval_mask_policy, channel_mask_policy
+signal/
+  channel_names                       [32]
+sets/
+  Set1/
+    psd_band_mean                     [n_windows, 32], float32, µV²/Hz
+    relative_seconds_center           [n_windows], float64
+    OriginalTimestamp_center          [n_windows], float64
+    set_progress_pct                  [n_windows], float64
+    global_progress_pct               [n_windows], float64
+    source_center_sample              [n_windows], int64
+    ica_training_mask_fraction        [n_windows], float32
+    attrs: source_file, source_n_samples, available
+  ...
+qc/
+  ica_channel_excluded_mask           [32], bool
+  ica_excluded_channel_records_json
+  source_set_availability             [6], bool
+```
 
-- 1被験者ペアにつき1枚とし、Eye DropとControlの2線を描きます。
-- Set 1〜6を横方向へ連結します。
-- 横軸は `Experimental Progress, %` とし、Set 1を0–100、Set 2を100–200、最終的に600までとします。
-- 横軸への変換は、各Setの実時間上のPSD窓中心を、そのSet内の0–100%へ線形変換してから連結します。
-- Set境界は薄いグレーの点線、Set名は図内上部へ表示します。
-- 縦軸は `PSD (µV²/Hz)` とします。二乗は上付き文字で表示します。
-- 同一figureの両条件・全Setで縦軸を共通化します。縦軸範囲は被験者ごとに調整できます。
-- Arialを使用し、軸名、目盛り、凡例、Set名の大きさと余白はPhase 2・3の確定figure様式へ合わせます。
-- 現時点では平滑化しません。
+- `psd_band_mean`の列順は`signal/channel_names`と完全一致させます。
+- 欠測Setのgroupは作成せず、`source_set_availability`をfalseにします。
+- gzip圧縮、`compression_opts=4`、`shuffle=True`を使用します。
+- 保存後に全datasetを読み戻し、shape、単位、ch順、時刻単調増加、progress範囲、有限値を検証します。
+- 設定hashと入力ファイルのパス・サイズ・mtimeをログへ残し、設定不一致の既存cacheは再利用しません。
 
-### 6.2 Grand-average
+### 7.3 再計算制御
 
-- Cキューブ群とVロートプレミアム群を別々に作成します。
-- 各Setを共通progress格子へ補間した後、被験者間平均を計算します。
-- 平均線と平均±SEMのシェードを表示します。
-- 凡例にNやシェードの説明文は追加しません。有効Nは表へ保存します。
-- 同一figureの両条件・全Setで縦軸を共通化します。
+将来のスクリプトは次の独立モードを持たせます。
 
-## 7. 配色
+- `--preflight-only`：入力検査だけ
+- `--compute-psd`：PSD cache作成と読み戻し検証
+- `--individual-only`：既存cacheから個人figureだけ作成
+- `--group-outputs-only`：既存cacheからGrand-average、定量化、統計、topographyを作成
+- `--all`：preflight、必要なcache計算、全figure・表・ログ作成
+- `--force-recompute`：利用者が明示した場合だけ既存cacheを再計算
+
+通常は既存cacheの設定hashと完全性が一致すれば再利用します。figureデザイン変更では`--individual-only`または`--group-outputs-only`を使います。
+
+## 8. 共通figureデザイン
+
+| 項目 | 固定値 |
+|---|---|
+| フォント | Arial |
+| PNG解像度 | 180 dpi |
+| 軸線幅 | 1.5 pt |
+| 上・右spine | 非表示 |
+| 軸名 | 28 pt（定量化のy軸のみ30 pt） |
+| 目盛数字 | 時間変化20 pt、定量化23 pt |
+| 凡例 | 20 pt、枠なし |
+| Set名 | 時間変化22 pt、定量化26 pt |
+| 時間変化の条件線 | 3.0 pt |
+| Set境界 | `#9E9E9E`、破線、1.5 pt |
+| 横軸目盛線 | 幅1.5 pt、長さ6 pt |
+| 背景 | 白 |
+| タイトル | 原則付けない |
+
+すべての軸名・凡例は英語とし、単位を必ず表示します。色だけに依存せず、凡例で条件を明示します。
+
+## 9. 配色
+
+### 9.1 時間変化・Grand-average
 
 | 解析 | Control | Cキューブ Eye Drop | Vロートプレミアム Eye Drop |
 |---|---|---|---|
@@ -107,47 +266,148 @@ Pair102-202_02_ID202_FmTheta_AllChannelsPSD.h5
 | No2 alpha | `#402B5D` | `#C23B8A` | `#E36A8D` |
 | No3 delta | `#402B5D` | `#8F7300` | `#C29A00` |
 
-定量化figureは同じ対応関係を保ち、時間変化figureと区別できるよう明度または彩度だけを調整します。
+### 9.2 No1定量化
 
-## 8. 定量化と統計
+- Control：`#66547D`
+- Cキューブ Eye Drop：`#C47A5B`
+- Vロートプレミアム Eye Drop：`#E69A7D`
 
-- 被験者ごとのSet値は、そのSet内のFzの線形PSD時間変化を時間方向に単純平均して算出します。
-- 全Set統合値は、両条件で共通して利用可能なSetのPSD時点をまとめ、時間方向に単純平均します。
-- Set別figureは6パネルを横一列に並べます。
-- 左にEye Drop、右にControlを置き、平均バー、被験者ドット、被験者内対応線を描きます。
-- ドットには再現可能なjitterを適用し、白い枠線を付けます。
-- 全Set統合figureは1パネルとします。
-- 検定は両側対応ありt検定です。
-- 主PNGは未補正p値を表示します。
-- Set別統計CSVには未補正、Bonferroni、Holm、Benjamini–Hochberg FDRを併記します。
-- 全Set統合は1検定なので、多重比較補正を行いません。
-- 両条件に有限値がある被験者だけを各検定に使用します。
+条件と製品の対応は変えず、時間変化線と区別するため明度・彩度だけを変えます。
 
-## 9. Topography
+## 10. 個人時間変化figure
 
-各被験者ペア・各Set・各chで、`Eye Drop − Control` のSet平均PSD差を算出します。
+- 1被験者ペア1 PNG。ControlとEye Dropの2線を描きます。
+- 条件ラベル：`Control`、`Eye Drop (C Cube)`または`Eye Drop (V Rohto Premium)`
+- 欠測Setは線をつながず、該当条件側だけ空白にします。
+- figure size：`24 × 8 inch`
+- 横軸：`Experimental Progress, %`、範囲0–600、50刻み
+- Set境界：100、200、300、400、500
+- Set名：50、150、250、350、450、550、axes高さ0.96
+- 縦軸：`PSD (µV²/Hz)`、下限0
+- 両条件・全Setの有限最大値を `M` とし、y上限は `M / 0.70` 以上となる切りのよい値
+- y目盛は0を含む3〜6個。`1, 2, 2.5, 5 × 10^n`の候補から5個に最も近い間隔を選びます。
+- Controlを先に、Eye Dropを後に描き、線幅3.0 pt、alpha 1.0とします。
+- 凡例：上中央、`bbox_to_anchor=(0.5, 1.18)`、2列、枠なし、20 pt
+- margins：left 0.08、right 0.99、top 0.78、bottom 0.20
+- 横グリッドなし、180 dpi、`bbox_inches="tight"`
 
-### 9.1 個人topography
+## 11. Grand-average時間変化figure
 
-- 1被験者ペアにつき、Set 1〜6を横一列に並べます。
-- 発散色を用い、0を色中心とします。
-- カラースケールは、その被験者の利用可能な全Set・全chの最大絶対値から対称に決め、Set間で共通化します。
-- 被験者間ではカラースケールが異なって構いません。
-- 欠測Setは補間せず、空欄または `Missing` と表示します。
+### 11.1 progress格子と集計
 
-### 9.2 Grand-average topography
+- 各Setを `np.linspace(0, 100, 100, endpoint=False)` の100点へ線形補間します。
+- 補間は各被験者・各条件・各Set内だけで行い、Set間をまたぎません。
+- 欠測Setは100点すべてNaNです。既知欠測ペアでは対応条件側も同じSetをNaNにします。
+- 各progress点で有限値だけから平均、標本SD（`ddof=1`）、N、`SEM = SD / sqrt(N)`を計算します。
+- N=1では平均は保存し、SD・SEMはNaNとします。
 
-- 製品群ごとに作成します。
-- 各Setで、利用可能な被験者の条件差topographyを被験者間平均します。
-- 6 Setを横一列に並べ、同一製品群のSet間で共通の対称カラースケールを使います。
-- colorbarは `ΔPSD (µV²/Hz)` とします。
-- 現時点では有意差記号や統計マスクを重ねません。
+### 11.2 figure
 
-電極座標はMNEの `colin27_1020` montageを使用します。現行32chは32/32すべて対応するため、追加の座標ファイルは不要です。
+- 製品群ごとに1 PNG、figure size `24 × 8 inch`
+- x軸、Set境界、Set名、文字、線、凡例、余白は個人figureと同じです。
+- 平均線3.0 pt、SEM帯は条件色・alpha 0.18・境界線なしです。
+- y下限は0です。両条件の `mean + SEM` の有限最大値を `M` とし、y上限は `M / 0.75` 以上となる切りのよい値にします。
+- y目盛は0を含む3〜6個です。
+- Cキューブ群とVロートプレミアム群のy軸は、両群の候補上限の大きい方に統一します。
+- 凡例へNやSEMの説明文は追加しません。
+- progress別mean、SD、SEM、NをCSVへ保存します。
 
-## 10. 欠測Setの扱い
+## 12. Set別・全Set統合定量化
 
-既知の欠測は次のとおりです。
+### 12.1 被験者値
+
+- Set別値：そのSetのFzの全PSD窓の線形値を時間方向に`np.mean`します。
+- 全Set統合値：両条件で共通利用可能なSetのFz PSD窓を全て連結し、時間方向に`np.mean`します。
+- Set平均の再平均はせず、PSD窓をプールして時間長を反映します。
+- 欠測または対称除外SetはNaNです。時間平滑化値は使用しません。
+
+### 12.2 Set別figure
+
+- 6パネル横一列、`figsize=(34, 9)`、`sharey=True`
+- 左Eye Drop、右Control
+- bar中心 `[-0.32, 0.32]`、bar幅0.42、x範囲`[-0.90, 0.90]`
+- bar alpha 0.82、枠`#222222`・1.0 pt
+- dot size 150、alpha 0.68、白枠1.2 pt
+- 対応線 `#777777`・1.2 pt・alpha 0.34
+- jitterは両条件で同一offset、最大±0.055、固定seed `4000 + Set番号`
+- x条件名22 pt、製品名18 pt、y目盛23 pt、y軸名30 pt、Set名26 pt
+- 全6パネルにy目盛数字を表示します。
+- margins：left 0.06、right 0.995、top 0.94、bottom 0.25、wspace 0.24
+- 上・右spine非表示、グリッドなし、180 dpi
+
+### 12.3 統計表示とy軸
+
+全パネルの有限な被験者定量値の最大値を `M` とします。
+
+- 統計ブラケット `1.13M`
+- `*`中心 `1.17M`
+- `n.s.`中心 `1.18M`
+- Set名中心 `1.29M`
+- y上限 `1.37M`
+- ブラケットは黒・2.2 pt・縦capはaxes高さ0.018
+- `n.s.`は26 pt、Arial、normal
+- `*`、`**`、`***`は42 pt、Arial、bold
+- `p < 0.05`=`*`、`p < 0.01`=`**`、`p < 0.001`=`***`、その他=`n.s.`
+- y下限0、y目盛は0を含む3〜6個です。
+
+### 12.4 全Set統合figure
+
+- 1パネル、`figsize=(7.5, 9)`
+- bar、dot、対応線、統計位置、文字、色はSet別と同じです。
+- 表示名は `All Sets`、jitter seedは7001です。
+- margins：left 0.20、right 0.98、top 0.94、bottom 0.25
+
+## 13. 統計
+
+- `scipy.stats.ttest_rel()`による両側対応ありt検定
+- 各Setで両条件が有限の被験者だけを使用
+- 差は `Eye Drop − Control`
+- N、t、自由度、未補正p、平均差、差のSD、95% CI、Cohen's dzを保存
+- 主PNGは未補正p値の記号を表示
+- 6 SetのCSVには未補正、Bonferroni、Holm、Benjamini–Hochberg FDRのp値を保存
+- 全Set統合は1検定なので多重比較補正なし
+- 共通 `解析プログラム/paired_statistics.py` を再利用
+
+## 14. Topography
+
+### 14.1 値の作成
+
+各被験者ペア・Set・chで、Set内全PSD窓を時間平均し、`Eye Drop − Control`を計算します。欠測Setは計算せず、補間、空間平滑化、平均参照、ラプラシアンを追加しません。
+
+### 14.2 描画関数と座標
+
+- `mne.channels.make_standard_montage("colin27_1020")`
+- `mne.create_info(channel_names, sfreq=256, ch_types="eeg")`
+- `info.set_montage(montage, match_case=False, on_missing="raise")`
+- `mne.viz.plot_topomap()`
+- cmap `RdBu_r`、0中心、`vlim=(-V, V)`
+- `sensors=True`、`names=False`、`contours=6`、`extrapolate="head"`
+- sphereはMNE自動推定
+- 現行32chが32/32対応することをpreflightで再確認
+
+### 14.3 個人topography
+
+- 1被験者ペア1 PNG、6 Set横一列、`figsize=(30, 5.5)`、180 dpi
+- Set title 22 pt、Arial
+- `V`は、その被験者の利用可能な全Set・全chの差の最大絶対値
+- 同一被験者の6 Setで共通スケール、被験者間では変更可
+- 欠測Setは中央へ `Missing` を22 ptで表示
+- 共通colorbarを右端に1本
+- colorbar label `ΔPSD (µV²/Hz)`・24 pt、tick 18 pt
+- figure titleなし
+
+### 14.4 Grand-average topography
+
+- 製品群ごとに1 PNG、6 Set横一列
+- 各Setで有限な被験者差をchごとに平均
+- 既知欠測ペアは該当Setから除外
+- `V`は、その製品群の全Set・全chの群平均差の最大絶対値
+- 同一製品群の6 Setで共通スケール
+- Setごとの有効Nを表へ保存
+- figure size、title、colorbar、文字は個人版と同じ
+- 統計mask、有意電極、欠測補間は現時点で重ねない
+
+## 15. 欠測Setの完全な扱い
 
 | 欠測セッション | 欠測Set | 対応セッション |
 |---|---:|---|
@@ -156,25 +416,16 @@ Pair102-202_02_ID202_FmTheta_AllChannelsPSD.h5
 | ID135 | Set 2 | ID235 |
 | ID225 | Set 4 | ID125 |
 
-- 個人時間変化figure：欠測セッション側の該当Setだけ線を描かず、対応条件側は描画します。
-- Grand-average・定量化：被験者内対応を保つため、対応条件側も同じSetを除外します。
-- 全Set統合：両条件で共通して利用可能なSetだけを使います。
-- 個人topography：条件差が作れないため、そのSetを空欄または `Missing` とします。
-- Grand-average topography：そのSetでは該当ペアを除外します。
-- 欠測を補間しません。Setごとの有効Nを保存します。
+- PSD cache：欠測セッションの該当Setは作らず、対応側は作ります。
+- 個人時間変化：欠測側だけ空白、対応側は描画し、欠測を線で接続しません。
+- Grand-average：該当ペアの両条件をそのSetでNaN化します。
+- Set別定量化：該当ペアの両条件をNaNとし、dot・bar・検定から除外します。
+- 全Set統合：両条件で共通利用可能な5 Setだけをプールします。
+- 個人topography：該当Setは `Missing` とします。
+- Grand-average topography：該当Setではそのペアを除外します。
+- 欠測を前詰め、時間補間、Set間補間しません。
 
-## 11. 保存先
-
-### ローカル計算データ
-
-```text
-/Users/aoiseki/Desktop/SandBox_ロート案件（データ）/解析に必要なデータたち/
-  Phase4_脳波解析/
-    No1_FmTheta/
-      PSDTimeSeries/
-```
-
-### OneDrive成果物
+## 16. OneDrive成果物・表・ログ
 
 ```text
 実験本番_本解析/
@@ -196,16 +447,73 @@ Pair102-202_02_ID202_FmTheta_AllChannelsPSD.h5
           GrandAverage/
       Sub/
         tables/
+          GrandAverage/
+          SetQuantification/
+          Topography/
         logs/
 ```
 
-## 12. 実装前確認
+- `Individual/`：被験者ペアごとのFz時間変化PNGだけ
+- `GrandAverage/`：製品群別Fz平均±SEM PNGだけ
+- `SetQuantification/`：Set別PNG、全Set統合PNG、統計CSV
+- `Topography/Individual/`：被験者ペアごとの6 Set topography PNG
+- `Topography/GrandAverage/`：製品群別6 Set topography PNG
+- `Sub/tables/`：progress別集計、被験者別Set平均、統計詳細、topography値・N
+- `Sub/logs/`：preflight、cache hash、実行モード、入力・出力、警告、失敗理由
 
-- 本書とNotionのPhase 4親ページ・No1詳細ページを読み直す。
-- 入力HDF5、256 Hz、V→µV、32ch順、欠測Setを確認する。
-- PSD計算とfigure再描画を分離する。
-- progress変換はPSD窓中心のSet内実時間に基づく。
-- 全figureに英語の軸名、単位、凡例、色の意味を明記する。
-- No1の解析スクリプトは、仕様確認が完了するまで作成しない。
+主成果物フォルダへJSONや補助CSVを混在させません。
+
+## 17. 命名規則
+
+- 個人時間変化：`ID101-201_No1_FmTheta_Individual.png`
+- Grand-average：`No1_FmTheta_GrandAverage_CCube.png`
+- Set別定量化：`No1_FmTheta_SetQuantification_CCube.png`
+- 全Set統合：`No1_FmTheta_AllSetsQuantification_CCube.png`
+- 個人topography：`ID101-201_No1_FmTheta_Topography.png`
+- 群topography：`No1_FmTheta_Topography_GrandAverage_CCube.png`
+- 統計：`No1_FmTheta_SetQuantification_Statistics_CCube.csv`
+
+Vロートプレミアム群は `VRohtoPremium` を使い、探索用の `Pattern`、`Test`、`New` 等は本番名へ入れません。
+
+## 18. Notion記録
+
+Phase 4親ページにはNo1〜No3の概要だけを置きます。No1詳細ページに本書と同じ確定仕様を置き、その下へ文献調査ページを置きます。
+
+解析実行時は、被験者ペア、製品群、Eye Drop ID、Control ID、利用可能Set、欠測Set、cache作成・検証、個人figure、topography、備考を結果表へ記録します。集団結果は製品群、Set、有効N、統計、成果物名を記録します。観察結果と解釈を分けます。
+
+## 19. 実装と完了条件
+
+### 19.1 実装前
+
+- README、本書、運用ルール、解析上の注意事項、フォルダ管理、Notion Phase 4全ページを確認
+- manifestとGoogle Driveの条件対応を照合
+- 全入力preflightに合格
+
+### 19.2 実装
+
+- 全IDへ同じPythonコード・同じ定数を適用
+- ID固有処理は本書の既知欠測Setだけ
+- 計算関数、cache I/O、progress、統計、figure、topographyを関数分離
+- 固定seed、固定色、固定figure定数をコード定数として一元管理
+
+### 19.3 完了
+
+- PSD cacheを読み戻してshape・時刻・ch・単位・有限性を検証
+- 欠測Setの個人／集団処理を検証
+- figureの軸、目盛り、色、線幅、文字、凡例、ファイル名を検証
+- Grand-averageのSEM・Nと定量化の対応NをCSVから再計算して一致確認
+- topographyの差の向きが `Eye Drop − Control` であることを確認
+- OneDrive、ローカルcache、Notion結果、解析の記録を更新
+- Git変更時は検証、commit、push、remote一致後にcommitをNotionへ記録
+
+## 20. 現時点の未確定事項
+
+- No1の時間平滑化を将来追加するか
+- Phase 1区間maskと重なるPSD窓を将来NaN化するか、その重なり率閾値
+- ICA用ch除外maskを将来PSD除外へ使うか
+- No2の完全な実装仕様
+- No3の周波数帯と完全な実装仕様
+
+未確定事項を暗黙実装しません。変更時は本書、Notion、コード、テストを同時更新します。
 
 最終更新：2026年10月3日

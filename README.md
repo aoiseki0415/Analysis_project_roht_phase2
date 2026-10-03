@@ -104,7 +104,7 @@ Phase 3のセット別定量化も、製品群・解析版ごとに6つの両側
 
 Phase 4は、No1 Fmθ（Fz、4–7 Hz）、No2後頭alpha（Oz、8–15 Hz）、No3前頭delta（Fz、帯域未確定）の3解析で構成します。No1は、Phase 1のセット別脳活動解析用HDF5から全32chのWelch PSDを1秒Hann窓・0.5秒移動・1 Hz分解能で一度だけ計算し、4–7 Hz平均後の時間変化をローカルの指定HDF5へ保存します。figure作成、Grand-average、定量化、統計、topographyは保存済みPSDを再利用し、figure調整だけでPSDを再計算しません。
 
-No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。現時点ではPSDの時間平滑化、区間maskによるNaN化、チャンネル除外を行いません。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。詳細と保存構造は[Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)を正本とします。
+No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。現時点ではPSDの時間平滑化、区間maskによるNaN化、チャンネル除外を行いません。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。計算関数と全引数、Set端padding、progress変換、PSDキャッシュ構造、実行モード、各figureの寸法・軸・目盛・文字・線・色・上限、統計位置、topography設定、命名、検証条件は[Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)を唯一の実装正本とします。
 
 ## 文書構成
 
@@ -119,7 +119,7 @@ No1の代表figureはFzを用い、個人時間変化、製品群別Grand-averag
 - [Phase 2 RT移動平均 文献調査](docs/Phase2_RT移動平均文献調査.md)：窓幅・平滑化型を複数の持続的注意研究と反応時系列法から比較した根拠資料
 - [Phase 3 瞬き解析仕様](docs/Phase3_瞬き解析仕様.md)：瞬き信号、ピーク検出、Blink Rate、定量化、QC、結果・Figureの読み方、確認済み結果、OneDrive構造をまとめたPhase 3唯一の現行仕様書
 - [Phase 3 MAD係数比較](docs/Phase3_MAD係数比較.md)：瞬き検出のMAD係数を確定するまでの比較記録。現行仕様はPhase 3仕様書を正本とする
-- [Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)：No1 FmθのPSD、保存、時間変化、Grand-average、定量化、統計、topography、欠測Set、成果物構造の確定仕様
+- [Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)：No1 Fmθの計算関数・全パラメータ、PSDキャッシュ、個人時間変化、Grand-average、定量化、統計、topography、欠測Set、全figure定数、成果物構造、完了条件を定めた唯一の実装正本
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
 - [Phase 1 区間・チャンネル除去パラメータ比較報告書](docs/Phase1_区間・チャンネル除去パラメータ比較報告書.md)：確定前のID101比較を残す歴史資料。現行仕様の判断には使用しない
 - [MacBook AirへのVS Code導入引き継ぎ](docs/引き継ぎ_VSCode導入_MacBookAir.md)：別デバイスでVS Codeだけを導入するための限定手順
