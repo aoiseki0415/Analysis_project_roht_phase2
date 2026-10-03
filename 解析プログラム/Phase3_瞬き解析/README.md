@@ -22,6 +22,7 @@
 - 欠測セットは補完しない。ID 109 Set 1、ID 120 Set 6、ID 135 Set 2、ID 225 Set 4を欠測として扱う
 - Blink Rate線・SEM帯のPhase 3専用色はControl `#402B5D`、C Cube `#168C80`、V Rohto Premium `#2A91B3`。セット別定量化は同じ条件対応の明度・彩度違いとして、Control `#66547D`、C Cube `#4CA79E`、V Rohto Premium `#62AFC6`を使う
 - 個人Blink Rate図は0始まりで、2条件の線の最大値が縦軸上限の約70%となる5 blinks/min刻みの上限を使う。Grand-averageは各進捗位置の標本SD（`ddof=1`）を有効人数Nの平方根で割ったSEMを用いて平均±SEMを描き、`平均 + SEM` の最大値が縦軸上限の約75%となる5 blinks/min刻みの上限を製品群ごとに使う。Grand-average右下のN・shade説明は表示しない
+- Grand-averageは上記の標準版を保持し、Cキューブ主要版、Vロートプレミアム主要版、VロートプレミアムのID133–233 Set 1〜3除外版について、共通の10〜30 blinks/min・5 blinks/min刻み・薄いグレーの横グリッドを用いる拡大表示版も追加する。拡大版ファイル名には `FocusedYAxis_10to30BlinksPerMin` を付ける
 - 指定OneDriveの `Phase3_瞬き解析/No1_BlinkRate/` 直下で `CCube/`、`VRohtoPremium/`、`Sub/` に分け、各製品群内を `Individual/`、`GrandAverage/`、`SetQuantification/`、`QualityCheck/` に分ける。HTML・横長PNGは `QualityCheck/BlinkDetection/`、prominence分布PNGは `QualityCheck/ProminenceDistribution/` に保存する。検出確認の凡例は `Eye Blink Component Signal`、縦軸は `Amplitude (µV)` とする。検出成果物は `Pair<1回目>-<2回目>_01_ID<1回目>`、`..._02_ID<2回目>` の接頭辞で並べ、表・ログはNo1直下の `Sub/` へ分離する
 - Vロートプレミアム群の追加figureと対応CSVには `ExcludePair133-233_Sets1-3` を付け、通常版と混同・上書きしない
 - Phase 3ではローカルデスクトップへ新しい中間データを保存しない
@@ -49,6 +50,8 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
   --manifest /path/to/private_manifest.csv \
   --production-batch --group-outputs-only
 ```
+
+Grand-average図だけを再作成し、セット別定量化を再出力しない場合は、上記コマンドへ `--grand-average-only` を追加します。
 
 ## MAD係数の比較実行
 

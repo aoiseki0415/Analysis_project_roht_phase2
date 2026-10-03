@@ -55,6 +55,9 @@ RATE_WINDOW_SECONDS = 60.0
 RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
 GROUP_PROGRESS_POINTS_PER_SET = 100
+GRAND_AVERAGE_FOCUSED_Y_MIN = 10.0
+GRAND_AVERAGE_FOCUSED_Y_MAX = 30.0
+GRAND_AVERAGE_FOCUSED_Y_TICK = 5.0
 CONDITION_BLINK_COUNT_REVIEW_RATIO = 2.0
 ADDITIONAL_GROUP_EXCLUSIONS = {
     "VRohtoPremium": {
@@ -665,11 +668,11 @@ def _decorate_progress_axis(axis: plt.Axes) -> None:
     axis.set_xticks(np.arange(0, 601, 50))
     for boundary in range(100, 600, 100):
         axis.axvline(boundary, color="#B8B8B8", linestyle="--", linewidth=1.2, zorder=0)
-    ymax = axis.get_ylim()[1]
+    ymin, ymax = axis.get_ylim()
     for set_number in range(1, 7):
         axis.text(
             (set_number - 0.5) * 100,
-            ymax * 0.94,
+            ymin + (ymax - ymin) * 0.94,
             f"Set {set_number}",
             ha="center",
             va="top",
@@ -697,6 +700,26 @@ def grand_figure_y_upper_limit(mean_plus_sem_values: np.ndarray) -> float:
         return 5.0
     target = float(np.max(finite)) / 0.75
     return max(5.0, float(np.ceil(target / 5.0) * 5.0))
+
+
+def configure_grand_average_y_axis(
+    axis: plt.Axes, mean_plus_sem_values: np.ndarray, focused_y_axis: bool
+) -> None:
+    """Apply either the preserved standard scale or the common focused scale."""
+
+    if focused_y_axis:
+        axis.set_ylim(GRAND_AVERAGE_FOCUSED_Y_MIN, GRAND_AVERAGE_FOCUSED_Y_MAX)
+        axis.set_yticks(
+            np.arange(
+                GRAND_AVERAGE_FOCUSED_Y_MIN,
+                GRAND_AVERAGE_FOCUSED_Y_MAX + GRAND_AVERAGE_FOCUSED_Y_TICK * 0.5,
+                GRAND_AVERAGE_FOCUSED_Y_TICK,
+            )
+        )
+        axis.grid(axis="y", color="#D9D9D9", linewidth=1.0, alpha=0.75)
+        axis.set_axisbelow(True)
+        return
+    axis.set_ylim(0, grand_figure_y_upper_limit(mean_plus_sem_values))
 
 
 def calculate_grand_average_statistics(values: np.ndarray) -> dict[str, np.ndarray]:
@@ -841,6 +864,8 @@ def plot_group_grand_average(
     path: Path,
     table_path: Path,
     excluded_pair_sets: dict[str, set[int]] | None = None,
+    focused_y_axis: bool = False,
+    write_table: bool = True,
 ) -> None:
     """Plot product-specific pointwise between-participant mean +/- SEM."""
     matrices, progress, _ = _group_rate_matrices(
@@ -866,8 +891,9 @@ def plot_group_grand_average(
                     "ValidN": stats["valid_n"][position],
                 }
             )
-    table_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(table_path, index=False)
+    if write_table:
+        table_path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(rows).to_csv(table_path, index=False)
     _configure_plot()
     figure, axis = plt.subplots(figsize=(18, 8.5))
     upper_values: list[np.ndarray] = []
@@ -888,7 +914,9 @@ def plot_group_grand_average(
             axis.fill_between(x, y - band, y + band, color=color, alpha=0.20, linewidth=0)
     axis.set_xlabel("Experimental Progress, %", labelpad=14)
     axis.set_ylabel("Blink Rate (blinks/min)", labelpad=14)
-    axis.set_ylim(0, grand_figure_y_upper_limit(np.concatenate(upper_values)))
+    configure_grand_average_y_axis(
+        axis, np.concatenate(upper_values), focused_y_axis=focused_y_axis
+    )
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.13), ncol=2, frameon=False)
     _decorate_progress_axis(axis)
     axis.spines[["top", "right"]].set_visible(False)
@@ -1084,7 +1112,10 @@ def plot_group_quantification(
 
 
 def create_group_outputs(
-    processed_items: list[dict[str, object]], output_root: Path, comparison_label: str | None
+    processed_items: list[dict[str, object]],
+    output_root: Path,
+    comparison_label: str | None,
+    include_quantification: bool = True,
 ) -> dict[str, dict[str, str]]:
     """Create final product-level Grand-average and set quantification outputs."""
     phase_root = output_root / "Phase3_瞬き解析" / "No1_BlinkRate"
@@ -1119,20 +1150,49 @@ def create_group_outputs(
             phase_root / "Sub" / "tables" / f"{product_dir}_No1_BlinkRate_SetQuantification.csv"
         )
         plot_group_grand_average(
-            selected, product_dir, product_label, product_color, grand_path, grand_table
+            selected,
+            product_dir,
+            product_label,
+            product_color,
+            grand_path,
+            grand_table,
+            write_table=include_quantification,
         )
-        plot_group_quantification(selected, product_dir, product_label, quant_path, quant_table)
+        focused_grand_path = grand_path.with_name(
+            f"{grand_path.stem}_FocusedYAxis_10to30BlinksPerMin.png"
+        )
+        plot_group_grand_average(
+            selected,
+            product_dir,
+            product_label,
+            product_color,
+            focused_grand_path,
+            grand_table,
+            focused_y_axis=True,
+            write_table=False,
+        )
+        if include_quantification:
+            plot_group_quantification(selected, product_dir, product_label, quant_path, quant_table)
         outputs[product_dir] = {
             "grand_average_figure": str(grand_path),
+            "grand_average_focused_y_figure": str(focused_grand_path),
             "grand_average_table": str(grand_table),
-            "set_quantification_figure": str(quant_path),
-            "set_quantification_table": str(quant_table),
         }
+        if include_quantification:
+            outputs[product_dir].update(
+                {
+                    "set_quantification_figure": str(quant_path),
+                    "set_quantification_table": str(quant_table),
+                }
+            )
     return outputs
 
 
 def create_additional_group_outputs(
-    processed_items: list[dict[str, object]], output_root: Path, comparison_label: str | None
+    processed_items: list[dict[str, object]],
+    output_root: Path,
+    comparison_label: str | None,
+    include_quantification: bool = True,
 ) -> dict[str, dict[str, dict[str, str]]]:
     """Create prespecified additional group figures without replacing primary outputs."""
     phase_root = output_root / "Phase3_瞬き解析" / "No1_BlinkRate"
@@ -1184,21 +1244,43 @@ def create_additional_group_outputs(
                 grand_path,
                 grand_table,
                 excluded_pair_sets=excluded_pair_sets,
+                write_table=include_quantification,
             )
-            plot_group_quantification(
+            focused_grand_path = grand_path.with_name(
+                f"{grand_path.stem}_FocusedYAxis_10to30BlinksPerMin.png"
+            )
+            plot_group_grand_average(
                 selected,
                 product_dir,
                 product_label,
-                quant_path,
-                quant_table,
+                product_color,
+                focused_grand_path,
+                grand_table,
                 excluded_pair_sets=excluded_pair_sets,
+                focused_y_axis=True,
+                write_table=False,
             )
+            if include_quantification:
+                plot_group_quantification(
+                    selected,
+                    product_dir,
+                    product_label,
+                    quant_path,
+                    quant_table,
+                    excluded_pair_sets=excluded_pair_sets,
+                )
             outputs[product_dir][label] = {
                 "grand_average_figure": str(grand_path),
+                "grand_average_focused_y_figure": str(focused_grand_path),
                 "grand_average_table": str(grand_table),
-                "set_quantification_figure": str(quant_path),
-                "set_quantification_table": str(quant_table),
             }
+            if include_quantification:
+                outputs[product_dir][label].update(
+                    {
+                        "set_quantification_figure": str(quant_path),
+                        "set_quantification_table": str(quant_table),
+                    }
+                )
     return outputs
 
 
@@ -1488,6 +1570,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Regenerate group figures from existing participant CSVs without rerunning detection",
     )
+    parser.add_argument(
+        "--grand-average-only",
+        action="store_true",
+        help="With --group-outputs-only, regenerate only Grand-average figures and tables",
+    )
     return parser.parse_args()
 
 
@@ -1504,9 +1591,17 @@ def main() -> int:
         if args.preflight_only:
             raise ValueError("--group-outputs-only and --preflight-only cannot be combined")
         processed_items = load_processed_items_from_existing_outputs(specs, args.output_root)
-        group_outputs = create_group_outputs(processed_items, args.output_root, args.comparison_label)
+        group_outputs = create_group_outputs(
+            processed_items,
+            args.output_root,
+            args.comparison_label,
+            include_quantification=not args.grand_average_only,
+        )
         additional_outputs = create_additional_group_outputs(
-            processed_items, args.output_root, args.comparison_label
+            processed_items,
+            args.output_root,
+            args.comparison_label,
+            include_quantification=not args.grand_average_only,
         )
         logging.info("Created group outputs: %s", json.dumps(group_outputs, ensure_ascii=False))
         logging.info(
@@ -1514,6 +1609,8 @@ def main() -> int:
             json.dumps(additional_outputs, ensure_ascii=False),
         )
         return 0
+    if args.grand_average_only:
+        raise ValueError("--grand-average-only requires --group-outputs-only")
     preflight = preflight_inputs(specs, args.input_root)
     logging.info("Input preflight passed: %s", json.dumps(preflight, ensure_ascii=False))
     if args.preflight_only:

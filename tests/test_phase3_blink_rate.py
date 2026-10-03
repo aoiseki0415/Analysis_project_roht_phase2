@@ -199,6 +199,17 @@ def test_grand_y_axis_uses_mean_plus_sem_and_seventy_five_percent():
     assert MODULE.grand_figure_y_upper_limit(np.array([20.0, 43.0])) == 60.0
 
 
+def test_focused_grand_y_axis_is_common_and_has_horizontal_grid():
+    figure, axis = MODULE.plt.subplots()
+    MODULE.configure_grand_average_y_axis(
+        axis, np.array([12.0, 28.0]), focused_y_axis=True
+    )
+    assert axis.get_ylim() == (10.0, 30.0)
+    assert axis.get_yticks().tolist() == [10.0, 15.0, 20.0, 25.0, 30.0]
+    assert any(line.get_visible() for line in axis.get_ygridlines())
+    MODULE.plt.close(figure)
+
+
 def test_grand_average_statistics_use_sample_sem_and_valid_n():
     values = np.array([[1.0, 2.0, np.nan], [3.0, 4.0, 9.0], [5.0, np.nan, np.nan]])
     result = MODULE.calculate_grand_average_statistics(values)

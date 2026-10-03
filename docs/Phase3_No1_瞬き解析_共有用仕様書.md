@@ -117,6 +117,7 @@ Blink Rateは各セット内で独立に計算する。
 - 欠測セットを補間せず、その位置の有限値だけで平均・SD・SEM・Nを求める。
 - 縦軸は0始まりとし、`平均 + SEM` の最大値が約75%位置となる値を5 blinks/min単位で切り上げる。
 - 右下のN・shade説明は表示しない。
+- 標準版は保持し、Cキューブ主要版、Vロートプレミアム主要版、VロートプレミアムのPair 133–233 Set 1〜3除外版について、共通の10〜30 blinks/min・5 blinks/min刻み・薄いグレーの横グリッドを用いた拡大表示版も追加する。拡大版の中心的な平均線は縦方向の約45〜50%に位置し、平均±SEM帯も表示範囲内に収める。
 
 **理由：** 被験者を同じ重みで集計し、条件ごとの平均推移と平均推定の不確実性を示すため。
 
@@ -216,7 +217,7 @@ Phase3_瞬き解析/
 ```
 
 - `Individual/`：被験者ペア別Blink Rate PNG
-- `GrandAverage/`：製品群別Grand-average PNG。Vロートプレミアム群には通常版とPair 133–233除外追加版を保存
+- `GrandAverage/`：製品群別Grand-average PNG。標準版に加えて `FocusedYAxis_10to30BlinksPerMin` 付きの拡大表示版を保存し、Vロートプレミアム群では通常集計とPair 133–233除外集計の双方に作成する
 - `SetQuantification/`：製品群別6パネルPNG。Vロートプレミアム群には通常版とPair 133–233除外追加版を保存
 - `QualityCheck/BlinkDetection/`：セッション別検出確認HTML・PNG
 - `QualityCheck/ProminenceDistribution/`：セッション別prominence分布PNG
@@ -236,6 +237,8 @@ first_session_id, second_session_id, drops_session_id, product
 本番実行前に `--production-batch --preflight-only` を使い、40被験者ペア・80セッション、製品群各20名、ID重複、対象外ID、既知の欠測セット、HDF5構造、主解析列の有限性を出力なしで検証する。合格後、同じmanifestとスクリプトで全個人結果、Grand-average、セット別定量化を一括作成する。
 
 既存の個人結果と検出結果を保持し、集団出力だけを再作成する場合は `--production-batch --group-outputs-only` を使用する。このモードも同じ40ペアmanifestを要求し、既存の被験者別CSVから主要版と追加版を再現する。
+
+Grand-average図だけを再作成し、セット別定量化を変更しない場合は `--grand-average-only` を併用する。
 
 結果はOneDriveへ保存し、被験者ペア別の検出数、閾値、欠測、目視QC、条件間瞬き数バランスをNotionへ記録する。
 
