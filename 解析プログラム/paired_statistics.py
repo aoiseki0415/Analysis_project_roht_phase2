@@ -22,8 +22,8 @@ def quantification_axis_layout(
     finite = np.asarray(values, dtype=float)
     finite = finite[np.isfinite(finite)]
     observed_max = float(np.max(finite)) if finite.size else 0.0
-    reference_max = max(observed_max, float(minimum_upper) / 1.33)
-    upper = reference_max * 1.33
+    reference_max = max(observed_max, float(minimum_upper) / 1.35)
+    upper = reference_max * 1.35
     if integer_ticks:
         upper = float(np.ceil(upper))
 
@@ -43,10 +43,10 @@ def quantification_axis_layout(
     else:
         ticks = np.linspace(0.0, upper, 5)
 
-    bracket_line_y = 1.14 * reference_max / upper
-    statistic_text_y = 1.18 * reference_max / upper
-    nonsignificant_text_y = 1.20 * reference_max / upper
-    set_label_y = 1.27 * reference_max / upper
+    bracket_line_y = 1.12 * reference_max / upper
+    statistic_text_y = 1.16 * reference_max / upper
+    nonsignificant_text_y = 1.18 * reference_max / upper
+    set_label_y = 1.28 * reference_max / upper
     return (
         upper,
         ticks,
