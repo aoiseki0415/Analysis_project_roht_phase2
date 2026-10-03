@@ -46,7 +46,7 @@ def quantification_axis_layout(
     bracket_line_y = 1.13 * reference_max / upper
     statistic_text_y = 1.17 * reference_max / upper
     nonsignificant_text_y = 1.18 * reference_max / upper
-    set_label_y = 1.30 * reference_max / upper
+    set_label_y = 1.29 * reference_max / upper
     return (
         upper,
         ticks,
