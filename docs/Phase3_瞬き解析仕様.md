@@ -175,3 +175,52 @@ Notionの「フェーズ３：まばたきの解析」親ページは確定事�
 - 既存の個人結果・検出結果を変更せず集団figureだけを再作成する場合は、同じ40ペアmanifestと `--production-batch --group-outputs-only` を用い、既存の被験者別CSVを読み込んで主要版と追加版を再現します。
 - Grand-averageだけを再作成し、セット別定量化を変更しない場合は、上記へ `--grand-average-only` を追加します。
 - 許可済み範囲の通常実行、出力確認、Notion更新、Git操作に利用者承認を求めません。許可範囲外、安全上の問題、または自力で解決できない阻害要因がある場合だけ停止します。
+
+## 11. 結果とFigureの読み方
+
+- `Individual/`：同一被験者のEye Drop条件とControl条件のBlink Rate時間変化です。
+- `GrandAverage/`：被験者別Blink Rateを同じ進捗位置で平均した線です。帯は平均±SEMです。0始まりの標準版と10〜30 blinks/minの拡大表示版があります。
+- `SetQuantification/`：Set別と全Set統合の対応あり比較です。主PNGは未補正p値、統計CSVは未補正と3種類の補正後p値を示します。
+- Vロートプレミアム群の `ExcludePair133-233_Sets1-3/`：ID233 Controlの前半3Setの信号品質上の懸念に対し、Pair 133-233の両条件Set 1〜3を集団集計から外した追加解析です。主要結果の置き換えではありません。
+- `QualityCheck/BlinkDetection/`：青線が `Eye Blink Component Signal`、中抜き丸が検出瞬きです。HTMLを拡大し、全使用時間で信号のピークと検出位置の一致を確認します。
+- `QualityCheck/ProminenceDistribution/`：候補prominence分布、採用閾値、500 µV超の候補数を確認します。
+- 定量化Figureでは、左がEye Drop、右がControl、バーが被験者間平均、ドットが被験者値、接続線が同一被験者の対応です。
+- `*` はp<0.05、`**` はp<0.01、`***` はp<0.001、`n.s.` はp≥0.05です。主PNGは未補正p値、統計CSVは未補正・Bonferroni・Holm・Benjamini–Hochberg FDRを示します。
+- Figureだけで結論を出さず、統計CSV、追加解析、NotionのQC記録を合わせて確認します。
+
+## 12. 確認済みの結果
+
+- 40被験者ペア・80セッションを同一設定で処理しました。
+- Notion結果表には40被験者ペアを1行ずつ記録し、総合QCと条件間瞬き数バランスはいずれも40件すべて「要確認」なしでした。
+- 主要版とPair 133-233除外版のSet別・全Set統合は、未補正を含めて有意差がありませんでした。Bonferroni・Holm・FDR補正後も有意差はありませんでした。
+- 目視QCは真の瞬きラベルに対する感度・適合率ではなく、自動検出位置と信号形状の定性的整合性を示します。
+
+## 13. OneDriveフォルダ構造
+
+```text
+実験本番_本解析/
+└── Phase3_瞬き解析/
+    └── No1_BlinkRate/
+        ├── CCube/
+        │   ├── Individual/
+        │   ├── GrandAverage/
+        │   ├── SetQuantification/
+        │   └── QualityCheck/
+        │       ├── BlinkDetection/
+        │       └── ProminenceDistribution/
+        ├── VRohtoPremium/
+        │   ├── Individual/
+        │   ├── GrandAverage/
+        │   ├── SetQuantification/
+        │   │   └── ExcludePair133-233_Sets1-3/
+        │   └── QualityCheck/
+        │       ├── BlinkDetection/
+        │       └── ProminenceDistribution/
+        └── Sub/
+            ├── tables/
+            └── logs/
+```
+
+## 14. 本書の位置づけ
+
+本書をPhase 3の唯一の現行確定仕様書とします。解析方法、設定、QC、結果・Figureの読み方、確認済み結果、保存構造を本書だけで確認できます。`Phase3_MAD係数比較.md` はMAD係数を確定するまでの比較記録であり、現行仕様書ではありません。

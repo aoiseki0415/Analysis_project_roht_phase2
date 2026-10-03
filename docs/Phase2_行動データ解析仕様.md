@@ -224,3 +224,69 @@ Grand-averageは同じスクリプトへ `--grand-average --skip-invalid-partici
 - Fortenbaugh FC, et al. *Tracking behavioral and neural fluctuations during sustained attention: A robust replication and extension.* NeuroImage. 2018. https://pmc.ncbi.nlm.nih.gov/articles/PMC5857436/
 - Teramoto W, et al. *Common principles underlie the fluctuation of auditory and visual sustained attention.* Quarterly Journal of Experimental Psychology. 2021. https://pmc.ncbi.nlm.nih.gov/articles/PMC8044612/
 - van Leeuwen J, et al. *Forget binning and get SMART: Getting more out of the time-course of response data.* Attention, Perception, & Psychophysics. 2019. https://doi.org/10.3758/s13414-019-01788-3
+
+## 6. 結果とFigureの読み方
+
+### 6.1 No1：RT
+
+- `Individual/`：同一被験者のEye Drop条件とControl条件の30試行移動平均です。横軸0〜600は、各Setの0〜100%を6Set連結した実験進捗を表します。
+- `GrandAverage/`：被験者別の平滑値を同じSet・同じ進捗位置で平均した線です。帯は平均±SEMです。30試行版、50試行版、30試行版の400〜1400 ms拡大表示があります。
+- `SetMeanQuantification/`：平滑化前の有効な試行別RTを用いる主解析 `AllTrials` です。6パネルPNGはSet別、`AllSets` PNGは全Set統合の対応あり比較です。
+- `SetMeanQuantification/Last80Trials/`：各SetのTrial 241〜320だけを用いた追加解析です。主解析の置き換えではありません。
+
+### 6.2 No2：ミスタッチ
+
+- `SetQuantification/`：確定ミスタッチ回数を用いる主解析です。6パネルPNGはSet別、`AllSets` PNGは全Setの確定ミスタッチ数を合計した対応あり比較です。
+- Cキューブ群の `SensitivityAnalysis_ExcludeID132-232_Set1/`：ID132-232のSet 1を両条件から外した感度分析です。主解析の置き換えではありません。
+
+### 6.3 定量化Figure・統計CSVの共通解釈
+
+- 左がEye Drop、右がControlです。バーは被験者間平均、ドットは被験者値、接続線は同一被験者の対応を表します。
+- `*` はp<0.05、`**` はp<0.01、`***` はp<0.001、`n.s.` はp≥0.05です。
+- 主PNGの記号は未補正p値に基づきます。統計CSVには未補正・Bonferroni・Holm・Benjamini–Hochberg FDRを併記します。
+- 全Set統合版は比較が1つだけなので、多重比較補正を行いません。
+- Figureだけで結論を出さず、対応する統計CSV、追加解析、NotionのQC記録を合わせて確認します。
+
+## 7. 確認済みの結果
+
+### 7.1 No1：RT
+
+- 個人解析40被験者ペアを処理し、除外は0でした。
+- Cキューブ群AllTrialsの未補正比較ではSet 3（p=0.023）とSet 4（p=0.039）、Last80TrialsではSet 3（p=0.038）とSet 4（p=0.048）が有意表示となりました。
+- Vロートプレミアム群のSet別、両製品群の全Set統合、全てのBonferroni・Holm・FDR補正後比較は有意ではありませんでした。
+
+### 7.2 No2：ミスタッチ
+
+- 40被験者ペアを処理し、KeyPress時刻欠損、時刻逆転、除外ペアはいずれも0でした。
+- 主解析・感度分析のSet別と全Set統合は、未補正を含めて有意差がありませんでした。3種類の補正後も有意差はありませんでした。
+- Cキューブ群Set 1はID132-232の大きな実測値の影響を受けるため、主解析と感度分析の両方を確認します。
+
+## 8. OneDriveフォルダ構造
+
+```text
+実験本番_本解析/
+└── Phase2_行動データ解析/
+    ├── No1_ReactionTime/
+    │   ├── CCube/
+    │   │   ├── Individual/
+    │   │   ├── GrandAverage/
+    │   │   └── SetMeanQuantification/
+    │   │       └── Last80Trials/
+    │   ├── VRohtoPremium/              # CCubeと同じ構成
+    │   └── Sub/
+    │       ├── tables/
+    │       └── logs/
+    └── No2_Mistouch/
+        ├── CCube/SetQuantification/
+        │   └── SensitivityAnalysis_ExcludeID132-232_Set1/
+        ├── VRohtoPremium/SetQuantification/
+        └── Sub/
+            ├── tables/
+            └── logs/
+```
+
+`Individual/` と `GrandAverage/` には閲覧用PNGを置きます。定量化フォルダには主PNGと統計CSVを置き、その他のQC・集計表・ログは `Sub/` に分離します。
+
+## 9. 本書の位置づけ
+
+本書をPhase 2の唯一の現行確定仕様書とします。No1とNo2の解析方法、設定、結果・Figureの読み方、確認済み結果、保存構造を本書だけで確認できます。`Phase2_RT移動平均文献調査.md` は手法選定の根拠資料であり、現行仕様書ではありません。
