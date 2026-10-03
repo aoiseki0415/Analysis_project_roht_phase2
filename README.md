@@ -106,6 +106,8 @@ Phase 4は、No1 Fmθ（Fz、4–7 Hz）、No2後頭alpha（Oz、8–15 Hz）、
 
 No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。現時点ではPSDの時間平滑化、区間maskによるNaN化、チャンネル除外を行いません。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。計算関数と全引数、Set端padding、progress変換、PSDキャッシュ構造、実行モード、各figureの寸法・軸・目盛・文字・線・色・上限、統計位置、topography設定、命名、検証条件は[Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)を唯一の実装正本とします。
 
+No1の `Phase4_No1_FmTheta.py` と単体テストは作成済みです。現時点では実データへの実行は行っておらず、次回は確定manifestを用いた全件preflightから開始します。
+
 ## 文書構成
 
 - [運用ルール](docs/運用ルール.md)：ツール、フォルダ、機密情報、Git、解析記録に関する恒常ルール

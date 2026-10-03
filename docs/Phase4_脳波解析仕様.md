@@ -225,7 +225,7 @@ qc/
 
 ### 7.3 再計算制御
 
-将来のスクリプトは次の独立モードを持たせます。
+現行の `Phase4_No1_FmTheta.py` は次の独立モードを持ちます。
 
 - `--preflight-only`：入力検査だけ
 - `--compute-psd`：PSD cache作成と読み戻し検証

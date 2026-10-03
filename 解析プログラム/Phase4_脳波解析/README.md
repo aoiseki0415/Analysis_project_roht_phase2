@@ -2,7 +2,7 @@
 
 脳波解析のPythonスクリプトを配置します。命名形式は `Phase4_No<番号>_<内容>.py` です。
 
-成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。現時点では運用仕様と保存先だけを確定し、解析スクリプトはまだ作成しません。
+成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。No1の現行スクリプトは `Phase4_No1_FmTheta.py` です。スクリプトと単体テストは作成済みですが、実データのPSD計算と解析出力は未実行です。
 
 ## 事前定義した解析対象
 
@@ -16,12 +16,24 @@
 
 No1は、全32chを1秒Hann窓・0.5秒移動・256点FFTのWelch法で解析し、4–7 Hz平均PSDをHDF5へ一度だけ保存します。そのデータからFzの個人時間変化、製品群別Grand-average、定量化・統計、全32chの条件差topographyを作ります。現行の確定仕様、figure様式、欠測Set、フォルダ構造は [`docs/Phase4_脳波解析仕様.md`](../../docs/Phase4_脳波解析仕様.md) を唯一の実装正本とします。
 
-## No1実装時の必須構成
+## No1の実行モード
 
-- スクリプト名は `Phase4_No1_FmTheta.py` とします。
-- `--preflight-only`、`--compute-psd`、`--individual-only`、`--group-outputs-only`、`--all`、`--force-recompute` を独立させます。
+- `--preflight-only`、`--compute-psd`、`--individual-only`、`--group-outputs-only`、`--all` から1つを選択します。
+- `--force-recompute` は `--compute-psd` または `--all` と併用し、明示的な再計算決定がある場合だけ使用します。
 - `--force-recompute` がない限り、設定hashと入力情報が一致して検証済みのPSD cacheを再利用します。
 - 全対象へ同じコード・同じ定数を適用し、既知欠測Set以外のID固有分岐を作りません。
+
+本番manifestはリポジトリ外の非公開CSVを `--manifest` で渡します。実行例は次のとおりです。
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
+  '解析プログラム/Phase4_脳波解析/Phase4_No1_FmTheta.py' \
+  --manifest /absolute/path/to/private_manifest.csv \
+  --production-batch \
+  --preflight-only
+```
+
+preflight完了後の本計算では、同じmanifestに `--all` を指定します。入力、cache、OneDriveのデフォルトパスは確定仕様に固定しています。このREADME更新時点で `--all` はまだ実行していません。
 
 ## No1実装時の固定事項
 
