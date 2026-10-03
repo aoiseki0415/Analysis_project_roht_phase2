@@ -40,9 +40,11 @@ preflight完了後の本計算では、同じmanifestに `--all` を指定しま
 - 入力：Phase 1の `brain_activity_eeg` HDF5、256 Hz、V単位、固定32ch順
 - PSD：MNE `psd_array_welch`、1秒Hann窓、外側窓を0.5秒移動、256点FFT、4–7 Hzの4 bin平均、線形µV²/Hz
 - Set端：前後128 samplesの反射padding、Set開始・終了を窓中心として評価
-- 現行非適用：追加平滑化、区間mask NaN化、ICA用ch maskによる除外、平均参照、ラプラシアン
+- 区間mask：Phase 1のICA学習除外区間と1%以上重なるPSD窓を全32chでNaN化し、時刻・progressは保持
+- ch mask：ICA学習用ch除外maskはPSDへ適用せず、32chを保持
+- 現行非適用：追加平滑化、平均参照、ラプラシアン
 - cache：全32chの帯域平均PSD時間変化、中心時刻、progress、mask監査情報をHDF5保存
 - figure：個人Fz、製品群別Fz Grand-average、定量化、全32ch差topography
 - 欠測：個人時間変化は欠測側だけ空白、集団集計・定量化・topographyは対応条件も対称除外
 
-Figureの寸法、フォント、軸名、目盛、Set位置、線幅、色、y上限、統計マーク位置、topographyのmontage・カラースケールはPhase 4仕様書の数値をコード定数としてそのまま実装します。Phase 2・3を再解釈して別の値を採用しません。
+Figureの寸法、フォント、軸名、目盛、Set位置、線幅、色、y上限、統計マーク位置、topographyのmontage・カラースケールはPhase 4仕様書の数値をコード定数としてそのまま実装します。Topographyは6 Set横一列、太い円形頭部輪郭・鼻、小さな電極点、等高線なしの滑らかな色面、各Set横の同一スケールcolorbarで描画します。Phase 2・3を再解釈して別の値を採用しません。

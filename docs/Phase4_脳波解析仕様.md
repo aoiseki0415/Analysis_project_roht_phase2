@@ -125,7 +125,7 @@ psd, freqs = mne.time_frequency.psd_array_welch(
 | 対数変換 | なし |
 | dB変換 | なし |
 | 時間平滑化 | 現時点ではなし |
-| 区間maskによるNaN化 | 現時点ではなし |
+| 区間maskによるNaN化 | 窓内重複率1%以上で全32chのPSDをNaN |
 | ch除外 | 現時点ではなし |
 
 現行MNE 1.13の実シグネチャで利用可能な `output="power"` を明示し、パワーPSDを取得します。返された周波数が `[4., 5., 6., 7.]` と一致しない場合はエラーにします。周波数方向は `np.mean(psd, axis=-1)` で平均します。
@@ -150,7 +150,7 @@ Setの先頭・末尾までPSDを定義するため、各chのSet信号を前後
 
 Set実時間の違いはprogress軸だけで線形伸縮します。PSDの1秒窓・0.5秒移動は必ず実時間で計算し、progress変換後に計算しません。
 
-## 6. 現時点で適用しない処理
+## 6. 区間maskと現時点で適用しない処理
 
 次は将来追加される可能性がありますが、現行主解析には含めません。
 
@@ -162,16 +162,19 @@ Set実時間の違いはprogress軸だけで線形伸縮します。PSDの1秒�
 
 ### 6.2 Phase 1区間除外mask
 
-- `ica_training_excluded_mask` はICA学習専用の除外情報です。
-- 現行PSDでは、その時刻を削除、補間、NaN化しません。
-- maskはPSD窓との重なり率を後から求められる形でキャッシュへ保持します。
-- 後日除外する場合は、窓内mask率の閾値を先に確定し、PSD値を詰めずにNaN化します。時間軸は保持します。
+- `ica_training_excluded_mask` と各1秒PSD窓の重なり率を計算し、cacheへ保持します。
+- 重なり率が1%以上のPSD窓は、読み出し後の解析値を全32chでNaNにします。
+- 元の有限PSDとmask率はcache内に保持し、元EEGやcacheの値自体を上書きしません。
+- NaN窓は時間方向へ前詰め、補間、置換せず、時刻とprogressを保持します。
+- Set平均、全Set統合平均、topographyは有限PSD窓だけで計算します。
+- ID101では全8,007窓中78窓、0.97%が本基準に該当することを確認しました。
 
 ### 6.3 ICA用ch除外mask
 
 - 最終脳活動HDF5には32chが保持されているため、現行PSDでは全32chを計算します。
 - `ica_channel_excluded_mask` がtrueのchも削除・NaN化しません。
-- 後日除外する場合も列順を変えず、対象chのPSDをNaN化し、ch maskを保持します。
+- ch maskはICA学習を安定させるための情報であり、脳活動PSDの不使用判定とはみなしません。
+- 32ch順を維持し、mask自体は監査情報としてcacheに保持します。
 
 ## 7. PSDキャッシュHDF5
 
@@ -381,19 +384,23 @@ qc/
 - `info.set_montage(montage, match_case=False, on_missing="raise")`
 - `mne.viz.plot_topomap()`
 - cmap `RdBu_r`、0中心、`vlim=(-V, V)`
-- `sensors=True`、`names=False`、`contours=6`、`extrapolate="head"`
-- sphereはMNE自動推定
+- `sensors="k."`、`names=False`、`contours=0`、`extrapolate="head"`
+- 補間は `image_interp="cubic"`、`border="mean"`、`res=256`
+- 10-20法の電極位置、補間面、頭部輪郭を同じ座標系で描くため、sphereは `(0, 0, 0, 0.095 m)` に固定
 - 現行32chが32/32対応することをpreflightで再確認
+- 頭部は太さ4.0 ptの濃色円形輪郭と鼻を表示し、耳輪郭は非表示
+- 電極位置は4.0 ptの小さな濃色点で表示し、ch名は表示しない
+- 等高線を重ねず、滑らかな補間色面だけを表示
 
 ### 14.3 個人topography
 
-- 1被験者ペア1 PNG、6 Set横一列、`figsize=(30, 5.5)`、180 dpi
-- Set title 22 pt、Arial
+- 1被験者ペア1 PNG、6 Set横一列、`figsize=(36, 6.5)`、180 dpi
+- Set title 24 pt、Arial、pad 16
 - `V`は、その被験者の利用可能な全Set・全chの差の最大絶対値
 - 同一被験者の6 Setで共通スケール、被験者間では変更可
 - 欠測Setは中央へ `Missing` を22 ptで表示
-- 共通colorbarを右端に1本
-- colorbar label `ΔPSD (µV²/Hz)`・24 pt、tick 18 pt
+- 各Setの右横に同一スケールのcolorbarを1本ずつ置く
+- colorbar tickは `−V, 0, V`、label `ΔPSD (µV²/Hz)`・20 pt、tick 17 pt
 - figure titleなし
 
 ### 14.4 Grand-average topography
@@ -404,7 +411,7 @@ qc/
 - `V`は、その製品群の全Set・全chの群平均差の最大絶対値
 - 同一製品群の6 Setで共通スケール
 - Setごとの有効Nを表へ保存
-- figure size、title、colorbar、文字は個人版と同じ
+- figure size、title、輪郭、電極点、補間面、colorbar、文字は個人版と同じ
 - 統計mask、有意電極、欠測補間は現時点で重ねない
 
 ## 15. 欠測Setの完全な扱い
@@ -509,11 +516,9 @@ Phase 4親ページにはNo1〜No3の概要だけを置きます。No1詳細ペ�
 ## 20. 現時点の未確定事項
 
 - No1の時間平滑化を将来追加するか
-- Phase 1区間maskと重なるPSD窓を将来NaN化するか、その重なり率閾値
-- ICA用ch除外maskを将来PSD除外へ使うか
 - No2の完全な実装仕様
 - No3の周波数帯と完全な実装仕様
 
 未確定事項を暗黙実装しません。変更時は本書、Notion、コード、テストを同時更新します。
 
-最終更新：2026年10月3日
+最終更新：2026年10月4日

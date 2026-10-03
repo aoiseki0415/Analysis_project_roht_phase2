@@ -38,7 +38,8 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-03.1"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.1"
+CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-03.1"
 N_SETS = 6
 SFREQ = 256.0
 WINDOW_SAMPLES = 256
@@ -49,6 +50,7 @@ FMAX_HZ = 7.0
 INCLUDED_FREQUENCIES_HZ = np.array([4.0, 5.0, 6.0, 7.0])
 GROUP_PROGRESS_POINTS_PER_SET = 100
 PSD_WINDOW_BATCH_SIZE = 512
+PSD_MASK_OVERLAP_THRESHOLD = 0.01
 EXCLUDED_SESSION_IDS = {"130", "230"}
 PRODUCTION_PARTICIPANT_COUNT = 40
 PRODUCTION_PARTICIPANTS_PER_PRODUCT = 20
@@ -341,7 +343,7 @@ def preflight_inputs(specs: list[ParticipantSpec], root: Path) -> dict[str, Any]
 
 def analysis_configuration() -> dict[str, Any]:
     return {
-        "script_version": SCRIPT_VERSION,
+        "script_version": CACHE_CONFIGURATION_VERSION,
         "sfreq": SFREQ,
         "window_samples": WINDOW_SAMPLES,
         "step_samples": STEP_SAMPLES,
@@ -357,6 +359,15 @@ def analysis_configuration() -> dict[str, Any]:
         "interval_mask_policy": "retain_all_samples_store_window_overlap_fraction",
         "channel_mask_policy": "retain_all_32_channels_store_phase1_ica_mask",
         "channel_names": EXPECTED_CHANNEL_NAMES,
+    }
+
+
+def downstream_configuration() -> dict[str, Any]:
+    return {
+        "interval_mask_policy": "set_psd_nan_when_phase1_mask_overlap_fraction_gte_0.01",
+        "interval_mask_overlap_threshold": PSD_MASK_OVERLAP_THRESHOLD,
+        "channel_mask_policy": "do_not_apply_phase1_ica_channel_mask_to_psd",
+        "time_smoothing": "none",
     }
 
 
@@ -652,15 +663,18 @@ def load_session_cache(path: Path) -> SessionPSD:
             if key not in handle:
                 continue
             group = handle[key]
+            psd_band_mean = group["psd_band_mean"][:]
+            mask_fraction = group["ica_training_mask_fraction"][:]
+            psd_band_mean[mask_fraction >= PSD_MASK_OVERLAP_THRESHOLD] = np.nan
             sets[set_number] = SetPSD(
                 set_number,
-                group["psd_band_mean"][:],
+                psd_band_mean,
                 group["relative_seconds_center"][:],
                 group["OriginalTimestamp_center"][:],
                 group["set_progress_pct"][:],
                 group["global_progress_pct"][:],
                 group["source_center_sample"][:],
-                group["ica_training_mask_fraction"][:],
+                mask_fraction,
             )
         return SessionPSD(
             session_id=str(handle.attrs["participant_id"]),
@@ -889,7 +903,7 @@ def plot_grand_average(
 
 def session_set_channel_means(session: SessionPSD) -> dict[int, np.ndarray]:
     return {
-        set_number: np.mean(values.psd_band_mean, axis=0)
+        set_number: np.nanmean(values.psd_band_mean, axis=0)
         for set_number, values in session.sets.items()
     }
 
@@ -928,8 +942,8 @@ def build_quantification(items: list[dict[str, Any]], product_dir: str) -> pd.Da
             {
                 "PairID": item["spec"].pair_id,
                 "Set": "All Sets",
-                "EyeDrop_PSD_uV2_per_Hz": float(np.mean(eye_windows)),
-                "Control_PSD_uV2_per_Hz": float(np.mean(control_windows)),
+                "EyeDrop_PSD_uV2_per_Hz": float(np.nanmean(eye_windows)),
+                "Control_PSD_uV2_per_Hz": float(np.nanmean(control_windows)),
             }
         )
     return pd.DataFrame(rows)
@@ -1141,12 +1155,12 @@ def plot_topography_grid(values: np.ndarray, path: Path, *, missing_label: bool 
     limit = float(np.max(np.abs(finite))) if finite.size else 1.0
     limit = max(limit, np.finfo(float).eps)
     plt.rcParams.update({"font.family": "Arial"})
-    figure, axes = plt.subplots(1, N_SETS, figsize=(30, 5.5))
+    figure, axes = plt.subplots(1, N_SETS, figsize=(36, 6.5))
     info = _topomap_info()
     image = None
     for index, axis in enumerate(axes):
         vector = values[index]
-        axis.set_title(f"Set {index + 1}", fontsize=22, fontfamily="Arial")
+        axis.set_title(f"Set {index + 1}", fontsize=24, fontfamily="Arial", pad=16)
         if not np.isfinite(vector).all():
             axis.set_axis_off()
             if missing_label:
@@ -1159,17 +1173,39 @@ def plot_topography_grid(values: np.ndarray, path: Path, *, missing_label: bool 
             show=False,
             cmap="RdBu_r",
             vlim=(-limit, limit),
-            sensors=True,
+            sensors="k.",
             names=None,
-            contours=6,
+            contours=0,
             extrapolate="head",
-            sphere="auto",
+            # Use one fixed 10-20 head sphere so that sensor positions, the
+            # interpolated surface and the scalp outline share the same frame.
+            # ``sphere="auto"`` fitted this 32-channel montage too narrowly,
+            # leaving several electrode dots and the colour surface outside
+            # the drawn head circle.
+            sphere=(0.0, 0.0, 0.0, 0.095),
+            image_interp="cubic",
+            border="mean",
+            res=256,
         )
-    if image is not None:
-        colorbar = figure.colorbar(image, ax=list(axes), fraction=0.022, pad=0.025)
-        colorbar.set_label("ΔPSD (µV²/Hz)", fontsize=24)
-        colorbar.ax.tick_params(labelsize=18)
-    figure.subplots_adjust(left=0.02, right=0.92, top=0.88, bottom=0.06, wspace=0.16)
+        # Match the agreed reference style: small electrode dots, thick circular
+        # outline and nose, and no ear outlines.
+        for line_number, line in enumerate(axis.lines):
+            if line_number == 0:
+                line.set_markersize(4.0)
+                line.set_markeredgewidth(0.0)
+                line.set_color("#2F2F2F")
+                line.set_alpha(0.82)
+            elif line_number in (1, 2):
+                line.set_linewidth(4.0)
+                line.set_color("#303030")
+            else:
+                line.set_visible(False)
+        colorbar = figure.colorbar(image, ax=axis, fraction=0.050, pad=0.035)
+        colorbar.set_ticks([-limit, 0.0, limit])
+        colorbar.set_label("ΔPSD (µV²/Hz)", fontsize=20, rotation=270, labelpad=24)
+        colorbar.ax.tick_params(labelsize=17, width=1.2, length=5)
+        colorbar.outline.set_linewidth(1.0)
+    figure.subplots_adjust(left=0.018, right=0.99, top=0.86, bottom=0.08, wspace=0.42)
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
@@ -1405,7 +1441,8 @@ def main() -> int:
             "script_version": SCRIPT_VERSION,
             "completed_at": datetime.now().astimezone().isoformat(),
             "mode": "all" if args.all else "group-outputs-only",
-            "configuration": analysis_configuration(),
+            "cache_configuration": analysis_configuration(),
+            "downstream_configuration": downstream_configuration(),
             "participants": [asdict(spec) | {"pair_id": spec.pair_id} for spec in specs],
             "preflight": preflight,
             "cache_records": cache_records,

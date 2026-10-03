@@ -112,8 +112,15 @@ def test_cache_roundtrip_and_hash_validation(tmp_path: Path):
     assert loaded.session_id == "101"
     assert loaded.condition == "Eye Drop"
     assert sorted(loaded.sets) == [1, 2, 3, 4, 5, 6]
+    excluded = (
+        loaded.sets[1].ica_training_mask_fraction >= MODULE.PSD_MASK_OVERLAP_THRESHOLD
+    )
+    assert excluded.any()
+    assert np.isnan(loaded.sets[1].psd_band_mean[excluded]).all()
+    assert np.isfinite(loaded.sets[1].psd_band_mean[~excluded]).all()
     with h5py.File(destination, "r") as handle:
         assert handle["sets/Set1/psd_band_mean"].dtype == np.dtype("float32")
+        assert np.isfinite(handle["sets/Set1/psd_band_mean"][:]).all()
         assert json.loads(handle.attrs["included_frequencies_hz"]) == [4.0, 5.0, 6.0, 7.0]
     reused = MODULE.compute_session_cache(spec, "101", input_root, cache_root)
     assert reused["status"] == "reused"
