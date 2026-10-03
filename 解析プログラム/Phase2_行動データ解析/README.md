@@ -32,6 +32,7 @@ No1・No2は、2026年10月1日に解析対象40被験者ペアへ同一の確�
 - 個人別出力とGrand-averageは同じNo1に属する。個人figureは30試行幅とする。Grand-averageは個人ごとに30試行幅または50試行幅で平滑化してから同じセット・同じ進捗位置で被験者間平均し、両窓幅を別PNGで保存する。シェードは平均±SEM（標本SD/√N）とし、条件別に平均・標本SD・SEM・有効人数Nを保存する。欠測値は前詰め・補間しない
 - Grand-averageでは、EEG欠損セットを持つ被験者ペアについて、対応するもう一方の条件も同じセットをNaN化してから集計する。個人figureではこの対称化を行わない
 - Grand-averageの凡例に変動帯のタイトルを付けない。縦軸はCキューブ群・Vロートプレミアム群とも0〜1800 msに固定する
+- Grand-averageのMA30は、既存の0〜1800 ms版に加え、両製品群共通の400〜1400 ms・200 ms刻み・薄いグレーの横グリッドを用いる拡大表示版も保存する。平均線の代表的位置が縦軸範囲の約45%になるよう定めた共通スケールであり、製品群ごとに変更しない。MA50には追加しない
 - 同じNo1内でセット別RT定量化を行う。各被験者・各条件・各セットについて、移動平均値ではなくEEG欠損セットのNaN化と200 ms未満の除外後の試行別RTから、`AllTrials`（Trial 1〜320）と `Last80Trials`（Trial 241〜320）の2種類の算術平均を必ず作成する
 - 定量化では製品群ごとにSet 1〜6の独立6パネルを横一列で作り、各パネルの左にEye Drop、右にControlを配置する。バーは被験者間平均、ドットは被験者値、線は同一被験者の条件対応を示す
 - EEG欠損セットを持つペアはGrand-averageと同様に両条件の同じセットをNaNとし、そのセットのドット・接続線・平均から除外する
@@ -44,7 +45,7 @@ No1・No2は、2026年10月1日に解析対象40被験者ペアへ同一の確�
 
 どちらも同じコード内のループを通り、被験者別にコードを変更しません。EEG欠損セット対応は全員共通スクリプト内の確定表から自動適用します。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。`Individual/` は全被験者のPNGだけを直下に並べ、`GrandAverage/` と `SetMeanQuantification/` もPNGだけを置きます。補助CSVはNo1直下の `Sub/tables/`、実行要約JSONは `Sub/logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。
 
-Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average --skip-invalid-participants` を追加します。製品群ごとの `GrandAverage/` へ30試行幅・50試行幅のPNG、`Sub/tables/GrandAverage/` へ平均・SD・SEM・NのCSV、`Sub/logs/GrandAverage/` へ実行要約JSONを保存します。必要試行を確定できないペアはペア全体を除外し、No1の `Sub/logs/` にあるバッチ実行要約JSONへ理由を残して他のペアを継続します。
+Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average --skip-invalid-participants` を追加します。製品群ごとの `GrandAverage/` へ30試行幅・50試行幅のPNGと30試行幅の共通拡大スケール版PNG、`Sub/tables/GrandAverage/` へ平均・SD・SEM・NのCSV、`Sub/logs/GrandAverage/` へ実行要約JSONを保存します。必要試行を確定できないペアはペア全体を除外し、No1の `Sub/logs/` にあるバッチ実行要約JSONへ理由を残して他のペアを継続します。
 
 Grand-averageだけを再出力するときは `--grand-average-only --skip-invalid-participants` を使用します。このモードでは個人figure、個人QC、セット別定量化、通常バッチ要約を変更しません。
 

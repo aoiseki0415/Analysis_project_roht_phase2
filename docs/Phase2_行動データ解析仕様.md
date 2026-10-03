@@ -83,6 +83,7 @@ RT [ms] = KeyPress(ms) - TiltOnset(ms)
 - Grand-averageの対象者は実行時の非公開manifestに列挙された被験者ペアとします。EEG欠損セットの確定表は全員共通スクリプトへ固定し、該当する被験者ペアでは、分割セッション側だけでなく対応するもう一方の条件も同じセットをNaN化します。個人figureにはこの対称化を適用しません。
 - Grand-averageはCキューブ群とVロートプレミアム群を別々に作成し、目薬あり条件とコントロールを混合しません。各進捗位置で平均、標本SD（`ddof=1`）、標準誤差（SEM=`SD/√N`）、有効人数Nを条件別に算出します。欠測値は前詰め・補間せず、その位置の有限値だけで集計します。
 - Grand-average figureは個人figureと同じ0〜600の横軸、固定色、軸・文字仕様を用い、平均線と **平均±SEM** の薄い帯を表示します。添付された外部スクリプトと同じく、標本SDをその位置の有効人数Nの平方根で割ってSEMを求めます。縦軸は製品群間で統一し、Cキューブ群・Vロートプレミアム群とも **0〜1800 ms** に固定します。
+- Grand-averageの30試行幅版には、既存の0〜1800 ms版を変更せず、共通拡大スケール版を追加します。追加版は両製品群とも縦軸400〜1400 ms、200 ms刻み（400、600、800、1000、1200、1400の6目盛り）に固定し、薄いグレーの横グリッドを表示します。両製品群の平均線の中央値約830 msが縦軸範囲内のおよそ43%に位置する共通設定であり、製品群間でスケールを変えません。50試行幅版には追加しません。
 
 ### 2.7 セット別RT定量化
 
@@ -197,7 +198,7 @@ Cキューブ群の同じフォルダには、主解析成果物を上書きせ�
 - OneDrive：`Phase2_行動データ解析/No1_ReactionTime/`
 - Notion：`フェーズ２：行動データの解析 / 解析1（No1）`
 
-OneDriveのNo1配下では、`CCube` と `VRohtoPremium` を分け、各製品群の中に `Individual`、`GrandAverage`、`SetMeanQuantification`を置きます。`Individual/` 直下には全被験者ペアのPNGだけを並べ、被験者別下位フォルダは作成しません。`GrandAverage/` 直下には30試行版・50試行版のPNGだけ、`SetMeanQuantification/` 直下にはAllTrials版・Last80Trials版のPNGだけを置きます。ファイル名は、単独IDではなく `ID<1回目>-<2回目>` を使用します。
+OneDriveのNo1配下では、`CCube` と `VRohtoPremium` を分け、各製品群の中に `Individual`、`GrandAverage`、`SetMeanQuantification`を置きます。`Individual/` 直下には全被験者ペアのPNGだけを並べ、被験者別下位フォルダは作成しません。`GrandAverage/` 直下には30試行版・50試行版と30試行幅の共通拡大スケール版PNG、`SetMeanQuantification/` 直下にはAllTrials版・Last80Trials版のPNGだけを置きます。ファイル名は、単独IDではなく `ID<1回目>-<2回目>` を使用します。
 
 No1は、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。Figure用フォルダにはPNGだけを保存し、QC・集計CSVはNo1直下の `Sub/tables/`、実行要約JSONは `Sub/logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。No2でも製品群figureフォルダはPNGだけとし、補助CSV・JSONを `Sub/` へ分離します。
 

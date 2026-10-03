@@ -230,10 +230,14 @@ def test_grand_average_uses_individual_smoothed_values_and_writes_outputs(
     assert output_dir.name == "GrandAverage"
     assert sorted(path.name for path in output_dir.iterdir()) == [
         "No1_RT_GrandAverage_VRohtoPremium_MA30.png",
+        "No1_RT_GrandAverage_VRohtoPremium_MA30_FocusedYAxis_400to1400ms.png",
         "No1_RT_GrandAverage_VRohtoPremium_MA50.png",
     ]
     summary = pd.read_json(outputs["windows"]["30"]["summary"], typ="series")
     assert summary["figure_y_axis_upper_ms"] == 1_800.0
+    assert summary["focused_y_axis_limits_ms"] == [400.0, 1_400.0]
+    assert summary["focused_y_axis_tick_interval_ms"] == 200.0
+    assert summary["focused_y_axis_horizontal_grid"]
     assert "mean +/- SEM" in summary["between_participant_variability"]
 
 

@@ -26,6 +26,9 @@ GRAND_AVERAGE_WINDOW_TRIALS = (30, 50)
 RT_LOWER_BOUND_MS = 200.0
 CONTROL_COLOR = "#563A7C"
 GRAND_AVERAGE_Y_LIMIT_MS = 1_800.0
+GRAND_AVERAGE_FOCUSED_Y_MIN_MS = 400.0
+GRAND_AVERAGE_FOCUSED_Y_MAX_MS = 1_400.0
+GRAND_AVERAGE_FOCUSED_Y_TICK_MS = 200.0
 SET_MEAN_BAR_CENTERS = np.array([-0.32, 0.32])
 SET_MEAN_BAR_WIDTH = 0.42
 SET_MEAN_DOT_SIZE = 150.0
@@ -391,7 +394,14 @@ def grand_figure_y_upper_limit(values: np.ndarray, product: str) -> float:
     return GRAND_AVERAGE_Y_LIMIT_MS
 
 
-def _format_rt_axis(axis: plt.Axes, upper_limit: float) -> None:
+def _format_rt_axis(
+    axis: plt.Axes,
+    upper_limit: float,
+    *,
+    lower_limit: float = 0.0,
+    y_tick_interval: float = 500.0,
+    horizontal_grid: bool = False,
+) -> None:
     """Apply the fixed No1 axis and set-boundary presentation."""
 
     for boundary in range(1, N_SETS):
@@ -409,13 +419,16 @@ def _format_rt_axis(axis: plt.Axes, upper_limit: float) -> None:
             color="#333333",
         )
     axis.set_xlim(0.0, N_SETS * 100.0)
-    axis.set_ylim(0.0, upper_limit)
+    axis.set_ylim(lower_limit, upper_limit)
     axis.set_xticks(np.arange(0.0, N_SETS * 100.0 + 1.0, 50.0))
-    axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
+    axis.set_yticks(np.arange(lower_limit, upper_limit + 1.0, y_tick_interval))
     axis.set_xlabel("Experimental Progress, %", fontsize=28, labelpad=18)
     axis.set_ylabel("Reaction Time (ms)", fontsize=28)
     axis.tick_params(axis="x", labelsize=20, width=1.5, length=6)
     axis.tick_params(axis="y", labelsize=20, width=1.5, length=6)
+    if horizontal_grid:
+        axis.grid(axis="y", color="#D9D9D9", linewidth=1.0, alpha=0.75)
+        axis.set_axisbelow(True)
     axis.spines["top"].set_visible(False)
     axis.spines["right"].set_visible(False)
 
@@ -633,7 +646,13 @@ def build_grand_average(
     return grand
 
 
-def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> float:
+def plot_grand_average(
+    grand: pd.DataFrame,
+    product: str,
+    path: Path,
+    *,
+    focused_y_axis: bool = False,
+) -> float:
     """Plot product-specific mean RT and between-participant mean +/- SEM."""
 
     _, product_label, product_color = normalize_product(product)
@@ -669,8 +688,18 @@ def plot_grand_average(grand: pd.DataFrame, product: str, path: Path) -> float:
         label=f"Eye Drop ({product_label})",
     )
     displayed = np.concatenate([control_mean + control_sem, drops_mean + drops_sem])
-    upper_limit = grand_figure_y_upper_limit(displayed, product)
-    _format_rt_axis(axis, upper_limit)
+    if focused_y_axis:
+        upper_limit = GRAND_AVERAGE_FOCUSED_Y_MAX_MS
+        _format_rt_axis(
+            axis,
+            upper_limit,
+            lower_limit=GRAND_AVERAGE_FOCUSED_Y_MIN_MS,
+            y_tick_interval=GRAND_AVERAGE_FOCUSED_Y_TICK_MS,
+            horizontal_grid=True,
+        )
+    else:
+        upper_limit = grand_figure_y_upper_limit(displayed, product)
+        _format_rt_axis(axis, upper_limit)
     axis.legend(
         loc="upper center",
         bbox_to_anchor=(0.5, 1.18),
@@ -713,6 +742,19 @@ def write_grand_average_outputs(
         values_path = table_dir / f"{prefix}_Values.csv"
         summary_path = log_dir / f"{prefix}_RunSummary.json"
         y_axis_upper_ms = plot_grand_average(grand, product_dir, figure_path)
+        focused_figure_path: Path | None = None
+        if window_trials == 30:
+            focused_figure_path = output_dir / (
+                f"{prefix}_FocusedYAxis_"
+                f"{int(GRAND_AVERAGE_FOCUSED_Y_MIN_MS)}to"
+                f"{int(GRAND_AVERAGE_FOCUSED_Y_MAX_MS)}ms.png"
+            )
+            plot_grand_average(
+                grand,
+                product_dir,
+                focused_figure_path,
+                focused_y_axis=True,
+            )
         grand.to_csv(values_path, index=False)
         max_upper_sem_band_ms = float(
             np.nanmax(
@@ -756,6 +798,18 @@ def write_grand_average_outputs(
         },
         "manifest_controls_inclusion": True,
         "figure_y_axis_upper_ms": y_axis_upper_ms,
+        "focused_y_axis_figure": (
+            str(focused_figure_path) if focused_figure_path is not None else None
+        ),
+        "focused_y_axis_limits_ms": (
+            [GRAND_AVERAGE_FOCUSED_Y_MIN_MS, GRAND_AVERAGE_FOCUSED_Y_MAX_MS]
+            if focused_figure_path is not None
+            else None
+        ),
+        "focused_y_axis_tick_interval_ms": (
+            GRAND_AVERAGE_FOCUSED_Y_TICK_MS if focused_figure_path is not None else None
+        ),
+        "focused_y_axis_horizontal_grid": focused_figure_path is not None,
         "max_upper_sem_band_ms": max_upper_sem_band_ms,
         "max_upper_sem_band_axis_ratio": max_upper_sem_band_ms / y_axis_upper_ms,
         "local_processed_data_created": False,
@@ -767,6 +821,9 @@ def write_grand_average_outputs(
         )
         window_outputs[str(window_trials)] = {
             "figure": str(figure_path),
+            "focused_figure": (
+                str(focused_figure_path) if focused_figure_path is not None else None
+            ),
             "values": str(values_path),
             "summary": str(summary_path),
         }
