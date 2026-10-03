@@ -37,20 +37,20 @@ No1・No2は、2026年10月1日に解析対象40被験者ペアへ同一の確�
 - 定量化では製品群ごとにSet 1〜6の独立6パネルを横一列で作り、各パネルの左にEye Drop、右にControlを配置する。バーは被験者間平均、ドットは被験者値、線は同一被験者の条件対応を示す
 - EEG欠損セットを持つペアはGrand-averageと同様に両条件の同じセットをNaNとし、そのセットのドット・接続線・平均から除外する
 - 定量化の縦軸は6パネル共通の `Reaction Time (ms)` とし、数字を全パネルに表示する。バーは中央付近（中心-0.32／0.32、幅0.42）、横軸範囲は-0.90〜0.90、ドットサイズは150とし、左右端へ余白を取る。横軸の条件名は22 pt、括弧内の目薬名だけ18 ptとする。Set名は縦軸上限より内側へ置き、Arialと既存No1の固定色を用いる
-- AllTrials／Last80Trials、製品群ごとに6つの両側対応ありt検定を行い、Bonferroni補正版とHolm補正版を別PNGで保存する。全Set統合RTは有限試行数で重み付けした全有限試行平均とし、単一の未補正対応ありt検定PNGを保存する。旧統計なしPNGは残さない
+- AllTrials／Last80Trials、製品群ごとに6つの両側対応ありt検定を行う。主PNGは未補正p値を表示し、統計CSVは未補正・Bonferroni・Holm・Benjamini–Hochberg FDRを併記する。全Set統合RTも対応ありt検定を行う
 
 実行スクリプトは `Phase2_No1_ReactionTime.py` です。被験者対応はコードへ埋め込まず、Googleスプレッドシートで確認した対応を次のいずれかで渡します。
 
 - 1名または少人数：`--participant 101:201:101:VRohtoPremium` のように、`1回目ID:2回目ID:目薬ありID:製品群` を指定する
 - 全被験者：`first_session_id,second_session_id,drops_session_id,product` の4列を持つ非公開manifest CSVを `--manifest` で指定する
 
-どちらも同じコード内のループを通り、被験者別にコードを変更しません。EEG欠損セット対応は全員共通スクリプト内の確定表から自動適用します。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。`Individual/` は全被験者のPNGだけを直下に並べ、`GrandAverage/` と `SetMeanQuantification/` もPNGだけを置きます。補助CSVはNo1直下の `Sub/tables/`、実行要約JSONは `Sub/logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。
+どちらも同じコード内のループを通り、被験者別にコードを変更しません。EEG欠損セット対応は全員共通スクリプト内の確定表から自動適用します。標準偏差はMATLAB `std` と同じ標本標準偏差（`ddof=1`）です。`Individual/` と `GrandAverage/` はPNGだけを置きます。`SetMeanQuantification/` はAllTrialsのPNG・統計CSVを直下、Last80Trialsを同名下位フォルダへ保存します。その他の補助CSVはNo1直下の `Sub/tables/`、実行要約JSONは `Sub/logs/` へ分離します。
 
 Grand-averageを作成するときは、対象者を確定したmanifestを指定し、同じコマンドへ `--grand-average --skip-invalid-participants` を追加します。製品群ごとの `GrandAverage/` へ30試行幅・50試行幅のPNGと30試行幅の共通拡大スケール版PNG、`Sub/tables/GrandAverage/` へ平均・SD・SEM・NのCSV、`Sub/logs/GrandAverage/` へ実行要約JSONを保存します。必要試行を確定できないペアはペア全体を除外し、No1の `Sub/logs/` にあるバッチ実行要約JSONへ理由を残して他のペアを継続します。
 
 Grand-averageだけを再出力するときは `--grand-average-only --skip-invalid-participants` を使用します。このモードでは個人figure、個人QC、セット別定量化、通常バッチ要約を変更しません。
 
-セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算、EEG欠損セットNaN化、200 ms未満の除外を再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/` 直下へAllTrials・Last80TrialsのPNG、`Sub/tables/SetMeanQuantification/` へ補助CSV、`Sub/logs/SetMeanQuantification/` へ実行要約JSONを保存します。
+セット別RT定量化だけを実行するときは、対象者を確定したmanifestを指定し、`--set-mean-quantification-only --skip-invalid-participants` を使用します。この実行は試行別RTの再計算、EEG欠損セットNaN化、200 ms未満の除外を再現して定量値を作り、既存の `Individual/`、`GrandAverage/`、個人QC、通常バッチ要約を変更しません。製品群ごとの `SetMeanQuantification/` 直下へAllTrialsのPNG・統計CSV、`Last80Trials/` へ追加解析のPNG・統計CSVを保存し、その他の補助CSVとログは `Sub/` に分離します。
 
 ## No2
 
@@ -68,8 +68,8 @@ Grand-averageだけを再出力するときは `--grand-average-only --skip-inva
 - Cキューブ群とVロートプレミアム群を分け、各群内で同一被験者の目薬あり条件とコントロールを比較する
 - FigureはNo1セット別RT定量化と同じ6パネルの対応あり構成とし、縦軸を `Mistouch (count)` とする
 - No2の固定色はNo1より暗くし、Control `#402B5D`、C Cube `#963838`、Vロートプレミアム `#AC6820` とする
-- 各製品群・解析版でSet別の両側対応ありt検定を行い、Bonferroni補正版とHolm補正版を別PNGで保存する。全Set統合ミスタッチ回数は単一の未補正対応ありt検定PNGとする。Phase 1でEEG欠損と確定した4セットは、No1の群集計と同様に被験者内対応を保つため両条件とも同じSetをNaNとし、ドット・接続線・平均・検定から除外する
+- 各製品群・解析版でSet別の両側対応ありt検定を行う。主PNGは未補正p値、統計CSVは未補正・Bonferroni・Holm・FDRを保存する。通常解析は `SetQuantification/` 直下、ID132–232 Set 1除外感度分析は同名下位フォルダへ保存する。Phase 1でEEG欠損と確定した4セットは両条件とも同じSetをNaNとする
 - 主解析ではID132-232のCキューブ目薬ありSet 1（375回）を含める。追加の感度分析だけ、ID132-232のSet 1を目薬あり・Controlの両条件ともNaN化し、Set 2〜6は変更しない
 - Cキューブ群は主解析Figureに加えて感度分析Figure・Set集計CSV・実行要約JSONを別名で保存する。Vロートプレミアム群には適用せず、主解析成果物を上書きしない
 
-実行スクリプトは `Phase2_No2_Mistouch.py`、出力先は指定OneDriveの `Phase2_行動データ解析/No2_Mistouch/` です。`CCube/`・`VRohtoPremium/` にはPNGだけを置き、補助CSVと製品群別JSONは `Sub/` 直下へまとめます。全体バッチ要約JSONはNo2直下に保存します。非公開manifestを入力し、全被験者を同一コードのループで処理します。
+実行スクリプトは `Phase2_No2_Mistouch.py`、出力先は指定OneDriveの `Phase2_行動データ解析/No2_Mistouch/` です。各製品群の `SetQuantification/` には定量化PNGと統計CSVを置き、その他の補助CSVと製品群別JSONは `Sub/` 直下へまとめます。全体バッチ要約JSONはNo2直下に保存します。

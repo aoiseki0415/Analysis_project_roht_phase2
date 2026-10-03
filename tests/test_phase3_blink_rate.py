@@ -371,6 +371,7 @@ def test_blink_setwise_statistics_include_both_adjustments():
     assert len(statistics) == 6
     assert statistics["P_value_Bonferroni"].between(0, 1).all()
     assert statistics["P_value_Holm"].between(0, 1).all()
+    assert statistics["P_value_FDR_BH"].between(0, 1).all()
 
 
 def test_production_threshold_basis_is_explicitly_exploratory_not_literature():

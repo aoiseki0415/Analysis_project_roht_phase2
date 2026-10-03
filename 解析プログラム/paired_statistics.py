@@ -67,7 +67,7 @@ def paired_t_statistics(eye_drop: np.ndarray, control: np.ndarray) -> dict[str, 
 
 
 def adjusted_p_values(p_values: Iterable[float], method: str) -> np.ndarray:
-    """Adjust finite p-values with Bonferroni or Holm while preserving NaNs."""
+    """Adjust finite p-values with Bonferroni, Holm, or BH-FDR, preserving NaNs."""
 
     p_values = np.asarray(list(p_values), dtype=float)
     adjusted = np.full(p_values.shape, np.nan, dtype=float)
@@ -78,6 +78,17 @@ def adjusted_p_values(p_values: Iterable[float], method: str) -> np.ndarray:
         return adjusted
     if method == "bonferroni":
         adjusted[finite_indices] = np.minimum(1.0, finite * count)
+        return adjusted
+    if method == "fdr_bh":
+        order = np.argsort(finite)
+        ordered = finite[order]
+        ordered_adjusted = np.minimum.accumulate(
+            (ordered * count / np.arange(1, count + 1))[::-1]
+        )[::-1]
+        ordered_adjusted = np.minimum(1.0, ordered_adjusted)
+        restored = np.empty_like(ordered_adjusted)
+        restored[order] = ordered_adjusted
+        adjusted[finite_indices] = restored
         return adjusted
     if method != "holm":
         raise ValueError(f"Unsupported p-value adjustment method: {method}")
@@ -114,8 +125,8 @@ def add_significance_bracket(
     x_right: float,
     label: str,
     *,
-    line_y: float = 0.82,
-    text_y: float = 0.845,
+    line_y: float = 0.75,
+    text_y: float = 0.775,
     linewidth: float = 2.2,
     fontsize: float = 24.0,
 ) -> None:

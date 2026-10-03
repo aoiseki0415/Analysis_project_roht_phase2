@@ -264,11 +264,11 @@ def _upper_limit(values: np.ndarray) -> int:
     finite = values[np.isfinite(values)]
     if finite.size == 0:
         return 5
-    return max(5, int(np.ceil(float(np.max(finite)) / 0.7)))
+    return max(5, int(np.ceil(float(np.max(finite)) / 0.65)))
 
 
 def build_setwise_paired_statistics(values: pd.DataFrame, product: str) -> pd.DataFrame:
-    """Run six paired t-tests and both requested family-wise adjustments."""
+    """Run six paired t-tests and retain raw plus three adjusted p-values."""
 
     rows: list[dict[str, object]] = []
     for set_number in range(1, N_SETS + 1):
@@ -286,6 +286,9 @@ def build_setwise_paired_statistics(values: pd.DataFrame, product: str) -> pd.Da
         statistics["P_value_raw"], "bonferroni"
     )
     statistics["P_value_Holm"] = adjusted_p_values(statistics["P_value_raw"], "holm")
+    statistics["P_value_FDR_BH"] = adjusted_p_values(
+        statistics["P_value_raw"], "fdr_bh"
+    )
     return statistics
 
 
@@ -320,7 +323,6 @@ def plot_product(
     statistics: pd.DataFrame,
     product: str,
     path: Path,
-    adjustment_method: str,
 ) -> int:
     label, color = PRODUCTS[product]
     product_values = values.loc[values["Product"] == product]
@@ -391,10 +393,9 @@ def plot_product(
             va="top",
             fontsize=26,
         )
-        p_column = (
-            "P_value_Bonferroni" if adjustment_method == "bonferroni" else "P_value_Holm"
+        p_value = float(
+            statistics.loc[statistics["Set"] == set_number, "P_value_raw"].iloc[0]
         )
-        p_value = float(statistics.loc[statistics["Set"] == set_number, p_column].iloc[0])
         add_significance_bracket(
             axis,
             BAR_CENTERS[0],
@@ -525,29 +526,36 @@ def write_statistical_quantification_figures(
     product: str,
     prefix: str,
 ) -> dict[str, object]:
-    """Write two corrected set-wise figures and one unadjusted all-set figure."""
+    """Write unadjusted figures and raw plus three adjusted statistical tables."""
 
     (product_dir / f"{prefix}.png").unlink(missing_ok=True)
     statistics = build_setwise_paired_statistics(values, product)
-    figure_paths: dict[str, str] = {}
-    upper = np.nan
-    for method, label in (("bonferroni", "Bonferroni"), ("holm", "Holm")):
-        path = product_dir / f"{prefix}_PairedTTest_{label}.png"
-        upper = plot_product(values, summary, statistics, product, path, method)
-        figure_paths[method] = str(path)
+    setwise_figure = product_dir / f"{prefix}_PairedTTest_Unadjusted.png"
+    upper = plot_product(values, summary, statistics, product, setwise_figure)
     all_sets_values = build_all_sets_mistouch_values(values, product)
     all_sets_figure = product_dir / f"{prefix}_AllSets_PairedTTest_Unadjusted.png"
     all_sets_upper, all_sets_statistics = plot_all_sets_mistouch(
         all_sets_values, product, all_sets_figure
     )
-    statistics_path = support_dir / f"{prefix}_PairedTTests.csv"
+    statistics_path = product_dir / f"{prefix}_PairedTTests.csv"
     all_sets_values_path = support_dir / f"{prefix}_AllSets_ParticipantValues.csv"
-    all_sets_statistics_path = support_dir / f"{prefix}_AllSets_PairedTTest.csv"
+    all_sets_statistics_path = product_dir / f"{prefix}_AllSets_PairedTTest.csv"
+    (support_dir / f"{prefix}_PairedTTests.csv").unlink(missing_ok=True)
+    (support_dir / f"{prefix}_AllSets_PairedTTest.csv").unlink(missing_ok=True)
     statistics.to_csv(statistics_path, index=False)
     all_sets_values.to_csv(all_sets_values_path, index=False)
-    pd.DataFrame([all_sets_statistics]).to_csv(all_sets_statistics_path, index=False)
+    all_sets_statistics_frame = pd.DataFrame([all_sets_statistics])
+    for method, column in (
+        ("bonferroni", "P_value_Bonferroni"),
+        ("holm", "P_value_Holm"),
+        ("fdr_bh", "P_value_FDR_BH"),
+    ):
+        all_sets_statistics_frame[column] = adjusted_p_values(
+            all_sets_statistics_frame["P_value_raw"], method
+        )
+    all_sets_statistics_frame.to_csv(all_sets_statistics_path, index=False)
     return {
-        "setwise_figures": figure_paths,
+        "setwise_figure": str(setwise_figure),
         "all_sets_figure": str(all_sets_figure),
         "setwise_statistics": str(statistics_path),
         "all_sets_participant_values": str(all_sets_values_path),
@@ -568,6 +576,14 @@ def write_outputs(
     for product in PRODUCTS:
         product_dir = root / product
         product_dir.mkdir(parents=True, exist_ok=True)
+        for stale in product_dir.glob("No2_Mistouch_*PairedTTest*.png"):
+            stale.unlink()
+        quantification_dir = product_dir / "SetQuantification"
+        quantification_dir.mkdir(parents=True, exist_ok=True)
+        for stale in quantification_dir.glob("*.png"):
+            stale.unlink()
+        for stale in quantification_dir.glob("*.csv"):
+            stale.unlink()
         prefix = f"No2_Mistouch_{product}"
         values_path = support_dir / f"{prefix}_ParticipantValues.csv"
         summary_path = support_dir / f"{prefix}_SetSummary.csv"
@@ -575,7 +591,7 @@ def write_outputs(
         selected_values = values.loc[values["Product"] == product].copy()
         selected_summary = summary.loc[summary["Product"] == product].copy()
         statistical_outputs = write_statistical_quantification_figures(
-            product_dir,
+            quantification_dir,
             support_dir,
             selected_values,
             selected_summary,
@@ -598,8 +614,8 @@ def write_outputs(
             },
             "eeg_missing_set_rule": "both paired conditions are NaN for the same affected set",
             "statistics": (
-                "two-sided paired t-test per set; six p-values adjusted separately with "
-                "Bonferroni and Holm; all-set test is unadjusted"
+                "two-sided paired t-test; figures use raw p-values. CSV retains raw, "
+                "Bonferroni, Holm, and Benjamini-Hochberg FDR p-values"
             ),
             "local_processed_data_created": False,
             "outputs": {
@@ -619,10 +635,18 @@ def write_outputs(
                 sensitivity_summary["Product"] == "CCube"
             ].copy()
             sensitivity_prefix = "No2_Mistouch_CCube_SensitivityAnalysis_ExcludeID132-232_Set1"
+            sensitivity_dir = (
+                quantification_dir / "SensitivityAnalysis_ExcludeID132-232_Set1"
+            )
+            sensitivity_dir.mkdir(parents=True, exist_ok=True)
+            for stale in sensitivity_dir.glob("*.png"):
+                stale.unlink()
+            for stale in sensitivity_dir.glob("*.csv"):
+                stale.unlink()
             sensitivity_csv = support_dir / f"{sensitivity_prefix}_SetSummary.csv"
             sensitivity_run = support_dir / f"{sensitivity_prefix}_RunSummary.json"
             sensitivity_statistical_outputs = write_statistical_quantification_figures(
-                product_dir,
+                sensitivity_dir,
                 support_dir,
                 sensitivity_values,
                 sensitivity_summary,
@@ -641,8 +665,8 @@ def write_outputs(
                     sensitivity_summary.loc[sensitivity_summary["Set"] == 1, "Paired_N"].iloc[0]
                 ),
                 "statistics": (
-                    "two-sided paired t-test per set with Bonferroni and Holm figures; "
-                    "all-set test is unadjusted"
+                    "two-sided paired t-test; figures use raw p-values. CSV retains raw, "
+                    "Bonferroni, Holm, and Benjamini-Hochberg FDR p-values"
                 ),
                 "outputs": {
                     **sensitivity_statistical_outputs,

@@ -4,7 +4,7 @@
 
 Phase 2では、ガボール課題の行動データから反応時間（RT）とミスタッチを解析します。Cキューブ群とVロートプレミアム群を分け、各群内で同一被験者の目薬あり条件とコントロールを比較します。
 
-本書は、解析1（No1）のRT試行進行解析・定量化と、解析2（No2）のミスタッチ解析・定量化の確定仕様を示します。定量化では対応あり両側t検定を用い、セット別6比較へBonferroni補正とHolm補正を別々に適用し、全Set統合の単一比較には多重比較補正を行いません。No2でもPhase 1のEEG欠損セットを被験者内で対応付けます。
+本書は、解析1（No1）のRT試行進行解析・定量化と、解析2（No2）のミスタッチ解析・定量化の確定仕様を示します。定量化の統計手法は両側対応ありt検定で固定します。現行の主PNGは未補正p値を表示し、統計CSVには未補正・Bonferroni・Holm・Benjamini–Hochberg FDRのp値を併記します。No2でもPhase 1のEEG欠損セットを被験者内で対応付けます。
 
 ### 実行状態
 
@@ -101,10 +101,10 @@ RT [ms] = KeyPress(ms) - TiltOnset(ms)
 - 色は既存No1と同じく、Control `#563A7C`、C Cube `#C84A4A`、V Rohto Premium `#E58A2B` に固定します。ドットはバーより透明にし、白い枠線を付けます。バーは細い黒枠を使用します。
 - 各パネルの2本のバーは中央付近でわずかに間隔を空け、中心を `-0.32` と `0.32`、幅を `0.42` とします。横軸範囲を `-0.90`〜`0.90` に固定して左右端へ余白を確保し、短い目盛り線もバー中心と一致させます。被験者ドットはサイズ150、横方向のずらし幅は各中心から最大±0.055とします。
 - figure内はArial・英語表記とし、各パネルへ `Set 1`〜`Set 6` を縦軸上限より内側に表示します。縦軸は6パネルで共通の `Reaction Time (ms)` とし、下限を0 ms、目盛りを500 ms刻みにします。縦軸の数字は全6パネルに表示し、横軸の条件名22 pt、括弧内の目薬名18 pt、縦軸数字23 pt、Set名26 pt、縦軸名30 ptを標準とします。
-- 各SetでEye Drop対Controlの両側対応ありt検定を行います。AllTrials／Last80Trials、Cキューブ／Vロートプレミアムを別々の検定ファミリーとし、各ファミリーの6つのp値へBonferroni補正とHolm補正を別々に適用します。未補正p値と両補正p値、t値、自由度、対応人数、平均差、差の95%信頼区間、Cohen's dzを保存し、有意判定には各figureに対応する補正後p値を使用します。
+- 各SetでEye Drop対Controlの両側対応ありt検定を行います。主PNGの有意表示には未補正p値を使用します。統計CSVには未補正p値、Bonferroni・Holm・Benjamini–Hochberg FDR補正後p値、t値、自由度、対応人数、平均差、差の95%信頼区間、Cohen's dzを保存します。未補正を主表示にするのは、補正法の最終選択が継続検討中であり、現時点では各Setの直接比較を可視化するためです。この扱いは今後変更し得ます。
 - 各被験者について、利用可能な全Setの対象試行を統合したRT平均も算出します。セット平均の単純平均ではなく、各Setの有限試行数で重み付けし、全有限試行を直接まとめた平均と同値にします。全Set統合版は比較が1つだけなので多重比較補正をせず、両側対応ありt検定を1回行います。
 - 有意表示は `p < 0.05`を`*`、`p < 0.01`を`**`、`p < 0.001`を`***`、それ以外を`n.s.`とし、2条件の上に黒いブラケットとともに表示します。
-- OneDriveの各製品群配下の `SetMeanQuantification/` 直下に、AllTrialsとLast80Trialsそれぞれについて、6パネルのBonferroni版・Holm版と、全Set統合の補正なし版を保存します。旧統計なしPNGは削除し、下位フォルダは作成しません。
+- OneDriveの各製品群配下の `SetMeanQuantification/` 直下には、メイン手法であるAllTrialsのセット別未補正PNG、全Set統合PNG、両統計CSVを保存します。`Last80Trials/` 下位フォルダには、追加手法であるLast80Trialsについて同じ構成を保存します。多重比較補正別PNGは保存しません。
 - 既存の `Individual/` と `GrandAverage/` の移動平均成果物は再生成・上書きしません。定量化だけを実行する専用オプションを使用します。
 
 ### 2.8 結果記録
@@ -121,7 +121,7 @@ Notionの解析1結果表は1被験者1行とし、少なくとも次を記録�
 - 長大RT、欠損、重複、試行数不一致などの備考
 - OneDrive出力の完了状態
 
-セット別RT定量化については、定量化範囲（AllTrialsまたはLast80Trials）×製品群×Setごとに、目薬あり・コントロールの被験者間平均、標本SD、有効人数N、平均差（Eye Drop−Control）、未補正p値、Bonferroni・Holm補正後p値、t値、自由度、95%信頼区間、Cohen's dz、figure出力状態を記録します。被験者別の2条件の定量値、対象Trial範囲、有効試行数と全Set統合値はOneDriveのCSVへ保存します。
+セット別RT定量化については、定量化範囲（AllTrialsまたはLast80Trials）×製品群×Setごとに、目薬あり・コントロールの被験者間平均、標本SD、有効人数N、平均差（Eye Drop−Control）、未補正p値、Bonferroni・Holm・FDR補正後p値、t値、自由度、95%信頼区間、Cohen's dz、figure出力状態を記録します。被験者別の2条件の定量値、対象Trial範囲、有効試行数と全Set統合値はOneDriveの補助CSVへ保存します。
 
 ## 3. 解析2（No2）：ミスタッチ解析
 
@@ -162,7 +162,7 @@ No1の `RT < 200 ms` 除外はRT値の採否規則であり、No2のイベント
 - 縦軸名は **`Mistouch (count)`** とし、下限は0、目盛りは整数とします。縦軸スケールは同一figure内の6パネルで統一し、最大値とドットが隠れない上側余白を確保します。
 - Figureの構成、バー中心、バー幅、横軸余白、ドットサイズ、文字サイズ、Arial、条件名、Set名の配置はNo1のセット別RT定量化と同じにします。
 - No1との識別性を保つため、No2では条件色を一段暗く固定します。Controlは `#402B5D`、C Cubeは `#963838`、V Rohto Premiumは `#AC6820` とします。ドットは同じ条件色へ透過を加え、白枠を付けます。バーには細い黒枠を使用します。
-- 各Setで両側対応ありt検定を行い、製品群・解析版（主要／感度分析）ごとの6つのp値へBonferroni補正とHolm補正を別々に適用します。両補正版を別PNGとして保存し、黒いブラケットと`*`／`**`／`***`／`n.s.`を表示します。
+- 各Setで両側対応ありt検定を行い、主PNGは未補正p値に基づく黒いブラケットと`*`／`**`／`***`／`n.s.`を表示します。統計CSVには未補正・Bonferroni・Holm・FDRを併記します。
 - 全Set統合値は、各被験者について両条件で利用可能なSetの確定ミスタッチ回数を合計します。比較は1つだけなので多重比較補正をせず、両側対応ありt検定を1回行ったPNGを保存します。
 - 主解析は事前に確定したミスタッチ定義を変更せず、ID132-232のCキューブ目薬ありSet 1（375回）を含めます。この値は50 ms以内の自動リピートではなく、Set全体に分布する間隔押しの実測値です。
 - 結果依存の片条件除外を避けるため、追加の感度分析ではID132-232のSet 1だけを目薬あり・Controlの両条件ともNaN化します。Set 2〜6と他被験者は主解析から変更しません。
@@ -178,7 +178,7 @@ NotionのNo2結果表は1被験者ペア1行とし、少なくとも次を記録
 - 時刻欠損、時刻逆転、未分類イベント、入力ファイルの不整合などの備考
 - OneDrive出力の完了状態
 
-製品群×Setの集計表には、目薬あり・コントロールそれぞれの被験者間平均、標本SD、有効人数N、平均差（Eye Drop−Control）、未補正p値、Bonferroni・Holm補正後p値、t値、自由度、95%信頼区間、Cohen's dz、figure出力状態を記録します。
+製品群×Setの集計表には、目薬あり・コントロールそれぞれの被験者間平均、標本SD、有効人数N、平均差（Eye Drop−Control）、未補正p値、Bonferroni・Holm・FDR補正後p値、t値、自由度、95%信頼区間、Cohen's dz、figure出力状態を記録します。
 
 実装時に次のとおり確定しました。
 
@@ -191,7 +191,7 @@ NotionのNo2結果表は1被験者ペア1行とし、少なくとも次を記録
 - OneDrive：`Phase2_行動データ解析/No2_Mistouch/`
 - Notion：`フェーズ２：行動データの解析 / 解析2（No2）`
 
-OneDriveのNo2配下では、`CCube` と `VRohtoPremium` を分け、各製品群のfigure用フォルダにはセット別Bonferroni補正版・Holm補正版と全Set統合補正なし版のPNGだけを保存します。Cキューブ群では主解析と感度分析の双方に同じ3種類を保存します。被験者別セット値CSV・製品群×Set集計CSV・統計結果CSV・製品群別実行要約JSON・感度分析の補助CSV/JSONは、No2直下の `Sub/` へまとめます。全体の `No2_Mistouch_BatchSummary.json` はNo2直下に保持します。被験者別の識別子は単独セッションIDではなく `ID<1回目>-<2回目>` とします。No2はローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。
+OneDriveのNo2配下では、`CCube` と `VRohtoPremium` を分け、各製品群の `SetQuantification/` 直下に通常解析のセット別未補正PNG、全Set統合PNG、両統計CSVを保存します。Cキューブ群のID132–232 Set 1除外感度分析は `SensitivityAnalysis_ExcludeID132-232_Set1/` 下位フォルダへ同じ構成で保存します。被験者別セット値CSV・製品群×Set集計CSV・製品群別実行要約JSONなどの補助成果物はNo2直下の `Sub/` へまとめます。
 
 Cキューブ群の同じフォルダには、主解析成果物を上書きせず、ID132-232のSet 1を両条件とも除外した感度分析Figure、Set集計CSV、実行要約JSONを追加します。感度分析は極端値への依存性を確認する補助解析であり、主解析の置き換えではありません。
 
@@ -201,9 +201,9 @@ Cキューブ群の同じフォルダには、主解析成果物を上書きせ�
 - OneDrive：`Phase2_行動データ解析/No1_ReactionTime/`
 - Notion：`フェーズ２：行動データの解析 / 解析1（No1）`
 
-OneDriveのNo1配下では、`CCube` と `VRohtoPremium` を分け、各製品群の中に `Individual`、`GrandAverage`、`SetMeanQuantification`を置きます。`Individual/` 直下には全被験者ペアのPNGだけを並べ、被験者別下位フォルダは作成しません。`GrandAverage/` 直下には30試行版・50試行版と30試行幅の共通拡大スケール版PNG、`SetMeanQuantification/` 直下にはAllTrials版・Last80Trials版のPNGだけを置きます。ファイル名は、単独IDではなく `ID<1回目>-<2回目>` を使用します。
+OneDriveのNo1配下では、`CCube` と `VRohtoPremium` を分け、各製品群の中に `Individual`、`GrandAverage`、`SetMeanQuantification`を置きます。`Individual/` 直下には全被験者ペアのPNGだけを並べ、被験者別下位フォルダは作成しません。`GrandAverage/` 直下には30試行版・50試行版と30試行幅の共通拡大スケール版PNGを置きます。`SetMeanQuantification/` 直下にはAllTrialsのPNG・統計CSV、`Last80Trials/` には追加解析のPNG・統計CSVを置きます。
 
-No1は、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。Figure用フォルダにはPNGだけを保存し、QC・集計CSVはNo1直下の `Sub/tables/`、実行要約JSONは `Sub/logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。No2でも製品群figureフォルダはPNGだけとし、補助CSV・JSONを `Sub/` へ分離します。
+No1は、ローカルデスクトップの `解析に必要なデータたち/` へ加工済み・中間データを保存しません。`Individual/` と `GrandAverage/` はPNGだけ、定量化フォルダはPNGと統計CSVを保存します。その他のQC・集計CSVはNo1直下の `Sub/tables/`、実行要約JSONは `Sub/logs/` へ分離します。試行別の `RT_TrialData.csv` は保存しません。No2も定量化フォルダだけPNGと統計CSVを置き、その他の補助CSV・JSONを `Sub/` へ分離します。
 
 Grand-averageは同じスクリプトへ `--grand-average --skip-invalid-participants` を付けて実行します。製品群ごとの `GrandAverage/` に30試行幅版・50試行幅版のPNGを保存します。同一進捗位置の平均・SD・SEM・Nを収めたCSVは `Sub/tables/GrandAverage/`、実行要約JSONは `Sub/logs/GrandAverage/` へ分離します。No1の `Sub/logs/` に、完了ペア、除外ペア、除外理由、Grand-average出力を記録します。
 

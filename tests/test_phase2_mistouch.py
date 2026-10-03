@@ -129,10 +129,9 @@ def test_support_outputs_are_written_to_sub(monkeypatch, tmp_path: Path) -> None
     assert (root / "Sub" / "No2_Mistouch_CCube_ParticipantValues.csv").exists()
     assert (root / "Sub" / "No2_Mistouch_VRohtoPremium_RunSummary.json").exists()
     assert (root / "No2_Mistouch_BatchSummary.json").exists()
-    assert all(
-        Path(item["setwise_figures"]["holm"]).parent.name in phase2.PRODUCTS
-        for item in outputs
-    )
+    assert all(Path(item["setwise_figure"]).parent.name in {
+        "SetQuantification", "SensitivityAnalysis_ExcludeID132-232_Set1"
+    } for item in outputs)
     assert all(Path(item["all_sets_figure"]).exists() for item in outputs)
 
 

@@ -437,12 +437,17 @@ def test_quantification_outputs_do_not_replace_existing_no1_outputs(
     output_dir = Path(outputs["directory"])
     assert output_dir.name == "SetMeanQuantification"
     assert sorted(path.name for path in output_dir.iterdir()) == [
+        "Last80Trials",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_AllSets_PairedTTest.csv",
         "No1_RT_SetMeanQuantification_CCube_AllTrials_AllSets_PairedTTest_Unadjusted.png",
-        "No1_RT_SetMeanQuantification_CCube_AllTrials_PairedTTest_Bonferroni.png",
-        "No1_RT_SetMeanQuantification_CCube_AllTrials_PairedTTest_Holm.png",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_PairedTTest_Unadjusted.png",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_PairedTTests.csv",
+    ]
+    assert sorted(path.name for path in (output_dir / "Last80Trials").iterdir()) == [
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_AllSets_PairedTTest.csv",
         "No1_RT_SetMeanQuantification_CCube_Last80Trials_AllSets_PairedTTest_Unadjusted.png",
-        "No1_RT_SetMeanQuantification_CCube_Last80Trials_PairedTTest_Bonferroni.png",
-        "No1_RT_SetMeanQuantification_CCube_Last80Trials_PairedTTest_Holm.png",
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_PairedTTest_Unadjusted.png",
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_PairedTTests.csv",
     ]
     for variant in ("AllTrials", "Last80Trials"):
         variant_output = outputs["variants"][variant]
@@ -469,3 +474,4 @@ def test_setwise_statistics_adjust_six_paired_tests() -> None:
     assert len(statistics) == 6
     assert statistics["P_value_Bonferroni"].between(0, 1).all()
     assert statistics["P_value_Holm"].between(0, 1).all()
+    assert statistics["P_value_FDR_BH"].between(0, 1).all()

@@ -1036,7 +1036,7 @@ def condition_blink_count_balance(
 
 
 def build_setwise_paired_statistics(frame: pd.DataFrame) -> pd.DataFrame:
-    """Run six paired t-tests and both requested family-wise adjustments."""
+    """Run six paired t-tests and retain raw plus three adjusted p-values."""
 
     rows: list[dict[str, object]] = []
     for set_number in range(1, N_SETS + 1):
@@ -1055,6 +1055,9 @@ def build_setwise_paired_statistics(frame: pd.DataFrame) -> pd.DataFrame:
         statistics["P_value_raw"], "bonferroni"
     )
     statistics["P_value_Holm"] = adjusted_p_values(statistics["P_value_raw"], "holm")
+    statistics["P_value_FDR_BH"] = adjusted_p_values(
+        statistics["P_value_raw"], "fdr_bh"
+    )
     return statistics
 
 
@@ -1090,13 +1093,12 @@ def plot_group_quantification(
     product_dir: str,
     product_label: str,
     path: Path,
-    adjustment_method: str,
 ) -> None:
     """Plot six paired panels whose bars are between-participant means."""
     _configure_plot()
     figure, axes = plt.subplots(1, 6, figsize=(34, 9), sharey=True)
     finite = frame["BlinkRateBlinksPerMin"].dropna().to_numpy(dtype=float)
-    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.70) / 5.0) * 5.0)) if finite.size else 5.0
+    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.65) / 5.0) * 5.0)) if finite.size else 5.0
     x = QUANTIFICATION_BAR_CENTERS
     eye_color = QUANTIFICATION_COLORS[product_dir]
     for set_number, axis in enumerate(axes, 1):
@@ -1168,10 +1170,9 @@ def plot_group_quantification(
             va="top",
             fontsize=26,
         )
-        p_column = (
-            "P_value_Bonferroni" if adjustment_method == "bonferroni" else "P_value_Holm"
+        p_value = float(
+            statistics.loc[statistics["Set"] == set_number, "P_value_raw"].iloc[0]
         )
-        p_value = float(statistics.loc[statistics["Set"] == set_number, p_column].iloc[0])
         add_significance_bracket(
             axis,
             x[0],
@@ -1203,7 +1204,7 @@ def plot_all_sets_blink_quantification(
     drops, control = drops[paired], control[paired]
     statistics = paired_t_statistics(drops, control)
     finite = np.concatenate([drops, control])
-    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.70) / 5.0) * 5.0))
+    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.65) / 5.0) * 5.0))
     x = QUANTIFICATION_BAR_CENTERS
     eye_color = QUANTIFICATION_COLORS[product_dir]
     _configure_plot()
@@ -1290,38 +1291,52 @@ def write_group_quantification_outputs(
     prefix: str,
     excluded_pair_sets: dict[str, set[int]] | None = None,
 ) -> dict[str, str]:
-    """Write corrected set-wise and unadjusted all-set quantification outputs."""
+    """Write unadjusted figures and raw plus three adjusted statistical tables."""
 
     frame = _group_quantification_frame(
         processed_items, product_dir, excluded_pair_sets=excluded_pair_sets
     )
     statistics = build_setwise_paired_statistics(frame)
     quantification_dir.mkdir(parents=True, exist_ok=True)
+    for stale in quantification_dir.glob("*.png"):
+        stale.unlink()
+    for stale in quantification_dir.glob("*.csv"):
+        stale.unlink()
     table_dir.mkdir(parents=True, exist_ok=True)
     (quantification_dir / f"{prefix}.png").unlink(missing_ok=True)
     frame_path = table_dir / f"{prefix}.csv"
-    statistics_path = table_dir / f"{prefix}_PairedTTests.csv"
+    statistics_path = quantification_dir / f"{prefix}_PairedTTests.csv"
+    (table_dir / f"{prefix}_PairedTTests.csv").unlink(missing_ok=True)
     frame.to_csv(frame_path, index=False)
     statistics.to_csv(statistics_path, index=False)
     outputs: dict[str, str] = {
         "set_quantification_table": str(frame_path),
         "setwise_statistics": str(statistics_path),
     }
-    for method, label in (("bonferroni", "Bonferroni"), ("holm", "Holm")):
-        path = quantification_dir / f"{prefix}_PairedTTest_{label}.png"
-        plot_group_quantification(
-            frame, statistics, product_dir, product_label, path, method
-        )
-        outputs[f"setwise_{method}_figure"] = str(path)
+    setwise_figure = quantification_dir / f"{prefix}_PairedTTest_Unadjusted.png"
+    plot_group_quantification(
+        frame, statistics, product_dir, product_label, setwise_figure
+    )
+    outputs["setwise_figure"] = str(setwise_figure)
     all_sets_values = build_all_sets_blink_values(frame)
     all_sets_values_path = table_dir / f"{prefix}_AllSets_ParticipantValues.csv"
-    all_sets_statistics_path = table_dir / f"{prefix}_AllSets_PairedTTest.csv"
+    all_sets_statistics_path = quantification_dir / f"{prefix}_AllSets_PairedTTest.csv"
+    (table_dir / f"{prefix}_AllSets_PairedTTest.csv").unlink(missing_ok=True)
     all_sets_figure = quantification_dir / f"{prefix}_AllSets_PairedTTest_Unadjusted.png"
     all_sets_values.to_csv(all_sets_values_path, index=False)
     all_sets_statistics = plot_all_sets_blink_quantification(
         all_sets_values, product_dir, product_label, all_sets_figure
     )
-    pd.DataFrame([all_sets_statistics]).to_csv(all_sets_statistics_path, index=False)
+    all_sets_statistics_frame = pd.DataFrame([all_sets_statistics])
+    for method, column in (
+        ("bonferroni", "P_value_Bonferroni"),
+        ("holm", "P_value_Holm"),
+        ("fdr_bh", "P_value_FDR_BH"),
+    ):
+        all_sets_statistics_frame[column] = adjusted_p_values(
+            all_sets_statistics_frame["P_value_raw"], method
+        )
+    all_sets_statistics_frame.to_csv(all_sets_statistics_path, index=False)
     outputs.update(
         {
             "all_sets_figure": str(all_sets_figure),
@@ -1441,7 +1456,12 @@ def create_additional_group_outputs(
                 / "tables"
                 / f"{product_dir}_No1_BlinkRate_GrandAverage_{label}.csv"
             )
-            quantification_dir = phase_root / product_dir / "SetQuantification"
+            quantification_dir = (
+                phase_root
+                / product_dir
+                / "SetQuantification"
+                / "ExcludePair133-233_Sets1-3"
+            )
             quantification_table_dir = phase_root / "Sub" / "tables"
             quantification_prefix = f"{product_dir}_No1_BlinkRate_SetQuantification_{label}"
             plot_group_grand_average(

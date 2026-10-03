@@ -976,12 +976,12 @@ def set_mean_figure_y_upper_limit(values: np.ndarray) -> float:
     finite = finite[np.isfinite(finite)]
     if finite.size == 0:
         return 500.0
-    target = float(np.max(finite)) / 0.70
+    target = float(np.max(finite)) / 0.65
     return max(500.0, float(np.ceil(target / 100.0) * 100.0))
 
 
 def build_setwise_paired_statistics(participant_values: pd.DataFrame) -> pd.DataFrame:
-    """Run six paired t-tests and add both prespecified p-value adjustments."""
+    """Run six paired t-tests and retain raw plus three adjusted p-values."""
 
     rows: list[dict[str, object]] = []
     for set_number in range(1, N_SETS + 1):
@@ -999,6 +999,9 @@ def build_setwise_paired_statistics(participant_values: pd.DataFrame) -> pd.Data
         statistics["P_value_raw"], "bonferroni"
     )
     statistics["P_value_Holm"] = adjusted_p_values(statistics["P_value_raw"], "holm")
+    statistics["P_value_FDR_BH"] = adjusted_p_values(
+        statistics["P_value_raw"], "fdr_bh"
+    )
     return statistics
 
 
@@ -1034,7 +1037,6 @@ def plot_set_mean_quantification(
     statistics: pd.DataFrame,
     product: str,
     path: Path,
-    adjustment_method: str,
 ) -> float:
     """Plot six independent paired bar-and-dot panels for one product group."""
 
@@ -1121,10 +1123,9 @@ def plot_set_mean_quantification(
             va="top",
             fontsize=26,
         )
-        p_column = (
-            "P_value_Bonferroni" if adjustment_method == "bonferroni" else "P_value_Holm"
+        p_value = float(
+            statistics.loc[statistics["Set"] == set_number, "P_value_raw"].iloc[0]
         )
-        p_value = float(statistics.loc[statistics["Set"] == set_number, p_column].iloc[0])
         add_significance_bracket(
             axis,
             SET_MEAN_BAR_CENTERS[0],
@@ -1256,7 +1257,7 @@ def write_set_mean_quantification_outputs(
     results: list[dict[str, object]],
     product: str,
 ) -> dict[str, object]:
-    """Write both set-mean variants while preserving existing No1 products."""
+    """Write main and supplementary quantification variants in separate folders."""
 
     product_dir, _, _ = normalize_product(product)
     quantification_root = (
@@ -1267,6 +1268,10 @@ def write_set_mean_quantification_outputs(
         / "SetMeanQuantification"
     )
     quantification_root.mkdir(parents=True, exist_ok=True)
+    for stale in quantification_root.glob("*.png"):
+        stale.unlink()
+    for stale in quantification_root.glob("*.csv"):
+        stale.unlink()
     no1_root = output_root / "Phase2_行動データ解析" / "No1_ReactionTime"
     support_root = no1_root / "Sub"
     table_dir = support_root / "tables" / "SetMeanQuantification"
@@ -1275,6 +1280,14 @@ def write_set_mean_quantification_outputs(
     log_dir.mkdir(parents=True, exist_ok=True)
     variant_outputs: dict[str, dict[str, str]] = {}
     for variant, (trial_start, trial_end) in SET_MEAN_VARIANTS.items():
+        variant_dir = (
+            quantification_root if variant == "AllTrials" else quantification_root / variant
+        )
+        variant_dir.mkdir(parents=True, exist_ok=True)
+        for stale in variant_dir.glob("*.png"):
+            stale.unlink()
+        for stale in variant_dir.glob("*.csv"):
+            stale.unlink()
         participant_values, summary = build_set_mean_quantification(
             results,
             product_dir,
@@ -1287,26 +1300,19 @@ def write_set_mean_quantification_outputs(
         old_figure_path.unlink(missing_ok=True)
         participant_values_path = table_dir / f"{prefix}_ParticipantValues.csv"
         summary_path = table_dir / f"{prefix}_SetSummary.csv"
-        statistics_path = table_dir / f"{prefix}_PairedTTests.csv"
+        statistics_path = variant_dir / f"{prefix}_PairedTTests.csv"
         all_sets_values_path = table_dir / f"{prefix}_AllSets_ParticipantValues.csv"
-        all_sets_statistics_path = table_dir / f"{prefix}_AllSets_PairedTTest.csv"
+        all_sets_statistics_path = variant_dir / f"{prefix}_AllSets_PairedTTest.csv"
+        (table_dir / f"{prefix}_PairedTTests.csv").unlink(missing_ok=True)
+        (table_dir / f"{prefix}_AllSets_PairedTTest.csv").unlink(missing_ok=True)
         run_summary_path = log_dir / f"{prefix}_RunSummary.json"
         statistics = build_setwise_paired_statistics(participant_values)
-        figure_paths: dict[str, str] = {}
-        y_axis_upper_ms = np.nan
-        for method, label in (("bonferroni", "Bonferroni"), ("holm", "Holm")):
-            figure_path = quantification_root / f"{prefix}_PairedTTest_{label}.png"
-            y_axis_upper_ms = plot_set_mean_quantification(
-                participant_values,
-                summary,
-                statistics,
-                product_dir,
-                figure_path,
-                method,
-            )
-            figure_paths[method] = str(figure_path)
+        figure_path = variant_dir / f"{prefix}_PairedTTest_Unadjusted.png"
+        y_axis_upper_ms = plot_set_mean_quantification(
+            participant_values, summary, statistics, product_dir, figure_path
+        )
         all_sets_values = build_all_sets_rt_values(participant_values)
-        all_sets_figure_path = quantification_root / f"{prefix}_AllSets_PairedTTest_Unadjusted.png"
+        all_sets_figure_path = variant_dir / f"{prefix}_AllSets_PairedTTest_Unadjusted.png"
         all_sets_y_axis_upper_ms, all_sets_statistics = plot_all_sets_rt_quantification(
             all_sets_values, product_dir, all_sets_figure_path
         )
@@ -1314,7 +1320,16 @@ def write_set_mean_quantification_outputs(
         summary.to_csv(summary_path, index=False)
         statistics.to_csv(statistics_path, index=False)
         all_sets_values.to_csv(all_sets_values_path, index=False)
-        pd.DataFrame([all_sets_statistics]).to_csv(all_sets_statistics_path, index=False)
+        all_sets_statistics_frame = pd.DataFrame([all_sets_statistics])
+        for method, column in (
+            ("bonferroni", "P_value_Bonferroni"),
+            ("holm", "P_value_Holm"),
+            ("fdr_bh", "P_value_FDR_BH"),
+        ):
+            all_sets_statistics_frame[column] = adjusted_p_values(
+                all_sets_statistics_frame["P_value_raw"], method
+            )
+        all_sets_statistics_frame.to_csv(all_sets_statistics_path, index=False)
         run_summary = {
             "product": product_dir,
             "quantification_variant": variant,
@@ -1330,14 +1345,14 @@ def write_set_mean_quantification_outputs(
                 "participant and group summaries"
             ),
             "statistics": (
-                "two-sided paired t-test per set; six p-values adjusted separately with "
-                "Bonferroni and Holm; all-set test is unadjusted because it is one comparison"
+                "two-sided paired t-test; figures use raw p-values. CSV retains raw, "
+                "Bonferroni, Holm, and Benjamini-Hochberg FDR p-values for review"
             ),
             "figure_y_axis_upper_ms": y_axis_upper_ms,
             "all_sets_figure_y_axis_upper_ms": all_sets_y_axis_upper_ms,
             "existing_individual_and_grand_average_outputs_modified": False,
             "outputs": {
-                "setwise_figures": figure_paths,
+                "setwise_figure": str(figure_path),
                 "all_sets_figure": str(all_sets_figure_path),
                 "participant_values": str(participant_values_path),
                 "set_summary": str(summary_path),
@@ -1351,8 +1366,8 @@ def write_set_mean_quantification_outputs(
             json.dumps(run_summary, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         variant_outputs[variant] = {
-            "directory": str(quantification_root),
-            "setwise_figures": figure_paths,
+            "directory": str(variant_dir),
+            "setwise_figure": str(figure_path),
             "all_sets_figure": str(all_sets_figure_path),
             "participant_values": str(participant_values_path),
             "set_summary": str(summary_path),

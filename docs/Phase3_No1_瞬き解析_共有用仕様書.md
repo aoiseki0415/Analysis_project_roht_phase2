@@ -139,7 +139,7 @@ Set Blink Rate [blinks/min]
 - 接続線：同一被験者の2条件の対応
 - ドット：固定seedによる再現可能な左右ジッター
 - 縦軸：6パネル共通の `Blink Rate (blinks/min)`
-- 各SetでEye Drop対Controlの両側対応ありt検定を行い、製品群・解析版（主要解析／Pair 133–233除外追加解析）ごとの6検定へBonferroni補正とHolm補正を別々に適用する。両補正版は別PNGとする。
+- 各SetでEye Drop対Controlの両側対応ありt検定を行い、主PNGは未補正p値を表示する。統計CSVには未補正・Bonferroni・Holm・FDRを併記する。
 - 各被験者について、両条件で利用可能な全Setの検出総数を合計し、全Set実時間合計（分）で割った全Set統合Blink Rateを作る。比較は1つだけなので多重比較補正を行わない。
 - 主解析とPair 133–233除外追加解析のSet別・全Set統合結果は別々に保存する。
 - Figureには黒いブラケットと`*`（p<0.05）、`**`（p<0.01）、`***`（p<0.001）、`n.s.`を表示する。補助CSVには未補正p値、両補正p値、t値、自由度、対応人数、平均差、95%信頼区間、Cohen's dzを保存する。
@@ -221,7 +221,7 @@ Phase3_瞬き解析/
 
 - `Individual/`：被験者ペア別Blink Rate PNG
 - `GrandAverage/`：製品群別Grand-average PNG。標準版に加えて `FocusedYAxis_10to30BlinksPerMin` 付きの拡大表示版を保存し、Vロートプレミアム群では通常集計とPair 133–233除外集計の双方に作成する
-- `SetQuantification/`：製品群別6パネルPNG。Vロートプレミアム群には通常版とPair 133–233除外追加版を保存
+- `SetQuantification/`：通常解析のセット別未補正PNG・全Set統合PNG・統計CSV。Vロートプレミアム群のPair 133–233除外追加版は `ExcludePair133-233_Sets1-3/` 下位フォルダへ同じ構成で保存
 - `QualityCheck/BlinkDetection/`：セッション別検出確認HTML・PNG
 - `QualityCheck/ProminenceDistribution/`：セッション別prominence分布PNG
 - `Sub/tables/`：ピーク、Blink Rate、閾値、欠測、集計の補助CSV

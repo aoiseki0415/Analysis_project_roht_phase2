@@ -148,7 +148,7 @@ Trial 1ではTrial 1～15、Trial 2ではTrial 1～16を使用し、Trial 16で�
 - `Last80Trials`：各Setの最後1/4に当たるTrial 241〜320の算術平均
 - 200 ms未満のRTは除外済みのNaNとして扱い、それ以外のNaNとともに平均から除外する。
 - EEG欠損セットはどちらの定量化でも両条件をNaNとする。
-- 2種類それぞれに、Set別のBonferroni補正版・Holm補正版と、全Set統合の補正なし版、被験者別CSV、統計CSV、実行要約を作成する。
+- 2種類それぞれに、未補正p値を表示するSet別PNGと全Set統合PNGを作成する。統計CSVには未補正・Bonferroni・Holm・FDRを併記する。
 
 - 製品群ごとに、Set 1～6の独立した6パネルを横一列で表示する。
 - 各パネルは左をEye Drop、右をControlとする。
@@ -162,10 +162,10 @@ Trial 1ではTrial 1～15、Trial 2ではTrial 1～16を使用し、Trial 16で�
 - ドットの横ずらし：各中心から最大±`0.055`
 - 縦軸：6パネル共通、下限0 ms、500 ms刻み
 - 条件名：22 pt、括弧内の目薬名：18 pt、縦軸数字：23 pt、Set名：26 pt、縦軸名：30 pt
-- 各Setで両側対応ありt検定を行い、製品群・定量化範囲ごとの6検定へBonferroni補正とHolm補正を別々に適用する。両補正版を別PNGとして保存する。
+- 各Setで両側対応ありt検定を行い、主PNGは未補正p値を表示する。補正法の最終選択は継続検討中であり、現行表示は今後変更し得る。
 - 利用可能な全Setの対象試行を統合した被験者値も作る。Set平均の単純平均ではなく有限試行数で重み付けし、全有限試行をまとめたRT平均とする。検定は1回なので多重比較補正を行わない。
-- Figureは2条件の上に黒いブラケットを置き、使用する補正後p値または全Set統合の未補正p値に応じて、`*`（p<0.05）、`**`（p<0.01）、`***`（p<0.001）、`n.s.`を表示する。
-- 補助CSVには未補正p値、Bonferroni・Holm補正後p値、t値、自由度、対応人数、平均差、差の95%信頼区間、Cohen's dzを保存する。
+- Figureは2条件の上に黒いブラケットを置き、未補正p値に応じて、`*`（p<0.05）、`**`（p<0.01）、`***`（p<0.001）、`n.s.`を表示する。
+- 統計CSVには未補正p値、Bonferroni・Holm・FDR補正後p値、t値、自由度、対応人数、平均差、差の95%信頼区間、Cohen's dzを保存する。
 
 **理由：** 平滑化による値の変形を避け、被験者を解析単位として、セットごとの条件差と被験者内対応を同時に示すため。
 
@@ -185,11 +185,11 @@ Phase2_行動データ解析/
     ├── CCube/
     │   ├── Individual/  # 全被験者PNGのみ
     │   ├── GrandAverage/
-    │   └── SetMeanQuantification/  # AllTrials・Last80Trials PNGのみ
+    │   └── SetMeanQuantification/  # AllTrials PNG・統計CSV、Last80Trials/ 下位フォルダ
     ├── VRohtoPremium/
         ├── Individual/  # 全被験者PNGのみ
         ├── GrandAverage/
-        └── SetMeanQuantification/  # AllTrials・Last80Trials PNGのみ
+        └── SetMeanQuantification/  # AllTrials PNG・統計CSV、Last80Trials/ 下位フォルダ
     └── Sub/
         ├── tables/
         │   ├── Individual/
@@ -203,7 +203,7 @@ Phase2_行動データ解析/
 
 - 個人別：RT推移figure、セッション別QC、実行要約
 - Grand-average：30試行幅・50試行幅のPNGと、30試行幅の共通拡大スケール版PNG。各位置の平均・SD・SEM・有効人数NのCSVと実行要約はNo1直下の `Sub/tables/`・`Sub/logs/` へ分離
-- セット別RT定量化：`SetMeanQuantification/` 直下にAllTrials・Last80Trialsの6パネルPNGを保存し、被験者別セット値CSV・製品群×Set集計CSV・実行要約は `Sub/tables/`・`Sub/logs/` へ分離
+- セット別RT定量化：`SetMeanQuantification/` 直下にAllTrialsのセット別PNG・全Set統合PNG・統計CSV、`Last80Trials/` に追加解析の同構成を保存する
 - 試行別の `RT_TrialData.csv` は保存しない。
 - ローカルデスクトップの `解析に必要なデータたち/` には保存しない。
 
