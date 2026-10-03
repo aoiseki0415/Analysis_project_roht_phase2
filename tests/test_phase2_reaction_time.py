@@ -94,6 +94,14 @@ def test_figure_y_upper_limit_places_maximum_near_seventy_percent() -> None:
     assert 0.65 <= 1_350.0 / upper <= 0.70
 
 
+def test_set_mean_axis_uses_three_to_six_nice_tick_labels() -> None:
+    upper = phase2.set_mean_figure_y_upper_limit(np.array([400.0, 1_350.0]))
+    rounded_upper, ticks = phase2.nice_zero_based_ticks(upper)
+    assert rounded_upper == upper
+    assert 3 <= len(ticks) <= 6
+    assert ticks[0] == 0.0
+
+
 @pytest.mark.parametrize("product", ["CCube", "VRohtoPremium"])
 def test_grand_figure_y_upper_limit_is_fixed_at_eighteen_hundred_ms(
     product: str,

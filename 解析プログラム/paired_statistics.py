@@ -11,6 +11,33 @@ from scipy.stats import t as student_t
 from scipy.stats import ttest_rel
 
 
+def nice_zero_based_ticks(upper: float, *, integer: bool = False) -> tuple[float, np.ndarray]:
+    """Return a rounded upper limit and 3–6 readable zero-based tick labels."""
+
+    if not np.isfinite(upper) or upper <= 0:
+        upper = 1.0
+    exponent = int(np.floor(np.log10(upper)))
+    candidates: list[tuple[float, int, float]] = []
+    for power in range(exponent - 2, exponent + 2):
+        scale = 10.0**power
+        for multiplier in (1.0, 2.0, 2.5, 5.0, 10.0):
+            step = multiplier * scale
+            if integer and step < 1.0:
+                continue
+            intervals = int(np.ceil(upper / step))
+            labels = intervals + 1
+            if 3 <= labels <= 6:
+                rounded_upper = intervals * step
+                candidates.append((abs(labels - 5), rounded_upper, step))
+    if not candidates:
+        step = max(1.0 if integer else 0.1, upper / 4.0)
+        rounded_upper = 4.0 * step
+    else:
+        _, rounded_upper, step = min(candidates, key=lambda item: (item[0], item[1]))
+    ticks = np.arange(0.0, rounded_upper + step * 0.5, step)
+    return float(rounded_upper), ticks
+
+
 def paired_t_statistics(eye_drop: np.ndarray, control: np.ndarray) -> dict[str, float | int]:
     """Return a two-sided paired t-test and paired effect-size statistics."""
 
@@ -128,7 +155,7 @@ def add_significance_bracket(
     line_y: float = 0.75,
     text_y: float = 0.775,
     linewidth: float = 2.2,
-    fontsize: float = 24.0,
+    fontsize: float | None = None,
 ) -> None:
     """Draw a black paired-comparison bracket at a fixed axes-relative height."""
 
@@ -143,6 +170,7 @@ def add_significance_bracket(
         clip_on=False,
         zorder=5,
     )
+    label_fontsize = fontsize if fontsize is not None else (30.0 if label == "n.s." else 42.0)
     axis.text(
         (x_left + x_right) / 2.0,
         text_y,
@@ -151,7 +179,7 @@ def add_significance_bracket(
         ha="center",
         va="bottom",
         color="black",
-        fontsize=fontsize,
+        fontsize=label_fontsize,
         fontweight="bold" if label != "n.s." else "normal",
         clip_on=False,
         zorder=6,

@@ -30,6 +30,7 @@ if str(COMMON_DIR) not in sys.path:
 from paired_statistics import (  # noqa: E402
     add_significance_bracket,
     adjusted_p_values,
+    nice_zero_based_ticks,
     paired_t_statistics,
     significance_label,
 )
@@ -1098,7 +1099,12 @@ def plot_group_quantification(
     _configure_plot()
     figure, axes = plt.subplots(1, 6, figsize=(34, 9), sharey=True)
     finite = frame["BlinkRateBlinksPerMin"].dropna().to_numpy(dtype=float)
-    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.65) / 5.0) * 5.0)) if finite.size else 5.0
+    preliminary_ymax = (
+        max(5.0, float(np.ceil((np.max(finite) / 0.70) / 5.0) * 5.0))
+        if finite.size
+        else 5.0
+    )
+    ymax, y_ticks = nice_zero_based_ticks(preliminary_ymax)
     x = QUANTIFICATION_BAR_CENTERS
     eye_color = QUANTIFICATION_COLORS[product_dir]
     for set_number, axis in enumerate(axes, 1):
@@ -1149,6 +1155,7 @@ def plot_group_quantification(
                     )
         axis.set_xlim(-0.92, 0.92)
         axis.set_ylim(0, ymax)
+        axis.set_yticks(y_ticks)
         axis.set_xticks(x)
         axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
         axis.text(
@@ -1163,7 +1170,7 @@ def plot_group_quantification(
         )
         axis.text(
             0.5,
-            0.965,
+            0.90,
             f"Set {set_number}",
             transform=axis.transAxes,
             ha="center",
@@ -1204,7 +1211,8 @@ def plot_all_sets_blink_quantification(
     drops, control = drops[paired], control[paired]
     statistics = paired_t_statistics(drops, control)
     finite = np.concatenate([drops, control])
-    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.65) / 5.0) * 5.0))
+    preliminary_ymax = max(5.0, float(np.ceil((np.max(finite) / 0.70) / 5.0) * 5.0))
+    ymax, y_ticks = nice_zero_based_ticks(preliminary_ymax)
     x = QUANTIFICATION_BAR_CENTERS
     eye_color = QUANTIFICATION_COLORS[product_dir]
     _configure_plot()
@@ -1253,12 +1261,13 @@ def plot_all_sets_blink_quantification(
         alpha=0.68,
         zorder=3,
     )
-    axis.text(0.5, 0.965, "All Sets", transform=axis.transAxes, ha="center", va="top", fontsize=26)
+    axis.text(0.5, 0.90, "All Sets", transform=axis.transAxes, ha="center", va="top", fontsize=26)
     add_significance_bracket(
         axis, x[0], x[1], significance_label(float(statistics["P_value_raw"]))
     )
     axis.set_xlim(-0.92, 0.92)
     axis.set_ylim(0, ymax)
+    axis.set_yticks(y_ticks)
     axis.set_xticks(x)
     axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
     axis.text(
