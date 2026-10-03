@@ -227,7 +227,7 @@ def test_complete_figure_and_table_outputs_are_generated_from_cached_values(tmp_
         )
 
     items = []
-    for pair_number in (1, 2):
+    for pair_number in (1,):
         first = str(100 + pair_number)
         second = str(200 + pair_number)
         spec = MODULE.ParticipantSpec(first, second, first, "CCube")
@@ -259,3 +259,14 @@ def test_complete_figure_and_table_outputs_are_generated_from_cached_values(tmp_
         "P_value_Holm",
         "P_value_FDR_BH",
     }.issubset(frame.columns)
+    grand_average = MODULE.pd.read_csv(
+        tmp_path
+        / "Phase4_脳波解析"
+        / "No1_FmTheta"
+        / "Sub"
+        / "tables"
+        / "GrandAverage"
+        / "No1_FmTheta_GrandAverage_Values_CCube.csv"
+    )
+    assert (grand_average["EyeDrop_N"] == 1).all()
+    assert grand_average["EyeDrop_SEM_PSD_uV2_per_Hz"].isna().all()

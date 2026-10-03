@@ -813,8 +813,8 @@ def build_grand_average(
     items: list[dict[str, Any]], product_dir: str
 ) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
     selected = [item for item in items if item["product_dir"] == product_dir]
-    if len(selected) < 2:
-        raise ValueError(f"Grand-average for {product_dir} requires at least two pairs")
+    if not selected:
+        raise ValueError(f"Grand-average for {product_dir} requires at least one pair")
     eye_values: list[np.ndarray] = []
     control_values: list[np.ndarray] = []
     for item in selected:
@@ -1222,10 +1222,12 @@ def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[
     for product in products:
         grand, _ = build_grand_average(items, product)
         grand_by_product[product] = grand
+        eye_sem = grand["EyeDrop_SEM_PSD_uV2_per_Hz"].fillna(0.0)
+        control_sem = grand["Control_SEM_PSD_uV2_per_Hz"].fillna(0.0)
         displayed = np.concatenate(
             [
-                grand["EyeDrop_Mean_PSD_uV2_per_Hz"] + grand["EyeDrop_SEM_PSD_uV2_per_Hz"],
-                grand["Control_Mean_PSD_uV2_per_Hz"] + grand["Control_SEM_PSD_uV2_per_Hz"],
+                grand["EyeDrop_Mean_PSD_uV2_per_Hz"] + eye_sem,
+                grand["Control_Mean_PSD_uV2_per_Hz"] + control_sem,
             ]
         )
         proposed[product] = _nice_upper(displayed, 0.75)
