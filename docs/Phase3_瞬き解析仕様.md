@@ -80,6 +80,7 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 - 個人figureの縦軸は0始まりとし、2条件の15秒平滑化Blink Rateの最大値が縦軸上限の約70%となる値を5 blinks/min単位で切り上げます。これはPhase 2 No1の個人RT図と同じ配置規則です。
 - Grand-averageの縦軸も0始まりとし、2条件の `平均 + SEM` の最大値が縦軸上限の約75%となる値を5 blinks/min単位で切り上げます。SEM帯を含む表示範囲を基準にし、線と帯の上側に十分な余白を確保します。右下にNやshade説明の注記は表示しません。
 - 欠測値を補間・前詰めしません。被験者内対応を保つ群比較では、Phase 1で一方のセッションが欠測となったセットについて、対応するもう一方の条件も同じセットを群集計から外します。
+- 主要Grand-averageは従来どおり全使用可能データで作成して保持します。これとは別に、ID233 ControlのSet 1〜3では瞬き成分が十分に抽出されていないという事後確認に基づき、Vロートプレミアム群だけ、ID133–233のSet 1〜3を両条件とも群集計から外した追加Grand-averageを作成します。片条件だけを外さず両条件を外すのは、被験者内対応を維持するためです。個人結果、瞬き検出結果、主要Grand-averageは変更しません。
 
 ## 6. セット別定量化
 
@@ -91,6 +92,7 @@ Chengら（2023）は、垂直眼球運動ICへ `findpeaks` を適用し、peak 
 - 縦軸は6パネル共通の `Blink Rate (blinks/min)` とします。
 - 欠測セットはドット、接続線、平均へ含めません。被験者内対応を保つ群比較では対応条件も同じセットから外します。
 - 推測統計は現段階では実施しません。
+- 主要セット別定量化は従来どおり全使用可能データで作成して保持します。Vロートプレミアム群には、上記と同じID133–233のSet 1〜3を両条件とも外した追加定量化を併記します。Set 4〜6は通常どおり含めます。
 
 ## 7. Figureの共通仕様
 
@@ -128,8 +130,8 @@ Phase3_瞬き解析/
 ```
 
 - `<製品群>/Individual/`：被験者ペア別Blink Rate時間変化PNGを直下へ保存し、被験者別サブフォルダを作らない
-- `<製品群>/GrandAverage/`：製品群別Blink Rate Grand-average PNGだけを保存する
-- `<製品群>/SetQuantification/`：条件内の被験者間平均バー、被験者値ドット、被験者内対応線を示す製品群別6パネルPNGを1枚だけ直下へ保存し、個人ペア別定量化図は作らない
+- `<製品群>/GrandAverage/`：製品群別Blink Rate Grand-average PNGを保存する。Vロートプレミアム群は主要版に加え、`ExcludePair133-233_Sets1-3` をファイル名へ付けた追加版も保存する
+- `<製品群>/SetQuantification/`：条件内の被験者間平均バー、被験者値ドット、被験者内対応線を示す製品群別6パネルPNGを直下へ保存し、個人ペア別定量化図は作らない。Vロートプレミアム群は主要版に加え、`ExcludePair133-233_Sets1-3` をファイル名へ付けた追加版も保存する
 - `<製品群>/QualityCheck/BlinkDetection/`：セッションID別のMAD方式検出確認HTMLと、同じResetスケールの横長PNGを一緒に保存する
 - `<製品群>/QualityCheck/ProminenceDistribution/`：全候補prominenceの0–500 µV・対数縦軸ヒストグラムPNGを保存する
 - `Sub/tables/`：検出ピーク一覧、未平滑化・15秒平滑化Blink Rate、ID・Set別検出数、閾値、欠測・QC要約
@@ -167,4 +169,5 @@ Notionの「フェーズ３：まばたきの解析」親ページは確定事�
 - まずパイロットIDで、HDF5読込、閾値、ピーク重複、HTML操作、Blink Rate、定量化、欠測、保存、Notion記録を検証します。
 - height基準を設けず、prominenceの `中央値 + 12 × 1.4826 × MAD` をセッション共通閾値とし、minimum peak distance 100 ms・peak width 20–320 msを併用します。HTML、同じResetスケールの横長検出PNG、0–500 µV・対数縦軸のprominence分布PNG、Blink Rate、定量化、補助表、Notion記録を確認します。
 - 実行成功だけで完了とせず、OneDrive成果物、CSV・JSONの読み戻し、HTML操作、Notion読み戻しを確認します。
+- 既存の個人結果・検出結果を変更せず集団figureだけを再作成する場合は、同じ40ペアmanifestと `--production-batch --group-outputs-only` を用い、既存の被験者別CSVを読み込んで主要版と追加版を再現します。
 - 許可済み範囲の通常実行、出力確認、Notion更新、Git操作に利用者承認を求めません。許可範囲外、安全上の問題、または自力で解決できない阻害要因がある場合だけ停止します。

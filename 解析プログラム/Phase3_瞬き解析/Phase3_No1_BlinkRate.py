@@ -56,6 +56,11 @@ RATE_STEP_SECONDS = 1.0
 RATE_SMOOTHING_SECONDS = 15
 GROUP_PROGRESS_POINTS_PER_SET = 100
 CONDITION_BLINK_COUNT_REVIEW_RATIO = 2.0
+ADDITIONAL_GROUP_EXCLUSIONS = {
+    "VRohtoPremium": {
+        "ExcludePair133-233_Sets1-3": {"133-233": {1, 2, 3}},
+    }
+}
 QUANTIFICATION_BAR_CENTERS = np.array([-0.32, 0.32])
 QUANTIFICATION_BAR_WIDTH = 0.42
 QUANTIFICATION_DOT_SIZE = 150.0
@@ -787,7 +792,9 @@ def _resample_rate_set(frame: pd.DataFrame, set_number: int) -> tuple[np.ndarray
 
 
 def _group_rate_matrices(
-    processed_items: list[dict[str, object]], product_dir: str
+    processed_items: list[dict[str, object]],
+    product_dir: str,
+    excluded_pair_sets: dict[str, set[int]] | None = None,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, list[str]]:
     """Build paired participant matrices on a fixed within-set progress grid."""
     selected = [item for item in processed_items if item["product_dir"] == product_dir]
@@ -800,12 +807,13 @@ def _group_rate_matrices(
         ]
     )
     matrices: dict[str, list[np.ndarray]] = {"Eye Drop": [], "Control": []}
+    excluded_pair_sets = excluded_pair_sets or {}
     for item in selected:
         spec = item["spec"]
         rates = item["rate_frames"]
         assert isinstance(spec, ParticipantSpec)
         assert isinstance(rates, dict)
-        available = _paired_available_sets(item)
+        available = _paired_available_sets(item) - excluded_pair_sets.get(spec.pair_id, set())
         for condition, session_id in (
             ("Eye Drop", spec.drops_session_id),
             ("Control", spec.control_session_id),
@@ -832,9 +840,12 @@ def plot_group_grand_average(
     product_color: str,
     path: Path,
     table_path: Path,
+    excluded_pair_sets: dict[str, set[int]] | None = None,
 ) -> None:
     """Plot product-specific pointwise between-participant mean +/- SEM."""
-    matrices, progress, _ = _group_rate_matrices(processed_items, product_dir)
+    matrices, progress, _ = _group_rate_matrices(
+        processed_items, product_dir, excluded_pair_sets=excluded_pair_sets
+    )
     statistics = {
         condition: calculate_grand_average_statistics(matrix)
         for condition, matrix in matrices.items()
@@ -888,9 +899,12 @@ def plot_group_grand_average(
 
 
 def _group_quantification_frame(
-    processed_items: list[dict[str, object]], product_dir: str
+    processed_items: list[dict[str, object]],
+    product_dir: str,
+    excluded_pair_sets: dict[str, set[int]] | None = None,
 ) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
+    excluded_pair_sets = excluded_pair_sets or {}
     for item in processed_items:
         if item["product_dir"] != product_dir:
             continue
@@ -898,7 +912,7 @@ def _group_quantification_frame(
         summary = item["summary"]
         assert isinstance(spec, ParticipantSpec)
         assert isinstance(summary, pd.DataFrame)
-        available = _paired_available_sets(item)
+        available = _paired_available_sets(item) - excluded_pair_sets.get(spec.pair_id, set())
         for set_number in range(1, N_SETS + 1):
             for condition, session_id in (
                 ("Eye Drop", spec.drops_session_id),
@@ -975,9 +989,12 @@ def plot_group_quantification(
     product_label: str,
     path: Path,
     table_path: Path,
+    excluded_pair_sets: dict[str, set[int]] | None = None,
 ) -> None:
     """Plot six paired panels whose bars are between-participant means."""
-    frame = _group_quantification_frame(processed_items, product_dir)
+    frame = _group_quantification_frame(
+        processed_items, product_dir, excluded_pair_sets=excluded_pair_sets
+    )
     table_path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(table_path, index=False)
     _configure_plot()
@@ -1112,6 +1129,106 @@ def create_group_outputs(
             "set_quantification_table": str(quant_table),
         }
     return outputs
+
+
+def create_additional_group_outputs(
+    processed_items: list[dict[str, object]], output_root: Path, comparison_label: str | None
+) -> dict[str, dict[str, dict[str, str]]]:
+    """Create prespecified additional group figures without replacing primary outputs."""
+    phase_root = output_root / "Phase3_瞬き解析" / "No1_BlinkRate"
+    if comparison_label:
+        phase_root = (
+            output_root / "Phase3_瞬き解析" / "No1_BlinkRate_ParameterComparison" / comparison_label
+        )
+    outputs: dict[str, dict[str, dict[str, str]]] = {}
+    product_metadata = {
+        "CCube": ("C Cube", PRODUCTS["ccube"][2]),
+        "VRohtoPremium": ("V Rohto Premium", PRODUCTS["vrohtopremium"][2]),
+    }
+    for product_dir, analyses in ADDITIONAL_GROUP_EXCLUSIONS.items():
+        product_label, product_color = product_metadata[product_dir]
+        selected = [item for item in processed_items if item["product_dir"] == product_dir]
+        if not selected:
+            continue
+        outputs[product_dir] = {}
+        for label, excluded_pair_sets in analyses.items():
+            grand_path = (
+                phase_root
+                / product_dir
+                / "GrandAverage"
+                / f"{product_dir}_No1_BlinkRate_GrandAverage_{label}.png"
+            )
+            grand_table = (
+                phase_root
+                / "Sub"
+                / "tables"
+                / f"{product_dir}_No1_BlinkRate_GrandAverage_{label}.csv"
+            )
+            quant_path = (
+                phase_root
+                / product_dir
+                / "SetQuantification"
+                / f"{product_dir}_No1_BlinkRate_SetQuantification_{label}.png"
+            )
+            quant_table = (
+                phase_root
+                / "Sub"
+                / "tables"
+                / f"{product_dir}_No1_BlinkRate_SetQuantification_{label}.csv"
+            )
+            plot_group_grand_average(
+                selected,
+                product_dir,
+                product_label,
+                product_color,
+                grand_path,
+                grand_table,
+                excluded_pair_sets=excluded_pair_sets,
+            )
+            plot_group_quantification(
+                selected,
+                product_dir,
+                product_label,
+                quant_path,
+                quant_table,
+                excluded_pair_sets=excluded_pair_sets,
+            )
+            outputs[product_dir][label] = {
+                "grand_average_figure": str(grand_path),
+                "grand_average_table": str(grand_table),
+                "set_quantification_figure": str(quant_path),
+                "set_quantification_table": str(quant_table),
+            }
+    return outputs
+
+
+def load_processed_items_from_existing_outputs(
+    specs: list[ParticipantSpec], output_root: Path
+) -> list[dict[str, object]]:
+    """Load already-computed participant tables for group-output-only regeneration."""
+    phase_root = output_root / "Phase3_瞬き解析" / "No1_BlinkRate"
+    table_root = phase_root / "Sub" / "tables"
+    processed_items: list[dict[str, object]] = []
+    for spec in specs:
+        product_dir = normalize_product(spec.product)[0]
+        summary_path = table_root / f"ID{spec.pair_id}_No1_BlinkSetResults.csv"
+        if not summary_path.exists():
+            raise FileNotFoundError(f"Missing existing set summary: {summary_path}")
+        rate_frames: dict[str, pd.DataFrame] = {}
+        for session_id in (spec.drops_session_id, spec.control_session_id):
+            rate_path = table_root / f"ID{session_id}_No1_BlinkRateTimecourse.csv"
+            if not rate_path.exists():
+                raise FileNotFoundError(f"Missing existing Blink Rate table: {rate_path}")
+            rate_frames[session_id] = pd.read_csv(rate_path)
+        processed_items.append(
+            {
+                "spec": spec,
+                "product_dir": product_dir,
+                "summary": pd.read_csv(summary_path, dtype={"SessionID": str}),
+                "rate_frames": rate_frames,
+            }
+        )
+    return processed_items
 
 
 def _encoded_float32(values: np.ndarray) -> str:
@@ -1366,6 +1483,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Validate the complete manifest and every HDF5 input without writing outputs",
     )
+    parser.add_argument(
+        "--group-outputs-only",
+        action="store_true",
+        help="Regenerate group figures from existing participant CSVs without rerunning detection",
+    )
     return parser.parse_args()
 
 
@@ -1378,6 +1500,20 @@ def main() -> int:
         raise SystemExit("Provide --participant or --manifest")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     validate_participant_specs(specs, production_batch=args.production_batch)
+    if args.group_outputs_only:
+        if args.preflight_only:
+            raise ValueError("--group-outputs-only and --preflight-only cannot be combined")
+        processed_items = load_processed_items_from_existing_outputs(specs, args.output_root)
+        group_outputs = create_group_outputs(processed_items, args.output_root, args.comparison_label)
+        additional_outputs = create_additional_group_outputs(
+            processed_items, args.output_root, args.comparison_label
+        )
+        logging.info("Created group outputs: %s", json.dumps(group_outputs, ensure_ascii=False))
+        logging.info(
+            "Created additional group outputs: %s",
+            json.dumps(additional_outputs, ensure_ascii=False),
+        )
+        return 0
     preflight = preflight_inputs(specs, args.input_root)
     logging.info("Input preflight passed: %s", json.dumps(preflight, ensure_ascii=False))
     if args.preflight_only:
@@ -1395,7 +1531,13 @@ def main() -> int:
             )
         )
     group_outputs = create_group_outputs(processed_items, args.output_root, args.comparison_label)
+    additional_outputs = create_additional_group_outputs(
+        processed_items, args.output_root, args.comparison_label
+    )
     logging.info("Created group outputs: %s", json.dumps(group_outputs, ensure_ascii=False))
+    logging.info(
+        "Created additional group outputs: %s", json.dumps(additional_outputs, ensure_ascii=False)
+    )
     return 0
 
 

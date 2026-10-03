@@ -256,6 +256,68 @@ def test_group_quantification_uses_between_participant_values_and_paired_missing
     assert pair_one["BlinkRateBlinksPerMin"].tolist() == [10.0, 20.0]
 
 
+def test_additional_exclusion_removes_both_conditions_for_the_paired_sets():
+    spec = MODULE.ParticipantSpec("133", "233", "133", "VRohtoPremium")
+    summary = MODULE.pd.DataFrame(
+        [
+            {
+                "SessionID": session_id,
+                "Condition": condition,
+                "Set": set_number,
+                "BlinkRateBlinksPerMin": float(set_number * factor),
+            }
+            for session_id, condition, factor in (
+                ("133", "Eye Drop", 1),
+                ("233", "Control", 2),
+            )
+            for set_number in range(1, 7)
+        ]
+    )
+    rates = {
+        session_id: MODULE.pd.DataFrame(
+            {
+                "Set": np.repeat(np.arange(1, 7), 2),
+                "ExperimentalProgressPercent": np.concatenate(
+                    [
+                        np.array([(set_number - 1) * 100.0, set_number * 100.0])
+                        for set_number in range(1, 7)
+                    ]
+                ),
+                "BlinkRateSmoothed15sBlinksPerMin": np.repeat(
+                    np.arange(1, 7) * factor, 2
+                ),
+            }
+        )
+        for session_id, factor in (("133", 1), ("233", 2))
+    }
+    item = {
+        "spec": spec,
+        "product_dir": "VRohtoPremium",
+        "summary": summary,
+        "rate_frames": rates,
+    }
+    exclusions = {"133-233": {1, 2, 3}}
+    frame = MODULE._group_quantification_frame(
+        [item], "VRohtoPremium", excluded_pair_sets=exclusions
+    )
+    assert frame.loc[
+        frame["Set"].isin([1, 2, 3]), "BlinkRateBlinksPerMin"
+    ].isna().all()
+    assert frame.loc[
+        frame["Set"].isin([4, 5, 6]), "BlinkRateBlinksPerMin"
+    ].notna().all()
+    matrices, _, _ = MODULE._group_rate_matrices(
+        [item], "VRohtoPremium", excluded_pair_sets=exclusions
+    )
+    for condition in ("Eye Drop", "Control"):
+        assert np.isnan(
+            matrices[condition][0, : 3 * MODULE.GROUP_PROGRESS_POINTS_PER_SET]
+        ).all()
+        assert np.isfinite(
+            matrices[condition][0, 3 * MODULE.GROUP_PROGRESS_POINTS_PER_SET :]
+        ).all()
+
+
 def test_production_threshold_basis_is_explicitly_exploratory_not_literature():
     assert "exploratory" in MODULE.PROMINENCE_MULTIPLIER_BASIS
     assert "not a literature" in MODULE.PROMINENCE_MULTIPLIER_BASIS
