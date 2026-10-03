@@ -113,6 +113,7 @@ Phase 3のセット別定量化も、製品群・解析版ごとに6つの両側
 - [Phase 2 RT移動平均 文献調査](docs/Phase2_RT移動平均文献調査.md)：窓幅・平滑化型を複数の持続的注意研究と反応時系列法から比較した根拠資料
 - [Phase 3 瞬き解析仕様](docs/Phase3_瞬き解析仕様.md)：瞬き信号、ピーク検出、Blink Rate、定量化、QC、結果・Figureの読み方、確認済み結果、OneDrive構造をまとめたPhase 3唯一の現行仕様書
 - [Phase 3 MAD係数比較](docs/Phase3_MAD係数比較.md)：瞬き検出のMAD係数を確定するまでの比較記録。現行仕様はPhase 3仕様書を正本とする
+- [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
 - [Phase 1 区間・チャンネル除去パラメータ比較報告書](docs/Phase1_区間・チャンネル除去パラメータ比較報告書.md)：確定前のID101比較を残す歴史資料。現行仕様の判断には使用しない
 - [MacBook AirへのVS Code導入引き継ぎ](docs/引き継ぎ_VSCode導入_MacBookAir.md)：別デバイスでVS Codeだけを導入するための限定手順
 - 個別解析の仕様書：解析方針が確定した段階で `docs/` 配下へ追加し、このREADMEからリンクする
