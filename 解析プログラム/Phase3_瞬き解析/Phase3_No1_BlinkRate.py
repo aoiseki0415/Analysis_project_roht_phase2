@@ -8,6 +8,7 @@ import argparse
 import base64
 import json
 import logging
+import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.signal import butter, find_peaks, peak_prominences, sosfiltfilt
+
+COMMON_DIR = Path(__file__).resolve().parents[1]
+if str(COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_DIR))
+
+from paired_statistics import (  # noqa: E402
+    add_significance_bracket,
+    adjusted_p_values,
+    paired_t_statistics,
+    significance_label,
+)
 
 N_SETS = 6
 SFREQ = 256.0
@@ -947,14 +959,24 @@ def _group_quantification_frame(
                 ("Control", spec.control_session_id),
             ):
                 value = np.nan
+                blink_count = np.nan
+                duration_minutes = np.nan
                 if set_number in available:
                     selected = summary.loc[
                         (summary["SessionID"].astype(str) == session_id)
-                        & (summary["Set"] == set_number),
-                        "BlinkRateBlinksPerMin",
+                        & (summary["Set"] == set_number)
                     ]
-                    if len(selected) and pd.notna(selected.iloc[0]):
-                        value = float(selected.iloc[0])
+                    if len(selected) and pd.notna(selected["BlinkRateBlinksPerMin"].iloc[0]):
+                        value = float(selected["BlinkRateBlinksPerMin"].iloc[0])
+                        if {"MeanSignalBlinkCount", "SetDurationMinutes"}.issubset(
+                            selected.columns
+                        ):
+                            blink_count = float(selected["MeanSignalBlinkCount"].iloc[0])
+                            duration_minutes = float(selected["SetDurationMinutes"].iloc[0])
+                        else:
+                            # Backward-compatible synthetic/test summaries: one minute.
+                            blink_count = value
+                            duration_minutes = 1.0
                 rows.append(
                     {
                         "PairID": spec.pair_id,
@@ -963,6 +985,8 @@ def _group_quantification_frame(
                         "Condition": condition,
                         "Set": set_number,
                         "BlinkRateBlinksPerMin": value,
+                        "BlinkCount": blink_count,
+                        "SetDurationMinutes": duration_minutes,
                     }
                 )
     return pd.DataFrame(rows)
@@ -1011,24 +1035,68 @@ def condition_blink_count_balance(
     }
 
 
+def build_setwise_paired_statistics(frame: pd.DataFrame) -> pd.DataFrame:
+    """Run six paired t-tests and both requested family-wise adjustments."""
+
+    rows: list[dict[str, object]] = []
+    for set_number in range(1, N_SETS + 1):
+        part = frame.loc[frame["Set"] == set_number]
+        pivot = part.pivot(index="PairID", columns="Condition", values="BlinkRateBlinksPerMin")
+        row = {"Set": set_number}
+        row.update(
+            paired_t_statistics(
+                pivot["Eye Drop"].to_numpy(float),
+                pivot["Control"].to_numpy(float),
+            )
+        )
+        rows.append(row)
+    statistics = pd.DataFrame(rows)
+    statistics["P_value_Bonferroni"] = adjusted_p_values(
+        statistics["P_value_raw"], "bonferroni"
+    )
+    statistics["P_value_Holm"] = adjusted_p_values(statistics["P_value_raw"], "holm")
+    return statistics
+
+
+def build_all_sets_blink_values(frame: pd.DataFrame) -> pd.DataFrame:
+    """Pool blink counts and duration across all paired available sets."""
+
+    rows: list[dict[str, object]] = []
+    for pair_id, selected_pair in frame.groupby("PairID", sort=True):
+        piv_rate = selected_pair.pivot(
+            index="Set", columns="Condition", values="BlinkRateBlinksPerMin"
+        )
+        paired_sets = piv_rate["Eye Drop"].notna() & piv_rate["Control"].notna()
+        row: dict[str, object] = {"PairID": pair_id, "IncludedSetCount": int(paired_sets.sum())}
+        for condition, prefix in (("Eye Drop", "EyeDrop"), ("Control", "Control")):
+            selected = selected_pair.loc[
+                (selected_pair["Condition"] == condition)
+                & selected_pair["Set"].isin(piv_rate.index[paired_sets])
+            ]
+            count = float(selected["BlinkCount"].sum(min_count=1))
+            duration = float(selected["SetDurationMinutes"].sum(min_count=1))
+            row[f"{prefix}_all_sets_blink_count"] = count
+            row[f"{prefix}_all_sets_duration_minutes"] = duration
+            row[f"{prefix}_all_sets_blink_rate"] = (
+                count / duration if np.isfinite(count) and duration > 0 else np.nan
+            )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def plot_group_quantification(
-    processed_items: list[dict[str, object]],
+    frame: pd.DataFrame,
+    statistics: pd.DataFrame,
     product_dir: str,
     product_label: str,
     path: Path,
-    table_path: Path,
-    excluded_pair_sets: dict[str, set[int]] | None = None,
+    adjustment_method: str,
 ) -> None:
     """Plot six paired panels whose bars are between-participant means."""
-    frame = _group_quantification_frame(
-        processed_items, product_dir, excluded_pair_sets=excluded_pair_sets
-    )
-    table_path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_csv(table_path, index=False)
     _configure_plot()
     figure, axes = plt.subplots(1, 6, figsize=(34, 9), sharey=True)
     finite = frame["BlinkRateBlinksPerMin"].dropna().to_numpy(dtype=float)
-    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.78) / 5.0) * 5.0)) if finite.size else 5.0
+    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.70) / 5.0) * 5.0)) if finite.size else 5.0
     x = QUANTIFICATION_BAR_CENTERS
     eye_color = QUANTIFICATION_COLORS[product_dir]
     for set_number, axis in enumerate(axes, 1):
@@ -1093,12 +1161,22 @@ def plot_group_quantification(
         )
         axis.text(
             0.5,
-            0.94,
+            0.965,
             f"Set {set_number}",
             transform=axis.transAxes,
             ha="center",
             va="top",
             fontsize=26,
+        )
+        p_column = (
+            "P_value_Bonferroni" if adjustment_method == "bonferroni" else "P_value_Holm"
+        )
+        p_value = float(statistics.loc[statistics["Set"] == set_number, p_column].iloc[0])
+        add_significance_bracket(
+            axis,
+            x[0],
+            x[1],
+            significance_label(p_value),
         )
         axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
         axis.tick_params(axis="y", labelsize=23, labelleft=True, width=1.5, length=6)
@@ -1109,6 +1187,149 @@ def plot_group_quantification(
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
+
+
+def plot_all_sets_blink_quantification(
+    values: pd.DataFrame,
+    product_dir: str,
+    product_label: str,
+    path: Path,
+) -> dict[str, float | int]:
+    """Plot one all-set Blink Rate panel with an unadjusted paired t-test."""
+
+    drops = values["EyeDrop_all_sets_blink_rate"].to_numpy(float)
+    control = values["Control_all_sets_blink_rate"].to_numpy(float)
+    paired = np.isfinite(drops) & np.isfinite(control)
+    drops, control = drops[paired], control[paired]
+    statistics = paired_t_statistics(drops, control)
+    finite = np.concatenate([drops, control])
+    ymax = max(5.0, float(np.ceil((np.max(finite) / 0.70) / 5.0) * 5.0))
+    x = QUANTIFICATION_BAR_CENTERS
+    eye_color = QUANTIFICATION_COLORS[product_dir]
+    _configure_plot()
+    figure, axis = plt.subplots(figsize=(7.5, 9))
+    axis.bar(
+        x,
+        [np.mean(drops), np.mean(control)],
+        width=QUANTIFICATION_BAR_WIDTH,
+        color=[eye_color, CONTROL_QUANTIFICATION_COLOR],
+        alpha=0.82,
+        edgecolor="#222222",
+        linewidth=1.0,
+        zorder=1,
+    )
+    offsets = np.random.default_rng(7201).uniform(
+        -QUANTIFICATION_JITTER_HALF_WIDTH,
+        QUANTIFICATION_JITTER_HALF_WIDTH,
+        size=drops.size,
+    )
+    for offset, drops_value, control_value in zip(offsets, drops, control, strict=True):
+        axis.plot(
+            x + offset,
+            [drops_value, control_value],
+            color="#777777",
+            linewidth=1.2,
+            alpha=0.34,
+            zorder=2,
+        )
+    axis.scatter(
+        x[0] + offsets,
+        drops,
+        s=QUANTIFICATION_DOT_SIZE,
+        color=eye_color,
+        edgecolor="white",
+        linewidth=1.2,
+        alpha=0.68,
+        zorder=3,
+    )
+    axis.scatter(
+        x[1] + offsets,
+        control,
+        s=QUANTIFICATION_DOT_SIZE,
+        color=CONTROL_QUANTIFICATION_COLOR,
+        edgecolor="white",
+        linewidth=1.2,
+        alpha=0.68,
+        zorder=3,
+    )
+    axis.text(0.5, 0.965, "All Sets", transform=axis.transAxes, ha="center", va="top", fontsize=26)
+    add_significance_bracket(
+        axis, x[0], x[1], significance_label(float(statistics["P_value_raw"]))
+    )
+    axis.set_xlim(-0.92, 0.92)
+    axis.set_ylim(0, ymax)
+    axis.set_xticks(x)
+    axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
+    axis.text(
+        x[0],
+        -0.105,
+        f"({product_label})",
+        transform=axis.get_xaxis_transform(),
+        ha="center",
+        va="top",
+        fontsize=18,
+        clip_on=False,
+    )
+    axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
+    axis.tick_params(axis="y", labelsize=23, width=1.5, length=6)
+    axis.set_ylabel("Blink Rate (blinks/min)", fontsize=30, labelpad=12)
+    axis.spines[["top", "right"]].set_visible(False)
+    figure.subplots_adjust(left=0.20, right=0.98, top=0.94, bottom=0.25)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    return statistics
+
+
+def write_group_quantification_outputs(
+    processed_items: list[dict[str, object]],
+    product_dir: str,
+    product_label: str,
+    quantification_dir: Path,
+    table_dir: Path,
+    prefix: str,
+    excluded_pair_sets: dict[str, set[int]] | None = None,
+) -> dict[str, str]:
+    """Write corrected set-wise and unadjusted all-set quantification outputs."""
+
+    frame = _group_quantification_frame(
+        processed_items, product_dir, excluded_pair_sets=excluded_pair_sets
+    )
+    statistics = build_setwise_paired_statistics(frame)
+    quantification_dir.mkdir(parents=True, exist_ok=True)
+    table_dir.mkdir(parents=True, exist_ok=True)
+    (quantification_dir / f"{prefix}.png").unlink(missing_ok=True)
+    frame_path = table_dir / f"{prefix}.csv"
+    statistics_path = table_dir / f"{prefix}_PairedTTests.csv"
+    frame.to_csv(frame_path, index=False)
+    statistics.to_csv(statistics_path, index=False)
+    outputs: dict[str, str] = {
+        "set_quantification_table": str(frame_path),
+        "setwise_statistics": str(statistics_path),
+    }
+    for method, label in (("bonferroni", "Bonferroni"), ("holm", "Holm")):
+        path = quantification_dir / f"{prefix}_PairedTTest_{label}.png"
+        plot_group_quantification(
+            frame, statistics, product_dir, product_label, path, method
+        )
+        outputs[f"setwise_{method}_figure"] = str(path)
+    all_sets_values = build_all_sets_blink_values(frame)
+    all_sets_values_path = table_dir / f"{prefix}_AllSets_ParticipantValues.csv"
+    all_sets_statistics_path = table_dir / f"{prefix}_AllSets_PairedTTest.csv"
+    all_sets_figure = quantification_dir / f"{prefix}_AllSets_PairedTTest_Unadjusted.png"
+    all_sets_values.to_csv(all_sets_values_path, index=False)
+    all_sets_statistics = plot_all_sets_blink_quantification(
+        all_sets_values, product_dir, product_label, all_sets_figure
+    )
+    pd.DataFrame([all_sets_statistics]).to_csv(all_sets_statistics_path, index=False)
+    outputs.update(
+        {
+            "all_sets_figure": str(all_sets_figure),
+            "all_sets_participant_values": str(all_sets_values_path),
+            "all_sets_statistics": str(all_sets_statistics_path),
+        }
+    )
+    return outputs
 
 
 def create_group_outputs(
@@ -1140,15 +1361,9 @@ def create_group_outputs(
         grand_table = (
             phase_root / "Sub" / "tables" / f"{product_dir}_No1_BlinkRate_GrandAverage.csv"
         )
-        quant_path = (
-            phase_root
-            / product_dir
-            / "SetQuantification"
-            / f"{product_dir}_No1_BlinkRate_SetQuantification.png"
-        )
-        quant_table = (
-            phase_root / "Sub" / "tables" / f"{product_dir}_No1_BlinkRate_SetQuantification.csv"
-        )
+        quantification_dir = phase_root / product_dir / "SetQuantification"
+        quantification_table_dir = phase_root / "Sub" / "tables"
+        quantification_prefix = f"{product_dir}_No1_BlinkRate_SetQuantification"
         plot_group_grand_average(
             selected,
             product_dir,
@@ -1172,19 +1387,21 @@ def create_group_outputs(
             write_table=False,
         )
         if include_quantification:
-            plot_group_quantification(selected, product_dir, product_label, quant_path, quant_table)
+            quantification_outputs = write_group_quantification_outputs(
+                selected,
+                product_dir,
+                product_label,
+                quantification_dir,
+                quantification_table_dir,
+                quantification_prefix,
+            )
         outputs[product_dir] = {
             "grand_average_figure": str(grand_path),
             "grand_average_focused_y_figure": str(focused_grand_path),
             "grand_average_table": str(grand_table),
         }
         if include_quantification:
-            outputs[product_dir].update(
-                {
-                    "set_quantification_figure": str(quant_path),
-                    "set_quantification_table": str(quant_table),
-                }
-            )
+            outputs[product_dir].update(quantification_outputs)
     return outputs
 
 
@@ -1224,18 +1441,9 @@ def create_additional_group_outputs(
                 / "tables"
                 / f"{product_dir}_No1_BlinkRate_GrandAverage_{label}.csv"
             )
-            quant_path = (
-                phase_root
-                / product_dir
-                / "SetQuantification"
-                / f"{product_dir}_No1_BlinkRate_SetQuantification_{label}.png"
-            )
-            quant_table = (
-                phase_root
-                / "Sub"
-                / "tables"
-                / f"{product_dir}_No1_BlinkRate_SetQuantification_{label}.csv"
-            )
+            quantification_dir = phase_root / product_dir / "SetQuantification"
+            quantification_table_dir = phase_root / "Sub" / "tables"
+            quantification_prefix = f"{product_dir}_No1_BlinkRate_SetQuantification_{label}"
             plot_group_grand_average(
                 selected,
                 product_dir,
@@ -1261,12 +1469,13 @@ def create_additional_group_outputs(
                 write_table=False,
             )
             if include_quantification:
-                plot_group_quantification(
+                quantification_outputs = write_group_quantification_outputs(
                     selected,
                     product_dir,
                     product_label,
-                    quant_path,
-                    quant_table,
+                    quantification_dir,
+                    quantification_table_dir,
+                    quantification_prefix,
                     excluded_pair_sets=excluded_pair_sets,
                 )
             outputs[product_dir][label] = {
@@ -1275,12 +1484,7 @@ def create_additional_group_outputs(
                 "grand_average_table": str(grand_table),
             }
             if include_quantification:
-                outputs[product_dir][label].update(
-                    {
-                        "set_quantification_figure": str(quant_path),
-                        "set_quantification_table": str(quant_table),
-                    }
-                )
+                outputs[product_dir][label].update(quantification_outputs)
     return outputs
 
 

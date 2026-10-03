@@ -20,6 +20,17 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import MaxNLocator
 
+COMMON_DIR = Path(__file__).resolve().parents[1]
+if str(COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_DIR))
+
+from paired_statistics import (  # noqa: E402
+    add_significance_bracket,
+    adjusted_p_values,
+    paired_t_statistics,
+    significance_label,
+)
+
 HERE = Path(__file__).resolve().parent
 NO1_PATH = HERE / "Phase2_No1_ReactionTime.py"
 SPEC = importlib.util.spec_from_file_location("phase2_no1_shared", NO1_PATH)
@@ -253,10 +264,64 @@ def _upper_limit(values: np.ndarray) -> int:
     finite = values[np.isfinite(values)]
     if finite.size == 0:
         return 5
-    return max(5, int(np.ceil(float(np.max(finite)) / 0.8)))
+    return max(5, int(np.ceil(float(np.max(finite)) / 0.7)))
 
 
-def plot_product(values: pd.DataFrame, summary: pd.DataFrame, product: str, path: Path) -> int:
+def build_setwise_paired_statistics(values: pd.DataFrame, product: str) -> pd.DataFrame:
+    """Run six paired t-tests and both requested family-wise adjustments."""
+
+    rows: list[dict[str, object]] = []
+    for set_number in range(1, N_SETS + 1):
+        selected = values.loc[(values["Product"] == product) & (values["Set"] == set_number)]
+        row = {"Product": product, "Set": set_number}
+        row.update(
+            paired_t_statistics(
+                selected["EyeDrop_mistouch_count"].to_numpy(float),
+                selected["Control_mistouch_count"].to_numpy(float),
+            )
+        )
+        rows.append(row)
+    statistics = pd.DataFrame(rows)
+    statistics["P_value_Bonferroni"] = adjusted_p_values(
+        statistics["P_value_raw"], "bonferroni"
+    )
+    statistics["P_value_Holm"] = adjusted_p_values(statistics["P_value_raw"], "holm")
+    return statistics
+
+
+def build_all_sets_mistouch_values(values: pd.DataFrame, product: str) -> pd.DataFrame:
+    """Sum confirmed mistouches across all paired available sets per participant."""
+
+    rows: list[dict[str, object]] = []
+    selected_product = values.loc[values["Product"] == product]
+    for pair_id, selected in selected_product.groupby("Pair_ID", sort=True):
+        drops = selected["EyeDrop_mistouch_count"].to_numpy(float)
+        control = selected["Control_mistouch_count"].to_numpy(float)
+        paired = np.isfinite(drops) & np.isfinite(control)
+        rows.append(
+            {
+                "Product": product,
+                "Pair_ID": pair_id,
+                "Included_set_count": int(paired.sum()),
+                "EyeDrop_all_sets_mistouch_count": (
+                    float(np.sum(drops[paired])) if paired.any() else np.nan
+                ),
+                "Control_all_sets_mistouch_count": (
+                    float(np.sum(control[paired])) if paired.any() else np.nan
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def plot_product(
+    values: pd.DataFrame,
+    summary: pd.DataFrame,
+    statistics: pd.DataFrame,
+    product: str,
+    path: Path,
+    adjustment_method: str,
+) -> int:
     label, color = PRODUCTS[product]
     product_values = values.loc[values["Product"] == product]
     upper = _upper_limit(
@@ -319,12 +384,22 @@ def plot_product(values: pd.DataFrame, summary: pd.DataFrame, product: str, path
         )
         axis.text(
             0.5,
-            0.94,
+            0.965,
             f"Set {set_number}",
             transform=axis.transAxes,
             ha="center",
             va="top",
             fontsize=26,
+        )
+        p_column = (
+            "P_value_Bonferroni" if adjustment_method == "bonferroni" else "P_value_Holm"
+        )
+        p_value = float(statistics.loc[statistics["Set"] == set_number, p_column].iloc[0])
+        add_significance_bracket(
+            axis,
+            BAR_CENTERS[0],
+            BAR_CENTERS[1],
+            significance_label(p_value),
         )
         axis.set_xticks(BAR_CENTERS, ["Eye Drop", "Control"], fontsize=22)
         axis.text(
@@ -352,6 +427,136 @@ def plot_product(values: pd.DataFrame, summary: pd.DataFrame, product: str, path
     return upper
 
 
+def plot_all_sets_mistouch(
+    values: pd.DataFrame, product: str, path: Path
+) -> tuple[int, dict[str, float | int]]:
+    """Plot one all-set count panel with an unadjusted paired t-test."""
+
+    label, color = PRODUCTS[product]
+    drops = values["EyeDrop_all_sets_mistouch_count"].to_numpy(float)
+    control = values["Control_all_sets_mistouch_count"].to_numpy(float)
+    paired = np.isfinite(drops) & np.isfinite(control)
+    drops, control = drops[paired], control[paired]
+    statistics = paired_t_statistics(drops, control)
+    upper = _upper_limit(np.column_stack([drops, control]))
+    plt.rcParams.update(
+        {"font.family": "sans-serif", "font.sans-serif": ["Arial"], "axes.linewidth": 1.5}
+    )
+    figure, axis = plt.subplots(figsize=(7.5, 9))
+    axis.bar(
+        BAR_CENTERS,
+        [np.mean(drops), np.mean(control)],
+        width=BAR_WIDTH,
+        color=[color, CONTROL_COLOR],
+        alpha=0.86,
+        edgecolor="#222222",
+        linewidth=1.0,
+        zorder=1,
+    )
+    offsets = np.random.default_rng(7101).uniform(
+        -JITTER_HALF_WIDTH, JITTER_HALF_WIDTH, size=drops.size
+    )
+    for offset, dval, cval in zip(offsets, drops, control, strict=True):
+        axis.plot(
+            BAR_CENTERS + offset,
+            [dval, cval],
+            color="#777777",
+            alpha=0.34,
+            linewidth=1.2,
+            zorder=2,
+        )
+    axis.scatter(
+        BAR_CENTERS[0] + offsets,
+        drops,
+        s=DOT_SIZE,
+        color=color,
+        alpha=0.68,
+        edgecolor="white",
+        linewidth=1.0,
+        zorder=3,
+    )
+    axis.scatter(
+        BAR_CENTERS[1] + offsets,
+        control,
+        s=DOT_SIZE,
+        color=CONTROL_COLOR,
+        alpha=0.68,
+        edgecolor="white",
+        linewidth=1.0,
+        zorder=3,
+    )
+    axis.text(0.5, 0.965, "All Sets", transform=axis.transAxes, ha="center", va="top", fontsize=26)
+    add_significance_bracket(
+        axis,
+        BAR_CENTERS[0],
+        BAR_CENTERS[1],
+        significance_label(float(statistics["P_value_raw"])),
+    )
+    axis.set_xticks(BAR_CENTERS, ["Eye Drop", "Control"], fontsize=22)
+    axis.text(
+        BAR_CENTERS[0],
+        -0.105,
+        f"({label})",
+        transform=axis.get_xaxis_transform(),
+        ha="center",
+        va="top",
+        fontsize=18,
+        clip_on=False,
+    )
+    axis.set_xlim(*X_LIMITS)
+    axis.set_ylim(0, upper)
+    axis.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+    axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
+    axis.tick_params(axis="y", labelsize=23, width=1.5, length=6)
+    axis.set_ylabel("Mistouch (count)", fontsize=30, labelpad=12)
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.grid(False)
+    figure.subplots_adjust(left=0.20, right=0.98, top=0.94, bottom=0.25)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    return upper, statistics
+
+
+def write_statistical_quantification_figures(
+    product_dir: Path,
+    support_dir: Path,
+    values: pd.DataFrame,
+    summary: pd.DataFrame,
+    product: str,
+    prefix: str,
+) -> dict[str, object]:
+    """Write two corrected set-wise figures and one unadjusted all-set figure."""
+
+    (product_dir / f"{prefix}.png").unlink(missing_ok=True)
+    statistics = build_setwise_paired_statistics(values, product)
+    figure_paths: dict[str, str] = {}
+    upper = np.nan
+    for method, label in (("bonferroni", "Bonferroni"), ("holm", "Holm")):
+        path = product_dir / f"{prefix}_PairedTTest_{label}.png"
+        upper = plot_product(values, summary, statistics, product, path, method)
+        figure_paths[method] = str(path)
+    all_sets_values = build_all_sets_mistouch_values(values, product)
+    all_sets_figure = product_dir / f"{prefix}_AllSets_PairedTTest_Unadjusted.png"
+    all_sets_upper, all_sets_statistics = plot_all_sets_mistouch(
+        all_sets_values, product, all_sets_figure
+    )
+    statistics_path = support_dir / f"{prefix}_PairedTTests.csv"
+    all_sets_values_path = support_dir / f"{prefix}_AllSets_ParticipantValues.csv"
+    all_sets_statistics_path = support_dir / f"{prefix}_AllSets_PairedTTest.csv"
+    statistics.to_csv(statistics_path, index=False)
+    all_sets_values.to_csv(all_sets_values_path, index=False)
+    pd.DataFrame([all_sets_statistics]).to_csv(all_sets_statistics_path, index=False)
+    return {
+        "setwise_figures": figure_paths,
+        "all_sets_figure": str(all_sets_figure),
+        "setwise_statistics": str(statistics_path),
+        "all_sets_participant_values": str(all_sets_values_path),
+        "all_sets_statistics": str(all_sets_statistics_path),
+        "figure_y_axis_upper_count": upper,
+        "all_sets_figure_y_axis_upper_count": all_sets_upper,
+    }
+
+
 def write_outputs(
     output_root: Path, values: pd.DataFrame, summary: pd.DataFrame
 ) -> list[dict[str, object]]:
@@ -364,13 +569,19 @@ def write_outputs(
         product_dir = root / product
         product_dir.mkdir(parents=True, exist_ok=True)
         prefix = f"No2_Mistouch_{product}"
-        figure_path = product_dir / f"{prefix}.png"
         values_path = support_dir / f"{prefix}_ParticipantValues.csv"
         summary_path = support_dir / f"{prefix}_SetSummary.csv"
         run_path = support_dir / f"{prefix}_RunSummary.json"
         selected_values = values.loc[values["Product"] == product].copy()
         selected_summary = summary.loc[summary["Product"] == product].copy()
-        upper = plot_product(selected_values, selected_summary, product, figure_path)
+        statistical_outputs = write_statistical_quantification_figures(
+            product_dir,
+            support_dir,
+            selected_values,
+            selected_summary,
+            product,
+            prefix,
+        )
         selected_values.to_csv(values_path, index=False)
         selected_summary.to_csv(summary_path, index=False)
         run = {
@@ -386,10 +597,13 @@ def write_outputs(
                 "boundaries": "never merge across sets or files",
             },
             "eeg_missing_set_rule": "both paired conditions are NaN for the same affected set",
-            "figure_y_axis_upper_count": upper,
+            "statistics": (
+                "two-sided paired t-test per set; six p-values adjusted separately with "
+                "Bonferroni and Holm; all-set test is unadjusted"
+            ),
             "local_processed_data_created": False,
             "outputs": {
-                "figure": str(figure_path),
+                **statistical_outputs,
                 "participant_values": str(values_path),
                 "set_summary": str(summary_path),
             },
@@ -405,14 +619,15 @@ def write_outputs(
                 sensitivity_summary["Product"] == "CCube"
             ].copy()
             sensitivity_prefix = "No2_Mistouch_CCube_SensitivityAnalysis_ExcludeID132-232_Set1"
-            sensitivity_figure = product_dir / f"{sensitivity_prefix}.png"
             sensitivity_csv = support_dir / f"{sensitivity_prefix}_SetSummary.csv"
             sensitivity_run = support_dir / f"{sensitivity_prefix}_RunSummary.json"
-            sensitivity_upper = plot_product(
+            sensitivity_statistical_outputs = write_statistical_quantification_figures(
+                product_dir,
+                support_dir,
                 sensitivity_values,
                 sensitivity_summary,
                 "CCube",
-                sensitivity_figure,
+                sensitivity_prefix,
             )
             sensitivity_summary.to_csv(sensitivity_csv, index=False)
             sensitivity_record = {
@@ -425,9 +640,12 @@ def write_outputs(
                 "set1_paired_n": int(
                     sensitivity_summary.loc[sensitivity_summary["Set"] == 1, "Paired_N"].iloc[0]
                 ),
-                "figure_y_axis_upper_count": sensitivity_upper,
+                "statistics": (
+                    "two-sided paired t-test per set with Bonferroni and Holm figures; "
+                    "all-set test is unadjusted"
+                ),
                 "outputs": {
-                    "figure": str(sensitivity_figure),
+                    **sensitivity_statistical_outputs,
                     "set_summary": str(sensitivity_csv),
                 },
                 "completed_at": datetime.now().astimezone().isoformat(),

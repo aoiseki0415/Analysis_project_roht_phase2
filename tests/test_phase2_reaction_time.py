@@ -437,8 +437,12 @@ def test_quantification_outputs_do_not_replace_existing_no1_outputs(
     output_dir = Path(outputs["directory"])
     assert output_dir.name == "SetMeanQuantification"
     assert sorted(path.name for path in output_dir.iterdir()) == [
-        "No1_RT_SetMeanQuantification_CCube_AllTrials.png",
-        "No1_RT_SetMeanQuantification_CCube_Last80Trials.png",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_AllSets_PairedTTest_Unadjusted.png",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_PairedTTest_Bonferroni.png",
+        "No1_RT_SetMeanQuantification_CCube_AllTrials_PairedTTest_Holm.png",
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_AllSets_PairedTTest_Unadjusted.png",
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_PairedTTest_Bonferroni.png",
+        "No1_RT_SetMeanQuantification_CCube_Last80Trials_PairedTTest_Holm.png",
     ]
     for variant in ("AllTrials", "Last80Trials"):
         variant_output = outputs["variants"][variant]
@@ -446,3 +450,22 @@ def test_quantification_outputs_do_not_replace_existing_no1_outputs(
         assert Path(variant_output["participant_values"]).parents[2].name == "Sub"
         assert Path(variant_output["summary"]).parents[1].name == "logs"
         assert Path(variant_output["summary"]).parents[2].name == "Sub"
+        assert Path(variant_output["setwise_statistics"]).exists()
+        assert Path(variant_output["all_sets_statistics"]).exists()
+
+
+def test_setwise_statistics_adjust_six_paired_tests() -> None:
+    rows = []
+    for set_number in range(1, 7):
+        for participant in range(8):
+            rows.append(
+                {
+                    "Set": set_number,
+                    "EyeDrop_set_mean_RT_ms": 500.0 + participant,
+                    "Control_set_mean_RT_ms": 510.0 + participant + set_number,
+                }
+            )
+    statistics = phase2.build_setwise_paired_statistics(pd.DataFrame(rows))
+    assert len(statistics) == 6
+    assert statistics["P_value_Bonferroni"].between(0, 1).all()
+    assert statistics["P_value_Holm"].between(0, 1).all()

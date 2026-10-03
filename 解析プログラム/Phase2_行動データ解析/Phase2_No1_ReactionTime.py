@@ -7,6 +7,7 @@ import argparse
 import json
 import logging
 import re
+import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+COMMON_DIR = Path(__file__).resolve().parents[1]
+if str(COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_DIR))
+
+from paired_statistics import (  # noqa: E402
+    add_significance_bracket,
+    adjusted_p_values,
+    paired_t_statistics,
+    significance_label,
+)
 
 N_SETS = 6
 N_TRIALS = 320
@@ -964,15 +976,65 @@ def set_mean_figure_y_upper_limit(values: np.ndarray) -> float:
     finite = finite[np.isfinite(finite)]
     if finite.size == 0:
         return 500.0
-    target = float(np.max(finite)) / 0.80
+    target = float(np.max(finite)) / 0.70
     return max(500.0, float(np.ceil(target / 100.0) * 100.0))
+
+
+def build_setwise_paired_statistics(participant_values: pd.DataFrame) -> pd.DataFrame:
+    """Run six paired t-tests and add both prespecified p-value adjustments."""
+
+    rows: list[dict[str, object]] = []
+    for set_number in range(1, N_SETS + 1):
+        selected = participant_values.loc[participant_values["Set"] == set_number]
+        row = {"Set": set_number}
+        row.update(
+            paired_t_statistics(
+                selected["EyeDrop_set_mean_RT_ms"].to_numpy(float),
+                selected["Control_set_mean_RT_ms"].to_numpy(float),
+            )
+        )
+        rows.append(row)
+    statistics = pd.DataFrame(rows)
+    statistics["P_value_Bonferroni"] = adjusted_p_values(
+        statistics["P_value_raw"], "bonferroni"
+    )
+    statistics["P_value_Holm"] = adjusted_p_values(statistics["P_value_raw"], "holm")
+    return statistics
+
+
+def build_all_sets_rt_values(participant_values: pd.DataFrame) -> pd.DataFrame:
+    """Pool all available selected trials across sets for each paired condition."""
+
+    rows: list[dict[str, object]] = []
+    for pair_id, selected in participant_values.groupby("Pair_ID", sort=True):
+        row: dict[str, object] = {
+            "Pair_ID": pair_id,
+            "Product": selected["Product"].iloc[0],
+            "Quantification_variant": selected["Quantification_variant"].iloc[0],
+        }
+        for prefix in ("EyeDrop", "Control"):
+            means = selected[f"{prefix}_set_mean_RT_ms"].to_numpy(float)
+            counts = selected[f"{prefix}_valid_trial_count"].to_numpy(float)
+            valid = np.isfinite(means) & np.isfinite(counts) & (counts > 0)
+            total_count = int(np.sum(counts[valid]))
+            value = (
+                float(np.sum(means[valid] * counts[valid]) / total_count)
+                if total_count > 0
+                else np.nan
+            )
+            row[f"{prefix}_all_sets_mean_RT_ms"] = value
+            row[f"{prefix}_valid_trial_count"] = total_count
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def plot_set_mean_quantification(
     participant_values: pd.DataFrame,
     summary: pd.DataFrame,
+    statistics: pd.DataFrame,
     product: str,
     path: Path,
+    adjustment_method: str,
 ) -> float:
     """Plot six independent paired bar-and-dot panels for one product group."""
 
@@ -1052,12 +1114,22 @@ def plot_set_mean_quantification(
         )
         axis.text(
             0.5,
-            0.94,
+            0.965,
             f"Set {set_number}",
             transform=axis.transAxes,
             ha="center",
             va="top",
             fontsize=26,
+        )
+        p_column = (
+            "P_value_Bonferroni" if adjustment_method == "bonferroni" else "P_value_Holm"
+        )
+        p_value = float(statistics.loc[statistics["Set"] == set_number, p_column].iloc[0])
+        add_significance_bracket(
+            axis,
+            SET_MEAN_BAR_CENTERS[0],
+            SET_MEAN_BAR_CENTERS[1],
+            significance_label(p_value),
         )
         axis.set_xticks(SET_MEAN_BAR_CENTERS)
         axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
@@ -1084,6 +1156,99 @@ def plot_set_mean_quantification(
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
     return upper_limit
+
+
+def plot_all_sets_rt_quantification(
+    values: pd.DataFrame,
+    product: str,
+    path: Path,
+) -> tuple[float, dict[str, float | int]]:
+    """Plot one paired all-set RT panel with an unadjusted paired t-test."""
+
+    _, product_label, product_color = normalize_product(product)
+    drops = values["EyeDrop_all_sets_mean_RT_ms"].to_numpy(float)
+    control = values["Control_all_sets_mean_RT_ms"].to_numpy(float)
+    paired = np.isfinite(drops) & np.isfinite(control)
+    drops, control = drops[paired], control[paired]
+    statistics = paired_t_statistics(drops, control)
+    upper_limit = set_mean_figure_y_upper_limit(np.column_stack([drops, control]))
+    plt.rcParams.update(
+        {"font.family": "sans-serif", "font.sans-serif": ["Arial"], "axes.linewidth": 1.5}
+    )
+    figure, axis = plt.subplots(figsize=(7.5, 9))
+    axis.bar(
+        SET_MEAN_BAR_CENTERS,
+        [np.mean(drops), np.mean(control)],
+        width=SET_MEAN_BAR_WIDTH,
+        color=[product_color, CONTROL_COLOR],
+        alpha=0.82,
+        edgecolor="#222222",
+        linewidth=1.0,
+        zorder=1,
+    )
+    offsets = np.random.default_rng(7001).uniform(
+        -SET_MEAN_JITTER_HALF_WIDTH, SET_MEAN_JITTER_HALF_WIDTH, size=drops.size
+    )
+    for offset, drops_value, control_value in zip(offsets, drops, control, strict=True):
+        axis.plot(
+            SET_MEAN_BAR_CENTERS + offset,
+            [drops_value, control_value],
+            color="#777777",
+            alpha=0.34,
+            linewidth=1.2,
+            zorder=2,
+        )
+    axis.scatter(
+        SET_MEAN_BAR_CENTERS[0] + offsets,
+        drops,
+        s=SET_MEAN_DOT_SIZE,
+        color=product_color,
+        alpha=0.68,
+        edgecolor="white",
+        linewidth=1.0,
+        zorder=3,
+    )
+    axis.scatter(
+        SET_MEAN_BAR_CENTERS[1] + offsets,
+        control,
+        s=SET_MEAN_DOT_SIZE,
+        color=CONTROL_COLOR,
+        alpha=0.68,
+        edgecolor="white",
+        linewidth=1.0,
+        zorder=3,
+    )
+    axis.text(0.5, 0.965, "All Sets", transform=axis.transAxes, ha="center", va="top", fontsize=26)
+    add_significance_bracket(
+        axis,
+        SET_MEAN_BAR_CENTERS[0],
+        SET_MEAN_BAR_CENTERS[1],
+        significance_label(float(statistics["P_value_raw"])),
+    )
+    axis.set_xticks(SET_MEAN_BAR_CENTERS)
+    axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
+    axis.text(
+        SET_MEAN_BAR_CENTERS[0],
+        -0.105,
+        f"({product_label})",
+        transform=axis.get_xaxis_transform(),
+        ha="center",
+        va="top",
+        fontsize=18,
+        clip_on=False,
+    )
+    axis.set_xlim(*SET_MEAN_X_LIMITS)
+    axis.set_ylim(0.0, upper_limit)
+    axis.set_yticks(np.arange(0.0, upper_limit + 1.0, 500.0))
+    axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
+    axis.tick_params(axis="y", labelsize=23, width=1.5, length=6)
+    axis.set_ylabel("Reaction Time (ms)", fontsize=30, labelpad=12)
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.grid(False)
+    figure.subplots_adjust(left=0.20, right=0.98, top=0.94, bottom=0.25)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    return upper_limit, statistics
 
 
 def write_set_mean_quantification_outputs(
@@ -1118,15 +1283,38 @@ def write_set_mean_quantification_outputs(
             variant=variant,
         )
         prefix = f"No1_RT_SetMeanQuantification_{product_dir}_{variant}"
-        figure_path = quantification_root / f"{prefix}.png"
+        old_figure_path = quantification_root / f"{prefix}.png"
+        old_figure_path.unlink(missing_ok=True)
         participant_values_path = table_dir / f"{prefix}_ParticipantValues.csv"
         summary_path = table_dir / f"{prefix}_SetSummary.csv"
+        statistics_path = table_dir / f"{prefix}_PairedTTests.csv"
+        all_sets_values_path = table_dir / f"{prefix}_AllSets_ParticipantValues.csv"
+        all_sets_statistics_path = table_dir / f"{prefix}_AllSets_PairedTTest.csv"
         run_summary_path = log_dir / f"{prefix}_RunSummary.json"
-        y_axis_upper_ms = plot_set_mean_quantification(
-            participant_values, summary, product_dir, figure_path
+        statistics = build_setwise_paired_statistics(participant_values)
+        figure_paths: dict[str, str] = {}
+        y_axis_upper_ms = np.nan
+        for method, label in (("bonferroni", "Bonferroni"), ("holm", "Holm")):
+            figure_path = quantification_root / f"{prefix}_PairedTTest_{label}.png"
+            y_axis_upper_ms = plot_set_mean_quantification(
+                participant_values,
+                summary,
+                statistics,
+                product_dir,
+                figure_path,
+                method,
+            )
+            figure_paths[method] = str(figure_path)
+        all_sets_values = build_all_sets_rt_values(participant_values)
+        all_sets_figure_path = quantification_root / f"{prefix}_AllSets_PairedTTest_Unadjusted.png"
+        all_sets_y_axis_upper_ms, all_sets_statistics = plot_all_sets_rt_quantification(
+            all_sets_values, product_dir, all_sets_figure_path
         )
         participant_values.to_csv(participant_values_path, index=False)
         summary.to_csv(summary_path, index=False)
+        statistics.to_csv(statistics_path, index=False)
+        all_sets_values.to_csv(all_sets_values_path, index=False)
+        pd.DataFrame([all_sets_statistics]).to_csv(all_sets_statistics_path, index=False)
         run_summary = {
             "product": product_dir,
             "quantification_variant": variant,
@@ -1141,13 +1329,21 @@ def write_set_mean_quantification_outputs(
                 "For affected pairs, both conditions are NaN for the same set before "
                 "participant and group summaries"
             ),
-            "statistics": "Not performed",
+            "statistics": (
+                "two-sided paired t-test per set; six p-values adjusted separately with "
+                "Bonferroni and Holm; all-set test is unadjusted because it is one comparison"
+            ),
             "figure_y_axis_upper_ms": y_axis_upper_ms,
+            "all_sets_figure_y_axis_upper_ms": all_sets_y_axis_upper_ms,
             "existing_individual_and_grand_average_outputs_modified": False,
             "outputs": {
-                "figure": str(figure_path),
+                "setwise_figures": figure_paths,
+                "all_sets_figure": str(all_sets_figure_path),
                 "participant_values": str(participant_values_path),
                 "set_summary": str(summary_path),
+                "setwise_statistics": str(statistics_path),
+                "all_sets_participant_values": str(all_sets_values_path),
+                "all_sets_statistics": str(all_sets_statistics_path),
             },
             "completed_at": datetime.now().astimezone().isoformat(),
         }
@@ -1156,9 +1352,13 @@ def write_set_mean_quantification_outputs(
         )
         variant_outputs[variant] = {
             "directory": str(quantification_root),
-            "figure": str(figure_path),
+            "setwise_figures": figure_paths,
+            "all_sets_figure": str(all_sets_figure_path),
             "participant_values": str(participant_values_path),
             "set_summary": str(summary_path),
+            "setwise_statistics": str(statistics_path),
+            "all_sets_participant_values": str(all_sets_values_path),
+            "all_sets_statistics": str(all_sets_statistics_path),
             "summary": str(run_summary_path),
         }
     return {

@@ -129,4 +129,27 @@ def test_support_outputs_are_written_to_sub(monkeypatch, tmp_path: Path) -> None
     assert (root / "Sub" / "No2_Mistouch_CCube_ParticipantValues.csv").exists()
     assert (root / "Sub" / "No2_Mistouch_VRohtoPremium_RunSummary.json").exists()
     assert (root / "No2_Mistouch_BatchSummary.json").exists()
-    assert all(Path(item["figure"]).parent.name in phase2.PRODUCTS for item in outputs)
+    assert all(
+        Path(item["setwise_figures"]["holm"]).parent.name in phase2.PRODUCTS
+        for item in outputs
+    )
+    assert all(Path(item["all_sets_figure"]).exists() for item in outputs)
+
+
+def test_all_sets_mistouch_sums_only_paired_available_sets() -> None:
+    values = pd.DataFrame(
+        [
+            {
+                "Product": "CCube",
+                "Pair_ID": "101-201",
+                "Set": set_number,
+                "EyeDrop_mistouch_count": np.nan if set_number == 2 else float(set_number),
+                "Control_mistouch_count": np.nan if set_number == 2 else float(set_number + 1),
+            }
+            for set_number in range(1, 7)
+        ]
+    )
+    result = phase2.build_all_sets_mistouch_values(values, "CCube").iloc[0]
+    assert result["Included_set_count"] == 5
+    assert result["EyeDrop_all_sets_mistouch_count"] == 19.0
+    assert result["Control_all_sets_mistouch_count"] == 24.0

@@ -329,6 +329,50 @@ def test_additional_exclusion_removes_both_conditions_for_the_paired_sets():
         ).all()
 
 
+def test_all_sets_blink_rate_uses_total_count_over_total_duration():
+    frame = MODULE.pd.DataFrame(
+        [
+            {
+                "PairID": "101-201",
+                "Condition": condition,
+                "Set": set_number,
+                "BlinkRateBlinksPerMin": count / duration,
+                "BlinkCount": count,
+                "SetDurationMinutes": duration,
+            }
+            for condition, values in {
+                "Eye Drop": ((10.0, 1.0), (30.0, 3.0)),
+                "Control": ((12.0, 1.0), (24.0, 3.0)),
+            }.items()
+            for set_number, (count, duration) in enumerate(values, start=1)
+        ]
+    )
+    result = MODULE.build_all_sets_blink_values(frame).iloc[0]
+    assert result["IncludedSetCount"] == 2
+    assert result["EyeDrop_all_sets_blink_rate"] == 10.0
+    assert result["Control_all_sets_blink_rate"] == 9.0
+
+
+def test_blink_setwise_statistics_include_both_adjustments():
+    frame = MODULE.pd.DataFrame(
+        [
+            {
+                "PairID": f"P{participant}",
+                "Condition": condition,
+                "Set": set_number,
+                "BlinkRateBlinksPerMin": 10.0 + participant + (condition == "Control"),
+            }
+            for set_number in range(1, 7)
+            for participant in range(8)
+            for condition in ("Eye Drop", "Control")
+        ]
+    )
+    statistics = MODULE.build_setwise_paired_statistics(frame)
+    assert len(statistics) == 6
+    assert statistics["P_value_Bonferroni"].between(0, 1).all()
+    assert statistics["P_value_Holm"].between(0, 1).all()
+
+
 def test_production_threshold_basis_is_explicitly_exploratory_not_literature():
     assert "exploratory" in MODULE.PROMINENCE_MULTIPLIER_BASIS
     assert "not a literature" in MODULE.PROMINENCE_MULTIPLIER_BASIS

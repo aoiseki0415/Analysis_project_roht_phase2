@@ -90,13 +90,15 @@ Phase 1は、ID101によるパイロット検証と絶対振幅400 µVの確定�
 
 No1 Grand-averageのMA30には、既存の0〜1800 ms版を保持したまま、両製品群で共通の400〜1400 ms・200 ms刻み・薄いグレーの横グリッドを用いる拡大表示版も追加します。MA50、個人figure、セット別定量化は変更しません。
 
-Phase 2のNo1（RT解析）とNo2（ミスタッチ解析）は、解析対象40被験者ペアへ同一の確定Pythonスクリプトを適用します。No1は200 ms未満のRTだけを除外し、個人RT推移、30試行幅・50試行幅の製品群別Grand-average（平均±SEM）、`AllTrials`・`Last80Trials`のセット別RT定量化を作成します。Figure用フォルダはPNGだけとし、補助表とログは各No直下の `Sub/` へ分離します。No1の `Sub/` は `tables/`・`logs/` で分類し、No2の補助CSV・JSONは `Sub/` 直下へ置きます。このPNG-onlyのfigure運用はPhase 3にも適用します。再実行は、合意済みの仕様変更または成果物不具合がある場合に限ります。
+Phase 2のNo1（RT解析）とNo2（ミスタッチ解析）は、解析対象40被験者ペアへ同一の確定Pythonスクリプトを適用します。No1は200 ms未満のRTだけを除外し、個人RT推移、30試行幅・50試行幅の製品群別Grand-average（平均±SEM）、`AllTrials`・`Last80Trials`のセット別RT定量化を作成します。定量化では各製品群・定量化定義・解析版ごとに6つの両側対応ありt検定を行い、Bonferroni補正版とHolm補正版を別PNGで保存します。全Set統合値は単一比較として補正なしの対応ありt検定を行います。No2にも同じ検定・表示規則を適用します。Figure用フォルダはPNGだけとし、補助表とログは各No直下の `Sub/` へ分離します。No1の `Sub/` は `tables/`・`logs/` で分類し、No2の補助CSV・JSONは `Sub/` 直下へ置きます。このPNG-onlyのfigure運用はPhase 3にも適用します。再実行は、合意済みの仕様変更または成果物不具合がある場合に限ります。
 
 ## Phase 3瞬き解析の確定方針
 
 Phase 3解析1は、Phase 1でICLabelのEye成分として除去したICのチャンネル別寄与（ICA前EEG−除去後EEGと同値）をセンサー空間へ戻し、使用可能なFp1・Fp2を時点ごとに平均した `Eye Blink Component Signal` を主解析信号として瞬きイベントを検出し、Blink Rate時間変化とセット別定量化を行います。通常はFp1・Fp2の算術平均ですが、ICA学習から一方のFpチャンネルが除外された場合は残るFpチャンネルの信号が主解析列になります。ID124・209はFp2補助列が全SetでNaNのため主解析列の実体はFp1のみですが、主解析列は有限であり、他IDと同じ処理を適用します。Peak height基準は設けず、セッション全体の候補prominence分布から `中央値 + 12 × 1.4826 × MAD` で閾値を定め、minimum peak distance 100 ms・peak width 20–320 msを固定適用します。係数12は文献推奨値ではなく、探索比較と係数10による初回全対象結果の過剰検出確認を踏まえて固定した値です。IDごとの上位一定割合を選び、抽出総数を似通わせうるパーセンタイル方式は使用しません。Blink Rateは60秒窓で算出後、セット内15秒中心化平均をかけてから進捗軸へ変換します。Fp1・Fp2単独は検出数の補助QCに限定します。主要結果は全対象を用いたまま保持し、Vロートプレミアム群には、ID233 ControlのSet 1〜3で瞬き成分が十分に抽出されていないという事後確認に基づき、被験者内対応を保つためID133–233の両条件のSet 1〜3を群集計だけから外したGrand-average・セット別定量化を追加出力します。OneDriveは `No1_BlinkRate/` 直下で製品群を先に分け、各製品群内を `Individual/`、`GrandAverage/`、`SetQuantification/`、`QualityCheck/` に分けます。瞬き抽出確認HTML・PNGは `QualityCheck/BlinkDetection/`、prominence分布PNGは `QualityCheck/ProminenceDistribution/` に保存し、被験者ペア順の命名で並べます。正式一括実行前には全40ペア・80セッション、製品群各20名、重複、対象外ID、欠測Set、HDF5構造、主解析列の有限性を出力なしで事前検証します。Notionは親ページを確定事項の要約、子ページを詳細仕様、結果を1行1被験者ペアの統合表として管理し、共通SetにおけるEye Drop／Control総検出数の大きい方÷小さい方が2倍以上なら「要確認」と記録します。現行実装の確定仕様と結果記録項目は[Phase 3 瞬き解析仕様](docs/Phase3_瞬き解析仕様.md)を正本とします。
 
 Phase 3 No1のGrand-averageは、従来の0始まり自動スケール版を保持したまま、Cキューブ主要版、Vロートプレミアム主要版、VロートプレミアムのID133–233 Set 1〜3除外版について、3図共通の10〜30 blinks/min・5 blinks/min刻み・薄いグレーの横グリッドを用いる拡大表示版も追加します。個人図、瞬き検出QC、prominence分布、セット別定量化はこの追加出力では変更しません。
+
+Phase 3のセット別定量化も、製品群・解析版ごとに6つの両側対応ありt検定を行い、Bonferroni補正版とHolm補正版を別PNGで保存します。全Set統合Blink Rateは、両条件で利用可能なSetの総瞬き数を総実時間（分）で割って被験者値を作り、補正なしの対応ありt検定を行います。
 
 ## 文書構成
 
