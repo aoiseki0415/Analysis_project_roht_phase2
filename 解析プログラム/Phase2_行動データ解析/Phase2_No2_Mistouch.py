@@ -260,7 +260,7 @@ def build_ccube_sensitivity_values(values: pd.DataFrame) -> pd.DataFrame:
     return sensitivity
 
 
-def _axis_layout(values: np.ndarray) -> tuple[float, np.ndarray, float, float, float]:
+def _axis_layout(values: np.ndarray) -> tuple[float, np.ndarray, float, float, float, float]:
     return quantification_axis_layout(values, minimum_upper=5.0, integer_ticks=True)
 
 
@@ -323,7 +323,7 @@ def plot_product(
 ) -> float:
     label, color = PRODUCTS[product]
     product_values = values.loc[values["Product"] == product]
-    upper, y_ticks, line_y, text_y, set_y = _axis_layout(
+    upper, y_ticks, line_y, text_y, ns_text_y, set_y = _axis_layout(
         product_values[["EyeDrop_mistouch_count", "Control_mistouch_count"]].to_numpy(float)
     )
     plt.rcParams.update(
@@ -401,6 +401,7 @@ def plot_product(
             significance_label(p_value),
             line_y=line_y,
             text_y=text_y,
+            nonsignificant_text_y=ns_text_y,
         )
         axis.set_xticks(BAR_CENTERS, ["Eye Drop", "Control"], fontsize=22)
         axis.text(
@@ -439,7 +440,9 @@ def plot_all_sets_mistouch(
     paired = np.isfinite(drops) & np.isfinite(control)
     drops, control = drops[paired], control[paired]
     statistics = paired_t_statistics(drops, control)
-    upper, y_ticks, line_y, text_y, set_y = _axis_layout(np.column_stack([drops, control]))
+    upper, y_ticks, line_y, text_y, ns_text_y, set_y = _axis_layout(
+        np.column_stack([drops, control])
+    )
     plt.rcParams.update(
         {"font.family": "sans-serif", "font.sans-serif": ["Arial"], "axes.linewidth": 1.5}
     )
@@ -503,6 +506,7 @@ def plot_all_sets_mistouch(
         significance_label(float(statistics["P_value_raw"])),
         line_y=line_y,
         text_y=text_y,
+        nonsignificant_text_y=ns_text_y,
     )
     axis.set_xticks(BAR_CENTERS, ["Eye Drop", "Control"], fontsize=22)
     axis.text(

@@ -1099,7 +1099,7 @@ def plot_group_quantification(
     _configure_plot()
     figure, axes = plt.subplots(1, 6, figsize=(34, 9), sharey=True)
     finite = frame["BlinkRateBlinksPerMin"].dropna().to_numpy(dtype=float)
-    ymax, y_ticks, line_y, text_y, set_y = quantification_axis_layout(
+    ymax, y_ticks, line_y, text_y, ns_text_y, set_y = quantification_axis_layout(
         finite, minimum_upper=5.0
     )
     x = QUANTIFICATION_BAR_CENTERS
@@ -1185,6 +1185,7 @@ def plot_group_quantification(
             significance_label(p_value),
             line_y=line_y,
             text_y=text_y,
+            nonsignificant_text_y=ns_text_y,
         )
         axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
         axis.tick_params(axis="y", labelsize=23, labelleft=True, width=1.5, length=6)
@@ -1211,7 +1212,7 @@ def plot_all_sets_blink_quantification(
     drops, control = drops[paired], control[paired]
     statistics = paired_t_statistics(drops, control)
     finite = np.concatenate([drops, control])
-    ymax, y_ticks, line_y, text_y, set_y = quantification_axis_layout(
+    ymax, y_ticks, line_y, text_y, ns_text_y, set_y = quantification_axis_layout(
         finite, minimum_upper=5.0
     )
     x = QUANTIFICATION_BAR_CENTERS
@@ -1279,6 +1280,7 @@ def plot_all_sets_blink_quantification(
         significance_label(float(statistics["P_value_raw"])),
         line_y=line_y,
         text_y=text_y,
+        nonsignificant_text_y=ns_text_y,
     )
     axis.set_xlim(-0.92, 0.92)
     axis.set_ylim(0, ymax)

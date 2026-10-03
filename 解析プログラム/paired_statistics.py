@@ -16,14 +16,14 @@ def quantification_axis_layout(
     *,
     minimum_upper: float,
     integer_ticks: bool = False,
-) -> tuple[float, np.ndarray, float, float, float]:
+) -> tuple[float, np.ndarray, float, float, float, float]:
     """Place data, statistics, set label, and top margin from one data maximum."""
 
     finite = np.asarray(values, dtype=float)
     finite = finite[np.isfinite(finite)]
     observed_max = float(np.max(finite)) if finite.size else 0.0
-    reference_max = max(observed_max, float(minimum_upper) / 1.38)
-    upper = reference_max * 1.38
+    reference_max = max(observed_max, float(minimum_upper) / 1.33)
+    upper = reference_max * 1.33
     if integer_ticks:
         upper = float(np.ceil(upper))
 
@@ -43,10 +43,18 @@ def quantification_axis_layout(
     else:
         ticks = np.linspace(0.0, upper, 5)
 
-    bracket_line_y = 1.10 * reference_max / upper
-    statistic_text_y = 1.14 * reference_max / upper
-    set_label_y = 1.31 * reference_max / upper
-    return upper, ticks, bracket_line_y, statistic_text_y, set_label_y
+    bracket_line_y = 1.14 * reference_max / upper
+    statistic_text_y = 1.18 * reference_max / upper
+    nonsignificant_text_y = 1.20 * reference_max / upper
+    set_label_y = 1.27 * reference_max / upper
+    return (
+        upper,
+        ticks,
+        bracket_line_y,
+        statistic_text_y,
+        nonsignificant_text_y,
+        set_label_y,
+    )
 
 
 def paired_t_statistics(eye_drop: np.ndarray, control: np.ndarray) -> dict[str, float | int]:
@@ -165,6 +173,7 @@ def add_significance_bracket(
     *,
     line_y: float = 0.75,
     text_y: float = 0.775,
+    nonsignificant_text_y: float | None = None,
     linewidth: float = 2.2,
     fontsize: float | None = None,
 ) -> None:
@@ -182,7 +191,12 @@ def add_significance_bracket(
         zorder=5,
     )
     label_fontsize = fontsize if fontsize is not None else (30.0 if label == "n.s." else 42.0)
-    optical_text_y = text_y if label == "n.s." else text_y - 0.018
+    base_text_y = (
+        nonsignificant_text_y
+        if label == "n.s." and nonsignificant_text_y is not None
+        else text_y
+    )
+    optical_text_y = base_text_y if label == "n.s." else base_text_y - 0.018
     axis.text(
         (x_left + x_right) / 2.0,
         optical_text_y,

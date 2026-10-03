@@ -973,7 +973,7 @@ def build_set_mean_quantification(
 def set_mean_figure_y_upper_limit(values: np.ndarray) -> float:
     """Use one zero-based y-axis for all six quantification panels."""
 
-    upper, _, _, _, _ = quantification_axis_layout(values, minimum_upper=500.0)
+    upper, _, _, _, _, _ = quantification_axis_layout(values, minimum_upper=500.0)
     return upper
 
 
@@ -1041,7 +1041,7 @@ def plot_set_mean_quantification(
     displayed = participant_values[["EyeDrop_set_mean_RT_ms", "Control_set_mean_RT_ms"]].to_numpy(
         dtype=float
     )
-    upper_limit, y_ticks, line_y, text_y, set_y = quantification_axis_layout(
+    upper_limit, y_ticks, line_y, text_y, ns_text_y, set_y = quantification_axis_layout(
         displayed, minimum_upper=500.0
     )
     plt.rcParams.update(
@@ -1133,6 +1133,7 @@ def plot_set_mean_quantification(
             significance_label(p_value),
             line_y=line_y,
             text_y=text_y,
+            nonsignificant_text_y=ns_text_y,
         )
         axis.set_xticks(SET_MEAN_BAR_CENTERS)
         axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
@@ -1174,7 +1175,7 @@ def plot_all_sets_rt_quantification(
     paired = np.isfinite(drops) & np.isfinite(control)
     drops, control = drops[paired], control[paired]
     statistics = paired_t_statistics(drops, control)
-    upper_limit, y_ticks, line_y, text_y, set_y = quantification_axis_layout(
+    upper_limit, y_ticks, line_y, text_y, ns_text_y, set_y = quantification_axis_layout(
         np.column_stack([drops, control]), minimum_upper=500.0
     )
     plt.rcParams.update(
@@ -1240,6 +1241,7 @@ def plot_all_sets_rt_quantification(
         significance_label(float(statistics["P_value_raw"])),
         line_y=line_y,
         text_y=text_y,
+        nonsignificant_text_y=ns_text_y,
     )
     axis.set_xticks(SET_MEAN_BAR_CENTERS)
     axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)

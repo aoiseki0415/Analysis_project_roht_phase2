@@ -95,12 +95,12 @@ def test_figure_y_upper_limit_places_maximum_near_seventy_percent() -> None:
 
 
 def test_set_mean_axis_uses_three_to_six_nice_tick_labels() -> None:
-    upper, ticks, line_y, text_y, set_y = phase2.quantification_axis_layout(
+    upper, ticks, line_y, text_y, ns_text_y, set_y = phase2.quantification_axis_layout(
         np.array([400.0, 1_350.0]), minimum_upper=500.0
     )
     assert 3 <= len(ticks) <= 6
     assert ticks[0] == 0.0
-    assert 1_350.0 < line_y * upper < text_y * upper < set_y * upper < upper
+    assert 1_350.0 < line_y * upper < text_y * upper < ns_text_y * upper < set_y * upper < upper
 
 
 @pytest.mark.parametrize("product", ["CCube", "VRohtoPremium"])
