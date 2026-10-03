@@ -11,31 +11,42 @@ from scipy.stats import t as student_t
 from scipy.stats import ttest_rel
 
 
-def nice_zero_based_ticks(upper: float, *, integer: bool = False) -> tuple[float, np.ndarray]:
-    """Return a rounded upper limit and 3–6 readable zero-based tick labels."""
+def quantification_axis_layout(
+    values: np.ndarray,
+    *,
+    minimum_upper: float,
+    integer_ticks: bool = False,
+) -> tuple[float, np.ndarray, float, float, float]:
+    """Place data, statistics, set label, and top margin from one data maximum."""
 
-    if not np.isfinite(upper) or upper <= 0:
-        upper = 1.0
-    exponent = int(np.floor(np.log10(upper)))
-    candidates: list[tuple[float, int, float]] = []
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    observed_max = float(np.max(finite)) if finite.size else 0.0
+    reference_max = max(observed_max, float(minimum_upper) / 1.38)
+    upper = reference_max * 1.38
+    if integer_ticks:
+        upper = float(np.ceil(upper))
+
+    exponent = int(np.floor(np.log10(upper))) if upper > 0 else 0
+    choices: list[tuple[float, float, np.ndarray]] = []
     for power in range(exponent - 2, exponent + 2):
         scale = 10.0**power
         for multiplier in (1.0, 2.0, 2.5, 5.0, 10.0):
             step = multiplier * scale
-            if integer and step < 1.0:
+            if integer_ticks and step < 1.0:
                 continue
-            intervals = int(np.ceil(upper / step))
-            labels = intervals + 1
-            if 3 <= labels <= 6:
-                rounded_upper = intervals * step
-                candidates.append((abs(labels - 5), rounded_upper, step))
-    if not candidates:
-        step = max(1.0 if integer else 0.1, upper / 4.0)
-        rounded_upper = 4.0 * step
+            ticks = np.arange(0.0, upper + step * 0.01, step)
+            if 3 <= ticks.size <= 6:
+                choices.append((abs(ticks.size - 5), step, ticks))
+    if choices:
+        _, _, ticks = min(choices, key=lambda item: (item[0], item[1]))
     else:
-        _, rounded_upper, step = min(candidates, key=lambda item: (item[0], item[1]))
-    ticks = np.arange(0.0, rounded_upper + step * 0.5, step)
-    return float(rounded_upper), ticks
+        ticks = np.linspace(0.0, upper, 5)
+
+    bracket_line_y = 1.10 * reference_max / upper
+    statistic_text_y = 1.14 * reference_max / upper
+    set_label_y = 1.31 * reference_max / upper
+    return upper, ticks, bracket_line_y, statistic_text_y, set_label_y
 
 
 def paired_t_statistics(eye_drop: np.ndarray, control: np.ndarray) -> dict[str, float | int]:
@@ -171,14 +182,16 @@ def add_significance_bracket(
         zorder=5,
     )
     label_fontsize = fontsize if fontsize is not None else (30.0 if label == "n.s." else 42.0)
+    optical_text_y = text_y if label == "n.s." else text_y - 0.018
     axis.text(
         (x_left + x_right) / 2.0,
-        text_y,
+        optical_text_y,
         label,
         transform=transform,
         ha="center",
-        va="bottom",
+        va="center",
         color="black",
+        fontfamily="Arial",
         fontsize=label_fontsize,
         fontweight="bold" if label != "n.s." else "normal",
         clip_on=False,

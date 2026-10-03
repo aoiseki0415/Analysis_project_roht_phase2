@@ -30,8 +30,8 @@ if str(COMMON_DIR) not in sys.path:
 from paired_statistics import (  # noqa: E402
     add_significance_bracket,
     adjusted_p_values,
-    nice_zero_based_ticks,
     paired_t_statistics,
+    quantification_axis_layout,
     significance_label,
 )
 
@@ -1099,12 +1099,9 @@ def plot_group_quantification(
     _configure_plot()
     figure, axes = plt.subplots(1, 6, figsize=(34, 9), sharey=True)
     finite = frame["BlinkRateBlinksPerMin"].dropna().to_numpy(dtype=float)
-    preliminary_ymax = (
-        max(5.0, float(np.ceil((np.max(finite) / 0.70) / 5.0) * 5.0))
-        if finite.size
-        else 5.0
+    ymax, y_ticks, line_y, text_y, set_y = quantification_axis_layout(
+        finite, minimum_upper=5.0
     )
-    ymax, y_ticks = nice_zero_based_ticks(preliminary_ymax)
     x = QUANTIFICATION_BAR_CENTERS
     eye_color = QUANTIFICATION_COLORS[product_dir]
     for set_number, axis in enumerate(axes, 1):
@@ -1170,11 +1167,12 @@ def plot_group_quantification(
         )
         axis.text(
             0.5,
-            0.90,
+            set_y,
             f"Set {set_number}",
             transform=axis.transAxes,
             ha="center",
-            va="top",
+            va="center",
+            fontfamily="Arial",
             fontsize=26,
         )
         p_value = float(
@@ -1185,6 +1183,8 @@ def plot_group_quantification(
             x[0],
             x[1],
             significance_label(p_value),
+            line_y=line_y,
+            text_y=text_y,
         )
         axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
         axis.tick_params(axis="y", labelsize=23, labelleft=True, width=1.5, length=6)
@@ -1211,8 +1211,9 @@ def plot_all_sets_blink_quantification(
     drops, control = drops[paired], control[paired]
     statistics = paired_t_statistics(drops, control)
     finite = np.concatenate([drops, control])
-    preliminary_ymax = max(5.0, float(np.ceil((np.max(finite) / 0.70) / 5.0) * 5.0))
-    ymax, y_ticks = nice_zero_based_ticks(preliminary_ymax)
+    ymax, y_ticks, line_y, text_y, set_y = quantification_axis_layout(
+        finite, minimum_upper=5.0
+    )
     x = QUANTIFICATION_BAR_CENTERS
     eye_color = QUANTIFICATION_COLORS[product_dir]
     _configure_plot()
@@ -1261,9 +1262,23 @@ def plot_all_sets_blink_quantification(
         alpha=0.68,
         zorder=3,
     )
-    axis.text(0.5, 0.90, "All Sets", transform=axis.transAxes, ha="center", va="top", fontsize=26)
+    axis.text(
+        0.5,
+        set_y,
+        "All Sets",
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        fontfamily="Arial",
+        fontsize=26,
+    )
     add_significance_bracket(
-        axis, x[0], x[1], significance_label(float(statistics["P_value_raw"]))
+        axis,
+        x[0],
+        x[1],
+        significance_label(float(statistics["P_value_raw"])),
+        line_y=line_y,
+        text_y=text_y,
     )
     axis.set_xlim(-0.92, 0.92)
     axis.set_ylim(0, ymax)

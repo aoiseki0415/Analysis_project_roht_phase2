@@ -26,8 +26,8 @@ if str(COMMON_DIR) not in sys.path:
 from paired_statistics import (  # noqa: E402
     add_significance_bracket,
     adjusted_p_values,
-    nice_zero_based_ticks,
     paired_t_statistics,
+    quantification_axis_layout,
     significance_label,
 )
 
@@ -260,13 +260,8 @@ def build_ccube_sensitivity_values(values: pd.DataFrame) -> pd.DataFrame:
     return sensitivity
 
 
-def _upper_limit(values: np.ndarray) -> int:
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return 5
-    preliminary = max(5, int(np.ceil(float(np.max(finite)) / 0.70)))
-    rounded_upper, _ = nice_zero_based_ticks(preliminary, integer=True)
-    return int(rounded_upper)
+def _axis_layout(values: np.ndarray) -> tuple[float, np.ndarray, float, float, float]:
+    return quantification_axis_layout(values, minimum_upper=5.0, integer_ticks=True)
 
 
 def build_setwise_paired_statistics(values: pd.DataFrame, product: str) -> pd.DataFrame:
@@ -325,10 +320,10 @@ def plot_product(
     statistics: pd.DataFrame,
     product: str,
     path: Path,
-) -> int:
+) -> float:
     label, color = PRODUCTS[product]
     product_values = values.loc[values["Product"] == product]
-    upper = _upper_limit(
+    upper, y_ticks, line_y, text_y, set_y = _axis_layout(
         product_values[["EyeDrop_mistouch_count", "Control_mistouch_count"]].to_numpy(float)
     )
     plt.rcParams.update(
@@ -388,11 +383,12 @@ def plot_product(
         )
         axis.text(
             0.5,
-            0.90,
+            set_y,
             f"Set {set_number}",
             transform=axis.transAxes,
             ha="center",
-            va="top",
+            va="center",
+            fontfamily="Arial",
             fontsize=26,
         )
         p_value = float(
@@ -403,6 +399,8 @@ def plot_product(
             BAR_CENTERS[0],
             BAR_CENTERS[1],
             significance_label(p_value),
+            line_y=line_y,
+            text_y=text_y,
         )
         axis.set_xticks(BAR_CENTERS, ["Eye Drop", "Control"], fontsize=22)
         axis.text(
@@ -417,7 +415,6 @@ def plot_product(
         )
         axis.set_xlim(*X_LIMITS)
         axis.set_ylim(0, upper)
-        _, y_ticks = nice_zero_based_ticks(upper, integer=True)
         axis.set_yticks(y_ticks)
         axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
         axis.tick_params(axis="y", labelsize=23, labelleft=True, width=1.5, length=6)
@@ -442,7 +439,7 @@ def plot_all_sets_mistouch(
     paired = np.isfinite(drops) & np.isfinite(control)
     drops, control = drops[paired], control[paired]
     statistics = paired_t_statistics(drops, control)
-    upper = _upper_limit(np.column_stack([drops, control]))
+    upper, y_ticks, line_y, text_y, set_y = _axis_layout(np.column_stack([drops, control]))
     plt.rcParams.update(
         {"font.family": "sans-serif", "font.sans-serif": ["Arial"], "axes.linewidth": 1.5}
     )
@@ -489,12 +486,23 @@ def plot_all_sets_mistouch(
         linewidth=1.0,
         zorder=3,
     )
-    axis.text(0.5, 0.90, "All Sets", transform=axis.transAxes, ha="center", va="top", fontsize=26)
+    axis.text(
+        0.5,
+        set_y,
+        "All Sets",
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        fontfamily="Arial",
+        fontsize=26,
+    )
     add_significance_bracket(
         axis,
         BAR_CENTERS[0],
         BAR_CENTERS[1],
         significance_label(float(statistics["P_value_raw"])),
+        line_y=line_y,
+        text_y=text_y,
     )
     axis.set_xticks(BAR_CENTERS, ["Eye Drop", "Control"], fontsize=22)
     axis.text(
@@ -509,7 +517,6 @@ def plot_all_sets_mistouch(
     )
     axis.set_xlim(*X_LIMITS)
     axis.set_ylim(0, upper)
-    _, y_ticks = nice_zero_based_ticks(upper, integer=True)
     axis.set_yticks(y_ticks)
     axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
     axis.tick_params(axis="y", labelsize=23, width=1.5, length=6)

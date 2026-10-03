@@ -27,8 +27,8 @@ if str(COMMON_DIR) not in sys.path:
 from paired_statistics import (  # noqa: E402
     add_significance_bracket,
     adjusted_p_values,
-    nice_zero_based_ticks,
     paired_t_statistics,
+    quantification_axis_layout,
     significance_label,
 )
 
@@ -427,7 +427,7 @@ def _format_rt_axis(
             f"Set {set_number}",
             transform=axis.get_xaxis_transform(),
             ha="center",
-            va="top",
+            va="center",
             fontsize=22,
             color="#333333",
         )
@@ -973,14 +973,8 @@ def build_set_mean_quantification(
 def set_mean_figure_y_upper_limit(values: np.ndarray) -> float:
     """Use one zero-based y-axis for all six quantification panels."""
 
-    finite = np.asarray(values, dtype=float)
-    finite = finite[np.isfinite(finite)]
-    if finite.size == 0:
-        return 500.0
-    target = float(np.max(finite)) / 0.70
-    preliminary = max(500.0, float(np.ceil(target / 100.0) * 100.0))
-    rounded_upper, _ = nice_zero_based_ticks(preliminary)
-    return rounded_upper
+    upper, _, _, _, _ = quantification_axis_layout(values, minimum_upper=500.0)
+    return upper
 
 
 def build_setwise_paired_statistics(participant_values: pd.DataFrame) -> pd.DataFrame:
@@ -1047,7 +1041,9 @@ def plot_set_mean_quantification(
     displayed = participant_values[["EyeDrop_set_mean_RT_ms", "Control_set_mean_RT_ms"]].to_numpy(
         dtype=float
     )
-    upper_limit = set_mean_figure_y_upper_limit(displayed)
+    upper_limit, y_ticks, line_y, text_y, set_y = quantification_axis_layout(
+        displayed, minimum_upper=500.0
+    )
     plt.rcParams.update(
         {
             "font.family": "sans-serif",
@@ -1119,11 +1115,12 @@ def plot_set_mean_quantification(
         )
         axis.text(
             0.5,
-            0.90,
+            set_y,
             f"Set {set_number}",
             transform=axis.transAxes,
             ha="center",
-            va="top",
+            va="center",
+            fontfamily="Arial",
             fontsize=26,
         )
         p_value = float(
@@ -1134,6 +1131,8 @@ def plot_set_mean_quantification(
             SET_MEAN_BAR_CENTERS[0],
             SET_MEAN_BAR_CENTERS[1],
             significance_label(p_value),
+            line_y=line_y,
+            text_y=text_y,
         )
         axis.set_xticks(SET_MEAN_BAR_CENTERS)
         axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
@@ -1149,7 +1148,6 @@ def plot_set_mean_quantification(
         )
         axis.set_xlim(*SET_MEAN_X_LIMITS)
         axis.set_ylim(0.0, upper_limit)
-        _, y_ticks = nice_zero_based_ticks(upper_limit)
         axis.set_yticks(y_ticks)
         axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
         axis.tick_params(axis="y", labelsize=23, labelleft=True, width=1.5, length=6)
@@ -1176,7 +1174,9 @@ def plot_all_sets_rt_quantification(
     paired = np.isfinite(drops) & np.isfinite(control)
     drops, control = drops[paired], control[paired]
     statistics = paired_t_statistics(drops, control)
-    upper_limit = set_mean_figure_y_upper_limit(np.column_stack([drops, control]))
+    upper_limit, y_ticks, line_y, text_y, set_y = quantification_axis_layout(
+        np.column_stack([drops, control]), minimum_upper=500.0
+    )
     plt.rcParams.update(
         {"font.family": "sans-serif", "font.sans-serif": ["Arial"], "axes.linewidth": 1.5}
     )
@@ -1223,12 +1223,23 @@ def plot_all_sets_rt_quantification(
         linewidth=1.0,
         zorder=3,
     )
-    axis.text(0.5, 0.90, "All Sets", transform=axis.transAxes, ha="center", va="top", fontsize=26)
+    axis.text(
+        0.5,
+        set_y,
+        "All Sets",
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        fontfamily="Arial",
+        fontsize=26,
+    )
     add_significance_bracket(
         axis,
         SET_MEAN_BAR_CENTERS[0],
         SET_MEAN_BAR_CENTERS[1],
         significance_label(float(statistics["P_value_raw"])),
+        line_y=line_y,
+        text_y=text_y,
     )
     axis.set_xticks(SET_MEAN_BAR_CENTERS)
     axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
@@ -1244,7 +1255,6 @@ def plot_all_sets_rt_quantification(
     )
     axis.set_xlim(*SET_MEAN_X_LIMITS)
     axis.set_ylim(0.0, upper_limit)
-    _, y_ticks = nice_zero_based_ticks(upper_limit)
     axis.set_yticks(y_ticks)
     axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
     axis.tick_params(axis="y", labelsize=23, width=1.5, length=6)
