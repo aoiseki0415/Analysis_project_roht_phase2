@@ -1,6 +1,6 @@
 # Phase 4：脳波解析
 
-脳波解析のPythonスクリプトを配置します。命名形式は `Phase4_No<番号>_<内容>.py` です。
+脳波解析のPythonスクリプトを配置します。命名形式は `Phase4_No<番号>_<内容>.py` です。追加解析はNo1本体と混在させず、`No1_add`、`No1_sub` の独立スクリプトにします。
 
 成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。No1の現行スクリプトは `Phase4_No1_FmTheta.py` です。log10 PSD上側3SD除外は実装済みで、60秒平滑化は有限点数の追加基準を設けず、1点以上が有限なら算出する元仕様とします。2026-10-04に全40被験者ペア・80セッションのcacheを確定し、同じ全40ペアの再描画・再集計と成果物検証まで完了しました。No1_addは将来の `Phase4_No1_add_FzTimeFrequencyMap.py` としてNo1本体から分離して実装します。
 
@@ -17,6 +17,8 @@
 No1は、全32chを1秒Hann窓・1秒移動・256点FFTのWelch法で解析し、4–7 Hz平均の未平滑PSDをHDF5へ一度だけ保存します。Phase 1区間mask後、セッションID・chごとの全Set一括 `log10(PSD)` 平均＋3SDを上側閾値とし、該当ch・時間窓だけをNaNにします。そのデータからFzの60秒平滑化時間変化、製品群別Grand-average、mask後未平滑PSDの定量化・統計、全32chの条件差topographyを作ります。現行の確定仕様は [`docs/Phase4_脳波解析仕様.md`](../../docs/Phase4_脳波解析仕様.md) を唯一の実装正本とします。
 
 No1_addはFzの1–30 Hz線形PSDを用いる追加解析です。No1のシータmaskを流用せず、1–30 Hz平均からセッションID別・全Set一括の専用broadband log10上側3SD時間maskを作り、該当時間の全周波数binをNaNにします。その後、周波数bin別60秒平滑化、各Set100 progress点化、被験者間平均を行い、Eye Drop、Control、`ΔPSD` の3段Grand-average TFMだけを出力します。正本は [`docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md`](../../docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md) です。
+
+No1_subは `Phase4_No1_sub_FmThetaChange.py` として独立実装します。ローカルのNo1 PSD cacheを読み、各セッションID・各chのSet 1平均を基準にPSD Change（%）へ変換します。Fzの個人時間変化・Grand-average、Set別およびSets 2–6統合定量化、全32chの条件差topographyを専用OneDriveルートへ出力します。ローカル派生cacheは作成せず、ペア109–209はSet 1 baselineが定義できないため除外します。正本は [`docs/Phase4_No1_sub_FmThetaChange仕様.md`](../../docs/Phase4_No1_sub_FmThetaChange仕様.md) です。スクリプト作成済みですが、解析は未実行です。
 
 ## No1の実行モード
 

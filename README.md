@@ -102,7 +102,7 @@ Phase 3のセット別定量化も、製品群・解析版ごとに6つの両側
 
 ## Phase 4脳波解析の確定方針
 
-Phase 4は、No1 Fmθ（Fz、4–7 Hz）、独立した追加解析No1_add Fz Time-Frequency Map（Fz、1–30 Hz）、No2後頭alpha（Oz、8–15 Hz）、No3前頭delta（Fz、帯域未確定）で構成します。No1は、Phase 1のセット別脳活動解析用HDF5から全32chのWelch PSDを1秒Hann窓・1秒移動・1 Hz分解能で一度だけ計算し、4–7 Hz平均後の未平滑PSD時間変化をローカルの指定HDF5へ保存します。figure作成、Grand-average、定量化、統計、topographyは保存済みPSDを再利用し、figure調整だけでPSDを再計算しません。
+Phase 4は、No1 Fmθ（Fz、4–7 Hz）、独立した追加解析No1_add Fz Time-Frequency Map（Fz、1–30 Hz）、独立した追加解析No1_sub Fmθ PSD Change、No2後頭alpha（Oz、8–15 Hz）、No3前頭delta（Fz、帯域未確定）で構成します。No1は、Phase 1のセット別脳活動解析用HDF5から全32chのWelch PSDを1秒Hann窓・1秒移動・1 Hz分解能で一度だけ計算し、4–7 Hz平均後の未平滑PSD時間変化をローカルの指定HDF5へ保存します。figure作成、Grand-average、定量化、統計、topographyは保存済みPSDを再利用し、figure調整だけでPSDを再計算しません。
 
 No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。Phase 1のICA学習除外区間と1%以上重なる1秒PSD窓を全32chでNaNにした後、セッションID・chごとに利用可能な全Setの未平滑4–7 Hz平均PSDをまとめ、`log10(PSD)`の平均＋3標準偏差を超える上側値だけを、そのch・その時刻でNaNにします。閾値はSet別・条件横断では作らず、下側除外もしません。元PSD、閾値、mask、除外数・率をcacheへ残します。ICA学習用ch除外maskはPSDへ適用せず、32chを保持します。時間変化figureは両mask適用後に各Set内で60秒中心化単純移動平均をかけ、NaNを無視して1点以上が有限なら算出し、窓全体がNaNの場合だけNaNとします。Grand-averageは平滑化後にprogress 100点へ対応付けます。定量化とtopographyは両mask適用後の未平滑PSDを使用します。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。計算関数と全引数、Set端padding、progress変換、PSDキャッシュ構造、実行モード、各figureの寸法・軸・目盛・文字・線・色・上限、統計位置、topography設定、命名、検証条件は[Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)を唯一の実装正本とします。
 
@@ -111,6 +111,8 @@ No1の代表figureはFzを用い、個人時間変化、製品群別Grand-averag
 Grand-averageのy軸は最大 `mean + SEM` を約75%の高さに置く標準規則を使用します。平均線だけを基準にする特例や95%表示は使用しません。
 
 No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。2026-10-04に全40被験者ペア・80セッションを白紙から同一スクリプトで再計算して80件のcacheを確定しました。60秒平滑化は有限点数の追加基準を設けず、1点以上が有限なら算出する元仕様を確定版とし、保存済みcacheを再利用して全40ペアを再描画・再集計しました。既知欠測4 Set、閾値・mask・除外数・率、全figure・表・実行ログを検証済みです。個人時間変化は主figureに加え、未平滑PSDを `BeforeThresholdExclusion/` と `AfterThresholdExclusion/` に分けて全40組保存します。No1_addは仕様確定済み・未実装であり、No1本体と別スクリプト、別cache、別OneDrive成果物として実装します。
+
+No1_subはNo1の検証済みPSD cacheをローカルデスクトップから読み、各セッションID・各chのSet 1有限値平均を基準に `PSD Change = (PSD / Set 1平均 − 1) × 100` を計算する独立解析です。変化率への変換後にFz時間変化だけをSet内60秒平滑化し、定量化とtopographyは未平滑変化率を使用します。No1_subの派生データはローカルへ保存せず、OneDrive成果物だけを専用ルートへ出力します。ID109はSet 1欠測のため、対応ID209を含むペア109–209をNo1_sub全体から除外します。スクリプトは作成済みですが、解析実行は未実施です。
 
 ## 文書構成
 
@@ -127,6 +129,7 @@ No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。20
 - [Phase 3 MAD係数比較](docs/Phase3_MAD係数比較.md)：瞬き検出のMAD係数を確定するまでの比較記録。現行仕様はPhase 3仕様書を正本とする
 - [Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)：No1 Fmθの計算関数・全パラメータ、PSDキャッシュ、個人時間変化、Grand-average、定量化、統計、topography、欠測Set、全figure定数、成果物構造、完了条件を定めた唯一の実装正本
 - [Phase 4 No1_add Fz Time-Frequency Map仕様](docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md)：No1本体と分離したFz 1–30 Hz追加解析、専用broadband mask、平滑化、Grand-average、3段TFM、cache・成果物構造の正本
+- [Phase 4 No1_sub Fmθ PSD Change仕様](docs/Phase4_No1_sub_FmThetaChange仕様.md)：No1 cacheを再利用し、Set 1基準の変化率として時間変化、定量化、統計、topographyを行う独立追加解析の正本
 - [Phase 4 No1 Fmθ共有用解析仕様](docs/Phase4_No1_FmTheta_共有用解析仕様.md)：No1の目的、計算、出力、結果の読み方を外部共有向けにまとめた確定版
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
 - [Phase 1 区間・チャンネル除去パラメータ比較報告書](docs/Phase1_区間・チャンネル除去パラメータ比較報告書.md)：確定前のID101比較を残す歴史資料。現行仕様の判断には使用しない

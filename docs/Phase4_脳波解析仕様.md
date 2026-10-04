@@ -2,7 +2,7 @@
 
 ## 1. 文書の位置づけ
 
-本書は、Phase 4 No1本体の解析スクリプトを同じ入力から同じ計算・同じfigureとして再現するための現行正本です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。追加解析 `No1_add：Fz Time-Frequency Map` は本書へ混在させず、[Phase 4 No1_add：Fz Time-Frequency Map仕様](Phase4_No1_add_FzTimeFrequencyMap仕様.md)を別の正本とします。
+本書は、Phase 4 No1本体の解析スクリプトを同じ入力から同じ計算・同じfigureとして再現するための現行正本です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。追加解析 `No1_add：Fz Time-Frequency Map` と `No1_sub：Fmθ PSD Change` は本書へ混在させず、[Phase 4 No1_add：Fz Time-Frequency Map仕様](Phase4_No1_add_FzTimeFrequencyMap仕様.md)および[Phase 4 No1_sub：Fmθ PSD Change仕様](Phase4_No1_sub_FmThetaChange仕様.md)を各解析の正本とします。
 
 Phase 4は、使用した目薬で被験者をCキューブ群とVロートプレミアム群に分け、製品群ごとにEye DropとControlを被験者内比較します。
 
@@ -10,6 +10,7 @@ Phase 4は、使用した目薬で被験者をCキューブ群とVロートプ�
 |---|---|---:|---:|---|---|
 | No1 | frontal-midline theta（Fmθ） | Fz | 4–7 Hz（両端を含む） | 認知負荷・認知的努力 | 本書で実装仕様を確定 |
 | No1_add | Fz Time-Frequency Map | Fz | 1–30 Hz（1 Hz刻み） | No1を補足する追加解析 | 別仕様書で方針確定、未実装 |
+| No1_sub | Fmθ PSD Change | Fz（topographyは全32ch） | 4–7 Hz | Set 1基準の相対変化 | 別仕様書・独立スクリプト作成済み、未実行 |
 | No2 | occipital alpha | Oz | 8–15 Hz（両端を含む） | 不注意・マインドワンダリング | 代表ch・帯域・配色のみ確定 |
 | No3 | frontal delta | Fz | 未確定 | 疲労・眠気 | 代表ch・配色のみ確定 |
 
@@ -534,7 +535,7 @@ Vロートプレミアム群は `VRohtoPremium` を使い、探索用の `Patter
 
 ## 18. 記録先
 
-Phase 4親ページにはNo1、No1_add、No2、No3の概要だけを独立見出しで置きます。No1詳細ページに本書と同じ確定仕様を置き、その下へ文献調査ページを置きます。No1_addは専用詳細ページと専用仕様書で管理し、No1本体へ混在させません。
+Phase 4親ページにはNo1、No1_add、No1_sub、No2、No3の概要だけを独立見出しで置きます。No1詳細ページに本書と同じ確定仕様を置き、その下へ文献調査ページを置きます。No1_addとNo1_subはそれぞれ専用詳細ページと専用仕様書で管理し、No1本体へ混在させません。
 
 Phase 4の被験者別結果表と日次解析記録はNotionへ作成しません。解析実行時は、対象範囲、製品群、利用可能Set、欠測Set、cache作成・検証、個人figure、topography、警告、失敗理由、集団結果の有効N、統計、成果物名をOneDriveの `Sub/logs/` と `Sub/tables/` のCSVへ保存します。観察結果と解釈を分け、コード・文書の変更履歴はGitで管理します。
 
