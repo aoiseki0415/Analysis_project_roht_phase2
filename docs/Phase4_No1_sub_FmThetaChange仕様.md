@@ -9,7 +9,7 @@
 - 入力：ローカルデスクトップに保存済みのNo1 PSD HDF5 cache
 - ローカルへの派生データ保存：行わない
 - OneDrive：`Phase4_脳波解析/No1_sub_FmThetaChange/`
-- 状態：2026-10-04に本番実行・検証完了
+- 状態：2026-10-04に本番実行・検証を完了し、現行確定版として固定
 
 No1_subはWelch PSDを再計算しません。No1のPhase 1区間maskと、セッションID・ch別の全Set一括log10上側3SD maskを適用した未平滑PSDを読み込みます。
 
@@ -128,7 +128,7 @@ Phase4_脳波解析/
       logs/
 ```
 
-主成果物フォルダにはPNGだけを置き、基準値、Grand-average数値、有効N、定量値、統計、topography数値、除外ペア、成果物一覧は`Sub/tables/`と`Sub/logs/`へ保存します。
+`Individual/`、`GrandAverage/`、`Topography/`にはPNGだけを置きます。`SetQuantification/`にはSet別PNG、全Set統合PNG、およびSet別統計CSVを置きます。基準値、Grand-average数値、有効N、被験者別定量値、全Set統合統計、topography数値、除外ペア、成果物一覧は`Sub/tables/`と`Sub/logs/`へ保存します。
 
 ## 11. 実行モード
 
@@ -150,3 +150,5 @@ No1_subにPSD再計算モードは設けません。figure調整時にもロー�
 - 既知欠測Set：対応条件側も同じSetから除外され、有効Nの減少を確認
 - 成果物：PNG 86件、CSV 11件、実行要約JSON 1件
 - No1_sub用のローカル派生cache：作成なし
+- 統計の確定検証：保存済み被験者別定量値からSet 2–6の両側対応ありt検定を独立再計算し、t値と未補正p値が統計CSVに一致することを確認した。Benjamini–Hochberg FDRも独立再計算し、保存値との差が0であることを確認した。今回の未補正p値の順位関係では、単調性を保つ調整によって5 SetのFDR補正p値が同値になるが、これは実装不具合ではない
+- 確定状態：No1本体とNo1_subは現行コード、現行パラメータ、現行出力構造を確定版とし、以後は明示された仕様変更または成果物不具合がない限り再計算・個別調整を行わない

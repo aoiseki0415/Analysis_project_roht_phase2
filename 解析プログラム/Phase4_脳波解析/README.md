@@ -18,7 +18,7 @@ No1は、全32chを1秒Hann窓・1秒移動・256点FFTのWelch法で解析し�
 
 No1_addはFzの1–30 Hz線形PSDを用いる追加解析です。No1のシータmaskを流用せず、1–30 Hz平均からセッションID別・全Set一括の専用broadband log10上側3SD時間maskを作り、該当時間の全周波数binをNaNにします。その後、周波数bin別60秒平滑化、各Set100 progress点化、被験者間平均を行い、Eye Drop、Control、`ΔPSD` の3段Grand-average TFMだけを出力します。正本は [`docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md`](../../docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md) です。
 
-No1_subは `Phase4_No1_sub_FmThetaChange.py` として独立実装します。ローカルのNo1 PSD cacheを読み、各セッションID・各chのSet 1平均を基準にPSD Change（%）へ変換します。Fzの個人時間変化・Grand-average、Set別および全Set統合定量化、全32chの条件差topographyを専用OneDriveルートへ出力します。全Set統合値はSet 1–6の全有限時間窓を直接平均します。Grand-averageは平均線の最大絶対値をy軸の約70%、定量化は0より上：下を約2：1とし、Set名を統計表示より十分上へ離して置きます。ローカル派生cacheは作成せず、ペア109–209はSet 1 baselineが定義できないため除外します。正本は [`docs/Phase4_No1_sub_FmThetaChange仕様.md`](../../docs/Phase4_No1_sub_FmThetaChange仕様.md) です。2026-10-04に本番40ペアを事前検査し、規定どおり109–209を除く39ペアの実行・成果物検証を完了しました。
+No1_subは `Phase4_No1_sub_FmThetaChange.py` として独立実装します。ローカルのNo1 PSD cacheを読み、各セッションID・各chのSet 1平均を基準にPSD Change（%）へ変換します。Fzの個人時間変化・Grand-average、Set別および全Set統合定量化、全32chの条件差topographyを専用OneDriveルートへ出力します。全Set統合値はSet 1–6の全有限時間窓を直接平均します。Grand-averageは平均線の最大絶対値をy軸の約70%、定量化は0より上：下を約2：1とし、Set名を統計表示より十分上へ離して置きます。ローカル派生cacheは作成せず、ペア109–209はSet 1 baselineが定義できないため除外します。正本は [`docs/Phase4_No1_sub_FmThetaChange仕様.md`](../../docs/Phase4_No1_sub_FmThetaChange仕様.md) です。2026-10-04に本番40ペアを事前検査し、規定どおり109–209を除く39ペアの実行・成果物検証を完了しました。Set 2–6の統計は両側対応ありt検定、補正対象は5比較で固定し、独立再計算により未補正値とFDR-BH値が保存CSVへ完全一致することを確認済みです。No1とNo1_subは現行確定版として扱い、明示的な仕様変更または成果物不具合がない限り再計算しません。
 
 ## No1の実行モード
 
