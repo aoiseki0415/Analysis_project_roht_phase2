@@ -62,8 +62,8 @@ def test_participant_mapping_and_cache_name_preserve_visit_order(tmp_path: Path)
 
 
 def test_window_centers_include_both_set_edges():
-    assert MODULE.window_centers(513).tolist() == [0, 128, 256, 384, 512]
-    assert MODULE.window_centers(500).tolist() == [0, 128, 256, 384, 499]
+    assert MODULE.window_centers(513).tolist() == [0, 256, 512]
+    assert MODULE.window_centers(500).tolist() == [0, 256, 499]
 
 
 def test_set_psd_uses_exact_bins_units_progress_and_mask_fraction():
@@ -74,13 +74,21 @@ def test_set_psd_uses_exact_bins_units_progress_and_mask_fraction():
     mask = np.zeros(n_samples, dtype=bool)
     mask[:129] = True
     result = MODULE.calculate_set_psd(data_v, time, 10_000 + time, mask, 3)
-    assert result.psd_band_mean.shape == (5, 32)
+    assert result.psd_band_mean.shape == (3, 32)
     assert np.all(result.psd_band_mean >= 0)
-    assert result.source_center_sample.tolist() == [0, 128, 256, 384, 512]
-    assert np.allclose(result.set_progress_pct, [0, 25, 50, 75, 100])
-    assert np.allclose(result.global_progress_pct, [200, 225, 250, 275, 300])
+    assert result.source_center_sample.tolist() == [0, 256, 512]
+    assert np.allclose(result.set_progress_pct, [0, 50, 100])
+    assert np.allclose(result.global_progress_pct, [200, 250, 300])
     assert np.isclose(result.relative_seconds_center[-1], 2.0)
     assert result.ica_training_mask_fraction[1] > 0
+
+
+def test_centered_nanmean_ignores_nan_and_preserves_all_nan_windows():
+    values = np.array([1.0, np.nan, 3.0, np.nan, np.nan, np.nan, 7.0])
+    smoothed = MODULE.centered_nanmean(values, 3)
+    assert np.allclose(smoothed[:3], [1.0, 2.0, 3.0], equal_nan=True)
+    assert np.isnan(smoothed[4])
+    assert np.isclose(smoothed[-1], 7.0)
 
 
 def test_preflight_accepts_only_the_declared_missing_set(tmp_path: Path):

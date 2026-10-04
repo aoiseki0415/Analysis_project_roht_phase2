@@ -38,12 +38,12 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.2"
-CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-03.1"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.3"
+CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.2"
 N_SETS = 6
 SFREQ = 256.0
 WINDOW_SAMPLES = 256
-STEP_SAMPLES = 128
+STEP_SAMPLES = 256
 PAD_SAMPLES = 128
 FMIN_HZ = 4.0
 FMAX_HZ = 7.0
@@ -53,6 +53,7 @@ PSD_WINDOW_BATCH_SIZE = 512
 PSD_MASK_OVERLAP_THRESHOLD = 0.01
 FIXED_INDIVIDUAL_Y_UPPER = 100.0
 FIXED_INDIVIDUAL_Y_TICKS = np.arange(0.0, 101.0, 20.0)
+SMOOTHING_COMPARISON_SECONDS = (15, 30, 60)
 EXCLUDED_SESSION_IDS = {"130", "230"}
 PRODUCTION_PARTICIPANT_COUNT = 40
 PRODUCTION_PARTICIPANTS_PER_PRODUCT = 20
@@ -744,10 +745,46 @@ def _channel_index(session: SessionPSD, channel: str = "Fz") -> int:
         raise ValueError(f"ID{session.session_id}: {channel} is absent") from error
 
 
-def _time_series_values(session: SessionPSD, channel: str = "Fz") -> np.ndarray:
+def centered_nanmean(values: np.ndarray, window_points: int) -> np.ndarray:
+    """Centered rolling mean that ignores NaN and returns NaN for all-NaN windows."""
+    if window_points < 1:
+        raise ValueError("window_points must be positive")
+    array = np.asarray(values, dtype=float)
+    if array.ndim != 1:
+        raise ValueError("values must be one-dimensional")
+    return (
+        pd.Series(array)
+        .rolling(window=int(window_points), center=True, min_periods=1)
+        .mean()
+        .to_numpy(dtype=float)
+    )
+
+
+def _set_channel_values(
+    values: SetPSD,
+    channel_index: int,
+    *,
+    smoothing_seconds: int | None = None,
+) -> np.ndarray:
+    raw = values.psd_band_mean[:, channel_index]
+    if smoothing_seconds is None:
+        return np.asarray(raw, dtype=float)
+    points = int(round(float(smoothing_seconds) * SFREQ / STEP_SAMPLES))
+    return centered_nanmean(raw, points)
+
+
+def _time_series_values(
+    session: SessionPSD,
+    channel: str = "Fz",
+    *,
+    smoothing_seconds: int | None = None,
+) -> np.ndarray:
     index = _channel_index(session, channel)
     return np.concatenate(
-        [item.psd_band_mean[:, index] for _, item in sorted(session.sets.items())]
+        [
+            _set_channel_values(item, index, smoothing_seconds=smoothing_seconds)
+            for _, item in sorted(session.sets.items())
+        ]
     )
 
 
@@ -758,6 +795,8 @@ def plot_individual_timecourse(
     path: Path,
     *,
     fixed_y_upper: float | None = None,
+    smoothing_seconds: int | None = None,
+    common_y_axis: tuple[float, np.ndarray] | None = None,
 ) -> None:
     product_dir, product_label, product_color, _ = normalize_product(spec.product)
     if {eye_drop.product, control.product} != {product_dir}:
@@ -771,16 +810,28 @@ def plot_individual_timecourse(
         fz_index = _channel_index(session)
         first = True
         for _, values in sorted(session.sets.items()):
+            plotted = _set_channel_values(
+                values,
+                fz_index,
+                smoothing_seconds=smoothing_seconds,
+            )
             axis.plot(
                 values.global_progress_pct,
-                values.psd_band_mean[:, fz_index],
+                plotted,
                 color=color,
                 linewidth=3.0,
                 label=label if first else None,
             )
             first = False
-    displayed = np.concatenate([_time_series_values(eye_drop), _time_series_values(control)])
-    if fixed_y_upper is None:
+    displayed = np.concatenate(
+        [
+            _time_series_values(eye_drop, smoothing_seconds=smoothing_seconds),
+            _time_series_values(control, smoothing_seconds=smoothing_seconds),
+        ]
+    )
+    if common_y_axis is not None:
+        upper, ticks = common_y_axis
+    elif fixed_y_upper is None:
         upper, ticks = _nice_upper(displayed, 0.70)
     else:
         upper = float(fixed_y_upper)
@@ -1259,6 +1310,7 @@ def _output_directories(output_root: Path, product_dir: str) -> dict[str, Path]:
         "no1": no1,
         "individual": product / "Individual",
         "individual_fixed_y": product / "Individual" / "FixedYAxis_0to100uV2PerHz",
+        "individual_smoothing_comparison": product / "Individual" / "SmoothingComparison",
         "grand": product / "GrandAverage",
         "quantification": product / "SetQuantification",
         "topography_individual": product / "Topography" / "Individual",
@@ -1304,6 +1356,39 @@ def write_individual_outputs(item: dict[str, Any], output_root: Path) -> dict[st
         "individual_fixed_y": str(individual_fixed_y),
         "topography": str(topography),
     }
+
+
+def write_smoothing_comparison_outputs(
+    item: dict[str, Any], output_root: Path
+) -> dict[str, str]:
+    """Write only the three exploratory individual smoothing comparisons."""
+    spec = item["spec"]
+    paths = _output_directories(output_root, item["product_dir"])
+    destination = paths["individual_smoothing_comparison"]
+    all_displayed = []
+    for seconds in SMOOTHING_COMPARISON_SECONDS:
+        all_displayed.extend(
+            [
+                _time_series_values(item["eye_drop"], smoothing_seconds=seconds),
+                _time_series_values(item["control"], smoothing_seconds=seconds),
+            ]
+        )
+    common_y_axis = _nice_upper(np.concatenate(all_displayed), 0.70)
+    outputs: dict[str, str] = {}
+    for seconds in SMOOTHING_COMPARISON_SECONDS:
+        path = destination / (
+            f"ID{spec.pair_id}_No1_FmTheta_Individual_Smoothing{seconds}s.png"
+        )
+        plot_individual_timecourse(
+            spec,
+            item["eye_drop"],
+            item["control"],
+            path,
+            smoothing_seconds=seconds,
+            common_y_axis=common_y_axis,
+        )
+        outputs[f"{seconds}s"] = str(path)
+    return outputs
 
 
 def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any]:
@@ -1406,6 +1491,7 @@ def parse_args() -> argparse.Namespace:
     modes.add_argument("--preflight-only", action="store_true")
     modes.add_argument("--compute-psd", action="store_true")
     modes.add_argument("--individual-only", action="store_true")
+    modes.add_argument("--smoothing-comparison-only", action="store_true")
     modes.add_argument("--group-outputs-only", action="store_true")
     modes.add_argument("--all", action="store_true")
     parser.add_argument(
@@ -1466,6 +1552,28 @@ def main() -> int:
             return 0
 
     items = [load_pair_item(spec, args.cache_root) for spec in specs]
+    if args.smoothing_comparison_only:
+        comparison_outputs = {
+            item["spec"].pair_id: write_smoothing_comparison_outputs(item, args.output_root)
+            for item in items
+        }
+        log_root = _output_directories(args.output_root, "CCube")["logs"]
+        _write_log(
+            log_root / "No1_FmTheta_SmoothingComparisonSummary.json",
+            {
+                "script_version": SCRIPT_VERSION,
+                "completed_at": datetime.now().astimezone().isoformat(),
+                "mode": "smoothing-comparison-only",
+                "psd_window_seconds": WINDOW_SAMPLES / SFREQ,
+                "psd_step_seconds": STEP_SAMPLES / SFREQ,
+                "smoothing_seconds": list(SMOOTHING_COMPARISON_SECONDS),
+                "nan_policy": "ignore_nan_return_nan_only_when_window_all_nan",
+                "preflight": preflight,
+                "comparison_outputs": comparison_outputs,
+            },
+        )
+        logging.info("Smoothing comparison outputs completed")
+        return 0
     individual_outputs: dict[str, dict[str, str]] = {}
     if args.individual_only or args.all:
         for item in items:
