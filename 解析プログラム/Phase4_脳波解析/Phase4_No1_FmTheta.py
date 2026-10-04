@@ -39,7 +39,7 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.7"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.8"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.3"
 N_SETS = 6
 SFREQ = 256.0
@@ -53,6 +53,7 @@ GROUP_PROGRESS_POINTS_PER_SET = 100
 PSD_WINDOW_BATCH_SIZE = 512
 PSD_MASK_OVERLAP_THRESHOLD = 0.01
 TIMECOURSE_SMOOTHING_SECONDS = 60
+TIMECOURSE_MIN_VALID_FRACTION = 0.50
 LOG3SD_MULTIPLIER = 3.0
 DEFAULT_GRAND_AVERAGE_TARGET_FRACTION = 0.75
 EXCLUDED_SESSION_IDS = {"130", "230"}
@@ -398,7 +399,16 @@ def downstream_configuration(
             "type": "centered_simple_moving_average",
             "seconds": TIMECOURSE_SMOOTHING_SECONDS,
             "scope": "within_set",
-            "nan_policy": "ignore_nan_return_nan_only_when_window_all_nan",
+            "minimum_valid_fraction": TIMECOURSE_MIN_VALID_FRACTION,
+            "minimum_valid_points": int(
+                math.ceil(
+                    TIMECOURSE_SMOOTHING_SECONDS
+                    * SFREQ
+                    / STEP_SAMPLES
+                    * TIMECOURSE_MIN_VALID_FRACTION
+                )
+            ),
+            "nan_policy": "ignore_nan_but_require_at_least_half_of_the_full_window",
             "applies_to": ["individual_timecourse", "grand_average_timecourse"],
         },
         "quantification_smoothing": "none",
@@ -925,15 +935,20 @@ def _channel_index(session: SessionPSD, channel: str = "Fz") -> int:
 
 
 def centered_nanmean(values: np.ndarray, window_points: int) -> np.ndarray:
-    """Centered rolling mean that ignores NaN and returns NaN for all-NaN windows."""
+    """Centered mean requiring at least half of the full window to be finite."""
     if window_points < 1:
         raise ValueError("window_points must be positive")
     array = np.asarray(values, dtype=float)
     if array.ndim != 1:
         raise ValueError("values must be one-dimensional")
+    minimum_valid_points = int(math.ceil(window_points * TIMECOURSE_MIN_VALID_FRACTION))
     return (
         pd.Series(array)
-        .rolling(window=int(window_points), center=True, min_periods=1)
+        .rolling(
+            window=int(window_points),
+            center=True,
+            min_periods=minimum_valid_points,
+        )
         .mean()
         .to_numpy(dtype=float)
     )

@@ -23,7 +23,7 @@ No1_addはFzの1–30 Hz線形PSDを用いる追加解析です。No1のシー�
 - `--preflight-only`、`--compute-psd`、`--individual-only`、`--group-outputs-only`、`--all` から1つを選択します。
 - `--force-recompute` は `--compute-psd` または `--all` と併用し、明示的な再計算決定がある場合だけ使用します。
 - `--force-recompute` がない限り、設定hashと入力情報が一致して検証済みのPSD cacheを再利用します。
-- `--grand-y-target-fraction` と `--grand-y-basis` はGrand-averageの表示だけを変える明示的オプションです。標準は`mean_plus_sem`を`0.75`の高さに置く規則です。全対象の今回成果だけは通常域の視認性を上げるため、`--grand-y-basis mean --grand-y-target-fraction 0.95`を指定します。この基準を今後の一般規則にはしません。
+- `--grand-y-target-fraction` と `--grand-y-basis` は表示検証用の明示的オプションです。本番成果物は標準の `mean_plus_sem` を `0.75` の高さに置く規則を使用し、特例オプションを指定しません。
 - 全対象へ同じコード・同じ定数を適用し、既知欠測Set以外のID固有分岐を作りません。
 
 本番manifestはリポジトリ外の非公開CSVを `--manifest` で渡します。実行例は次のとおりです。
@@ -47,7 +47,7 @@ preflight完了後の本計算では、同じmanifestに `--all` を指定しま
 - PSD上側外れ値：Phase 1 mask後、セッションID・ch別に全Setをまとめた `log10(PSD)` の平均＋3SD（`ddof=1`）を超える上側値だけをNaN化。元PSD、閾値、mask、除外数・率を保存
 - 閾値監査表：`Sub/tables/Log3SDThresholdExclusion/` にセッションID・Set・ch別のlog平均、標本SD、log／線形閾値、有効窓数、除外窓数・率を保存
 - ch mask：ICA学習用ch除外maskはPSDへ適用せず、32chを保持
-- 時間変化：各Set内で60秒中心化単純移動平均。NaNは無視し、窓内全てがNaNの場合のみNaN
+- 時間変化：各Set内で60秒中心化単純移動平均。NaNは無視するが、60点中30点以上が有限な場合だけ平均し、30点未満はNaN
 - 現行非適用：平均参照、ラプラシアン
 - cache：全32chの帯域平均PSD時間変化、中心時刻、progress、mask監査情報をHDF5保存
 - figure：両mask適用後に60秒平滑化した個人Fzと製品群別Fz Grand-average、両mask適用後の未平滑PSDによる定量化、全32ch差topography
