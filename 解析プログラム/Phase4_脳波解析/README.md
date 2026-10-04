@@ -2,7 +2,7 @@
 
 脳波解析のPythonスクリプトを配置します。命名形式は `Phase4_No<番号>_<内容>.py` です。
 
-成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。No1の現行スクリプトは `Phase4_No1_FmTheta.py` です。スクリプトと単体テストに加え、40被験者ペア・80セッションの本番解析、全32ch PSD cache、個人・集団成果物の出力を完了しています。1ペアだけを試行する場合はGrand-averageの平均を出力し、SD・SEMと推測統計は算出不能として保持します。
+成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。No1の現行スクリプトは `Phase4_No1_FmTheta.py` です。旧仕様での40被験者ペア・80セッション出力は完了していますが、今回確定したlog10 PSD上側3SD除外は未実装・未再実行です。No1_addは将来の `Phase4_No1_add_FzTimeFrequencyMap.py` としてNo1本体から分離して実装します。
 
 ## 事前定義した解析対象
 
@@ -14,7 +14,9 @@
 
 根拠と解釈上の注意は [`docs/Phase4_解析対象チャンネル文献調査.md`](../../docs/Phase4_解析対象チャンネル文献調査.md) を参照します。FCzとPOzは現行32chに含まれません。
 
-No1は、全32chを1秒Hann窓・1秒移動・256点FFTのWelch法で解析し、4–7 Hz平均の未平滑PSDをHDF5へ一度だけ保存します。そのデータからFzの60秒平滑化時間変化、製品群別Grand-average、未平滑PSDの定量化・統計、全32chの条件差topographyを作ります。現行の確定仕様、figure様式、欠測Set、フォルダ構造は [`docs/Phase4_脳波解析仕様.md`](../../docs/Phase4_脳波解析仕様.md) を唯一の実装正本とします。
+No1は、全32chを1秒Hann窓・1秒移動・256点FFTのWelch法で解析し、4–7 Hz平均の未平滑PSDをHDF5へ一度だけ保存します。Phase 1区間mask後、セッションID・chごとの全Set一括 `log10(PSD)` 平均＋3SDを上側閾値とし、該当ch・時間窓だけをNaNにします。そのデータからFzの60秒平滑化時間変化、製品群別Grand-average、mask後未平滑PSDの定量化・統計、全32chの条件差topographyを作ります。現行の確定仕様は [`docs/Phase4_脳波解析仕様.md`](../../docs/Phase4_脳波解析仕様.md) を唯一の実装正本とします。
+
+No1_addはFzの1–30 Hz線形PSDを用いる追加解析です。No1のシータmaskを流用せず、1–30 Hz平均からセッションID別・全Set一括の専用broadband log10上側3SD時間maskを作り、該当時間の全周波数binをNaNにします。その後、周波数bin別60秒平滑化、各Set100 progress点化、被験者間平均を行い、Eye Drop、Control、`ΔPSD` の3段Grand-average TFMだけを出力します。正本は [`docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md`](../../docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md) です。
 
 ## No1の実行モード
 
@@ -42,12 +44,13 @@ preflight完了後の本計算では、同じmanifestに `--all` を指定しま
 - PSD：MNE `psd_array_welch`、1秒Hann窓、外側窓を1秒移動、256点FFT、4–7 Hzの4 bin平均、線形µV²/Hz
 - Set端：前後128 samplesの反射padding、Set開始・終了を窓中心として評価
 - 区間mask：Phase 1のICA学習除外区間と1%以上重なるPSD窓を全32chでNaN化し、時刻・progressは保持
+- PSD上側外れ値：Phase 1 mask後、セッションID・ch別に全Setをまとめた `log10(PSD)` の平均＋3SD（`ddof=1`）を超える上側値だけをNaN化。元PSD、閾値、mask、除外数・率を保存
 - ch mask：ICA学習用ch除外maskはPSDへ適用せず、32chを保持
 - 時間変化：各Set内で60秒中心化単純移動平均。NaNは無視し、窓内全てがNaNの場合のみNaN
 - 現行非適用：平均参照、ラプラシアン
 - cache：全32chの帯域平均PSD時間変化、中心時刻、progress、mask監査情報をHDF5保存
-- figure：60秒平滑化した個人Fzと製品群別Fz Grand-average、未平滑PSDの定量化、全32ch差topography
-- 個人Fz：平滑化後の自動y軸版を `Individual/` 直下、未平滑の自動y軸版を `Individual/Unsmoothed/` に保存。固定y軸版と比較フォルダは作成しない
+- figure：両mask適用後に60秒平滑化した個人Fzと製品群別Fz Grand-average、両mask適用後の未平滑PSDによる定量化、全32ch差topography
+- 個人Fz：平滑化後を `Individual/` 直下、未平滑の閾値除外前後を `Individual/Unsmoothed/BeforeThresholdExclusion/` と `AfterThresholdExclusion/` に保存
 - 欠測：個人時間変化は欠測側だけ空白、集団集計・定量化・topographyは対応条件も対称除外
 
 Figureの寸法、フォント、軸名、目盛、Set位置、線幅、色、y上限、統計マーク位置、topographyのmontage・カラースケールはPhase 4仕様書の数値をコード定数としてそのまま実装します。定量化はPhase 3と同様に条件名22 ptと製品名18 ptを分離します。Topographyは6 Set横一列、太い円形頭部輪郭・鼻、8 ptの電極点、等高線なしの滑らかな色面、十分な間隔を空けた太いSet別colorbarで描画し、全Set共通の左右対称かつ切りのよい上限を使います。Phase 2・3を再解釈して別の値を採用しません。

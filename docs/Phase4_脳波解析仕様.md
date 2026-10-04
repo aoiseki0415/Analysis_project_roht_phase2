@@ -2,13 +2,14 @@
 
 ## 1. 文書の位置づけ
 
-本書は、Phase 4の解析スクリプトを同じ入力から同じ計算・同じfigureとして再現するための現行正本です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。
+本書は、Phase 4 No1本体の解析スクリプトを同じ入力から同じ計算・同じfigureとして再現するための現行正本です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。追加解析 `No1_add：Fz Time-Frequency Map` は本書へ混在させず、[Phase 4 No1_add：Fz Time-Frequency Map仕様](Phase4_No1_add_FzTimeFrequencyMap仕様.md)を別の正本とします。
 
 Phase 4は、使用した目薬で被験者をCキューブ群とVロートプレミアム群に分け、製品群ごとにEye DropとControlを被験者内比較します。
 
 | No | 指標 | 代表ch | 周波数帯 | 主な解釈 | 状態 |
 |---|---|---:|---:|---|---|
 | No1 | frontal-midline theta（Fmθ） | Fz | 4–7 Hz（両端を含む） | 認知負荷・認知的努力 | 本書で実装仕様を確定 |
+| No1_add | Fz Time-Frequency Map | Fz | 1–30 Hz（1 Hz刻み） | No1を補足する追加解析 | 別仕様書で方針確定、未実装 |
 | No2 | occipital alpha | Oz | 8–15 Hz（両端を含む） | 不注意・マインドワンダリング | 代表ch・帯域・配色のみ確定 |
 | No3 | frontal delta | Fz | 未確定 | 疲労・眠気 | 代表ch・配色のみ確定 |
 
@@ -122,7 +123,7 @@ psd, freqs = mne.time_frequency.psd_array_welch(
 | 対象bin | 4、5、6、7 Hz |
 | 帯域代表値 | 4 binの算術平均 |
 | PSD単位 | µV²/Hz |
-| 対数変換 | なし |
+| 対数変換 | PSD出力値は線形値のまま。No1専用の上側外れ値判定に限り `log10(PSD)` を使用 |
 | dB変換 | なし |
 | 時間平滑化 | cacheはなし。時間変化figureはSet内60秒中心化単純移動平均 |
 | 区間maskによるNaN化 | 窓内重複率1%以上で全32chのPSDをNaN |
@@ -167,9 +168,27 @@ Set実時間の違いはprogress軸だけで線形伸縮します。PSDの1秒�
 - 元の有限PSDとmask率はcache内に保持し、元EEGやcacheの値自体を上書きしません。
 - NaN窓は時間方向へ前詰め、補間、置換せず、時刻とprogressを保持します。
 - Set平均、全Set統合平均、topographyは有限PSD窓だけで計算します。
-- ID101では全8,007窓中78窓、0.97%が本基準に該当することを確認しました。
+- ID101では全4,008窓中39窓、0.97%が本基準に該当することを確認しました。
 
-### 6.3 ICA用ch除外mask
+### 6.3 No1専用のlog10 PSD上側3SD除外
+
+Phase 1区間maskを適用した後、残存する極端な高PSD値だけを機械的に除外します。
+
+1. 単位は `セッションID × ch` とし、そのIDで利用可能な全Setの有限かつ正の**未平滑4–7 Hz平均PSD**をプールします。Setごとには閾値を作りません。
+2. 対応する2セッション、条件、被験者、chを混ぜません。
+3. `x = log10(PSD)` とし、`T_log = mean(x) + 3 × SD(x, ddof=1)` を求めます。
+4. `x > T_log` の窓だけを上側外れ値とし、そのch・その時間窓だけをNaNにします。下側外れ値は除外しません。
+5. 線形PSD上の閾値は `T_linear = 10 ** T_log` として保存します。
+6. 時刻、progress、他chは保持し、前詰め、補間、置換を行いません。
+
+元の有限PSD cacheを上書きせず、閾値、除外mask、Set別・ch別の除外数と除外率を別datasetとして保存します。再描画・再集計時も必ず保存済み閾値とmaskを再現し、同じ入力と設定から同じ除外結果になることを検証します。
+
+ID101–201のFzを全Set一括で検証した結果は、ID101が22/3,969窓（0.55%）、ID201が26/4,069窓（0.64%）、合計48/8,038窓（0.60%）でした。この値は方式の妥当性確認であり、ID別に閾値係数を調整する根拠には使用しません。
+
+- 個人時間変化とGrand-average：Phase 1区間mask → 本3SD mask → Set内60秒平滑化
+- 定量化とtopography：Phase 1区間mask → 本3SD mask → 未平滑PSDを使用
+
+### 6.4 ICA用ch除外mask
 
 - 最終脳活動HDF5には32chが保持されているため、現行PSDでは全32chを計算します。
 - `ica_channel_excluded_mask` がtrueのchも削除・NaN化しません。
@@ -206,6 +225,7 @@ signal/
 sets/
   Set1/
     psd_band_mean                     [n_windows, 32], float32, µV²/Hz
+    log3sd_outlier_mask               [n_windows, 32], bool
     relative_seconds_center           [n_windows], float64
     OriginalTimestamp_center          [n_windows], float64
     set_progress_pct                  [n_windows], float64
@@ -218,9 +238,17 @@ qc/
   ica_channel_excluded_mask           [32], bool
   ica_excluded_channel_records_json
   source_set_availability             [6], bool
+  log3sd_mean_by_channel              [32], float64, log10(µV²/Hz)
+  log3sd_sd_by_channel                [32], float64, log10(µV²/Hz)
+  log3sd_threshold_log_by_channel     [32], float64, log10(µV²/Hz)
+  log3sd_threshold_linear_by_channel  [32], float64, µV²/Hz
+  log3sd_excluded_count_by_set_ch     [6, 32], int64
+  log3sd_valid_count_by_set_ch        [6, 32], int64
 ```
 
 - `psd_band_mean`の列順は`signal/channel_names`と完全一致させます。
+- `psd_band_mean`はPhase 1区間mask適用前の元の有限PSDを保持し、3SD除外値で上書きしません。
+- `log3sd_outlier_mask`は、Phase 1区間mask適用後の有限かつ正のPSDを用いてセッションID・ch別に全Set一括で算出します。
 - 欠測Setのgroupは作成せず、`source_set_availability`をfalseにします。
 - gzip圧縮、`compression_opts=4`、`shuffle=True`を使用します。
 - 保存後に全datasetを読み戻し、shape、単位、ch順、時刻単調増加、progress範囲、有限値を検証します。
@@ -296,8 +324,8 @@ qc/
 - margins：left 0.08、right 0.99、top 0.78、bottom 0.20
 - 横グリッドなし、180 dpi、`bbox_inches="tight"`
 - 標準版は `Individual/` 直下へ保存します。
-- `Individual/` 直下の標準版は60秒平滑化後のFz PSDを描画します。y上限の `M` も平滑化後の2条件・全Setから求めます。
-- 確認用の未平滑PSD時間変化は `Individual/Unsmoothed/` に保存し、その未平滑値から同じ割合ルールで自動y軸を決めます。
+- `Individual/` 直下の標準版は、Phase 1区間maskとNo1専用3SD maskを適用後、60秒平滑化したFz PSDを描画します。y上限の `M` もこの表示データの2条件・全Setから求めます。
+- 閾値除外前の未平滑PSDは `Individual/Unsmoothed/BeforeThresholdExclusion/`、Phase 1区間maskと3SD mask適用後の未平滑PSDは `Individual/Unsmoothed/AfterThresholdExclusion/` に保存します。各figureは自身の表示値から同じ割合規則で自動y軸を決めます。
 - y軸固定版は作らず、探索時の `SmoothingComparison/` も本番成果に残しません。
 
 ## 11. Grand-average時間変化figure
@@ -326,7 +354,7 @@ qc/
 
 ### 12.1 被験者値
 
-- Set別値：そのSetのFzの全PSD窓の線形値を時間方向に`np.mean`します。
+- Set別値：Phase 1区間maskとNo1専用3SD maskの適用後、そのSetのFzの有限な未平滑PSD窓を時間方向に`np.mean`します。
 - 全Set統合値：両条件で共通利用可能なSetのFz PSD窓を全て連結し、時間方向に`np.mean`します。
 - Set平均の再平均はせず、PSD窓をプールして時間長を反映します。
 - 欠測または対称除外SetはNaNです。時間平滑化値は使用しません。
@@ -383,7 +411,7 @@ qc/
 
 ### 14.1 値の作成
 
-各被験者ペア・Set・chで、1%以上区間maskと重なる窓をNaNにした後、有限なSet内PSD窓を時間方向に算術平均し、`Eye Dropのch別Set平均 − Controlのch別Set平均`を計算します。32chすべてで同じ計算を行います。欠測Setは計算せず、補間、空間平滑化、平均参照、ラプラシアンを追加しません。
+各被験者ペア・Set・chで、Phase 1区間maskとNo1専用3SD maskを適用した後、有限な未平滑Set内PSD窓を時間方向に算術平均し、`Eye Dropのch別Set平均 − Controlのch別Set平均`を計算します。32chすべてで同じ計算を行います。欠測Setは計算せず、補間、空間平滑化、平均参照、ラプラシアンを追加しません。
 
 ### 14.2 描画関数と座標
 
@@ -449,6 +477,8 @@ qc/
       CCube/
         Individual/
           Unsmoothed/
+            BeforeThresholdExclusion/
+            AfterThresholdExclusion/
         GrandAverage/
         SetQuantification/
         Topography/
@@ -457,6 +487,8 @@ qc/
       VRohtoPremium/
         Individual/
           Unsmoothed/
+            BeforeThresholdExclusion/
+            AfterThresholdExclusion/
         GrandAverage/
         SetQuantification/
         Topography/
@@ -470,8 +502,9 @@ qc/
         logs/
 ```
 
-- `Individual/`：被験者ペアごとの60秒平滑化後Fz時間変化・自動y軸PNGだけ
-- `Individual/Unsmoothed/`：同じ個人ペアの未平滑Fz時間変化・自動y軸PNGだけ
+- `Individual/`：3SD mask適用後・60秒平滑化後の被験者ペア別Fz時間変化・自動y軸PNGだけ
+- `Individual/Unsmoothed/BeforeThresholdExclusion/`：3SD閾値除外前の未平滑Fz時間変化
+- `Individual/Unsmoothed/AfterThresholdExclusion/`：3SD閾値除外後の未平滑Fz時間変化
 - `GrandAverage/`：60秒平滑化後の製品群別Fz平均±SEM PNGだけ
 - `SetQuantification/`：Set別PNG、全Set統合PNG、統計CSV
 - `Topography/Individual/`：被験者ペアごとの6 Set topography PNG
@@ -484,7 +517,8 @@ qc/
 ## 17. 命名規則
 
 - 個人時間変化：`ID101-201_No1_FmTheta_Individual.png`
-- 個人時間変化・未平滑：`ID101-201_No1_FmTheta_Individual_Unsmoothed.png`
+- 個人時間変化・閾値除外前：`ID101-201_No1_FmTheta_Individual_Unsmoothed_BeforeThresholdExclusion.png`
+- 個人時間変化・閾値除外後：`ID101-201_No1_FmTheta_Individual_Unsmoothed_AfterThresholdExclusion.png`
 - Grand-average：`No1_FmTheta_GrandAverage_CCube.png`
 - Set別定量化：`No1_FmTheta_SetQuantification_CCube.png`
 - 全Set統合：`No1_FmTheta_AllSetsQuantification_CCube.png`
@@ -496,7 +530,7 @@ Vロートプレミアム群は `VRohtoPremium` を使い、探索用の `Patter
 
 ## 18. 記録先
 
-Phase 4親ページにはNo1〜No3の概要だけを置きます。No1詳細ページに本書と同じ確定仕様を置き、その下へ文献調査ページを置きます。
+Phase 4親ページにはNo1、No1_add、No2、No3の概要だけを独立見出しで置きます。No1詳細ページに本書と同じ確定仕様を置き、その下へ文献調査ページを置きます。No1_addは専用詳細ページと専用仕様書で管理し、No1本体へ混在させません。
 
 Phase 4の被験者別結果表と日次解析記録はNotionへ作成しません。解析実行時は、対象範囲、製品群、利用可能Set、欠測Set、cache作成・検証、個人figure、topography、警告、失敗理由、集団結果の有効N、統計、成果物名をOneDriveの `Sub/logs/` と `Sub/tables/` のCSVへ保存します。観察結果と解釈を分け、コード・文書の変更履歴はGitで管理します。
 
@@ -518,6 +552,7 @@ Phase 4の被験者別結果表と日次解析記録はNotionへ作成しませ�
 ### 19.3 完了
 
 - PSD cacheを読み戻してshape・時刻・ch・単位・有限性を検証
+- セッションID・ch別の全Set一括3SD閾値、線形閾値、mask、除外数・率を再計算し、cacheと一致することを検証
 - 欠測Setの個人／集団処理を検証
 - figureの軸、目盛り、色、線幅、文字、凡例、ファイル名を検証
 - Grand-averageのSEM・Nと定量化の対応NをCSVから再計算して一致確認
@@ -527,6 +562,8 @@ Phase 4の被験者別結果表と日次解析記録はNotionへ作成しませ�
 
 ## 20. 現時点の未確定事項
 
+- No1専用log10 PSD上側3SD除外のスクリプト実装と全対象再実行
+- No1_addのスクリプト実装、pilot、figure細部の確定
 - No2の完全な実装仕様
 - No3の周波数帯と完全な実装仕様
 

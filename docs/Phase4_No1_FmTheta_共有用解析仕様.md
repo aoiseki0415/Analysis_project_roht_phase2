@@ -44,7 +44,9 @@ IDの番号帯だけから条件を推測せず、確定manifestの `drops_sessi
 
 Phase 1の `ica_training_excluded_mask` と各1秒PSD窓の重なり率を計算する。重なり率が **1%以上**の窓は、時間位置を詰めず、全32チャンネルの解析値をNaNとして扱う。
 
-元の有限PSDとmask重複率はcacheへ保持し、cache自体は上書きしない。Phase 1のICA学習用チャンネル除外maskはPSDには適用せず、最終HDF5に保持された32チャンネルを解析する。追加のPSD外れ値除外、平均参照、ラプラシアン、追加フィルタは行わない。
+その後、セッションID・チャンネルごとに利用可能な全Setの有限かつ正の未平滑4–7 Hz平均PSDをまとめ、`log10(PSD)`の平均＋3標準偏差（`ddof=1`）を超える上側値だけを、そのチャンネル・時間窓でNaNとする。閾値をSetごとに作らず、対応セッション、条件、被験者、チャンネルを混ぜず、下側外れ値も除外しない。
+
+元の有限PSDとmask重複率はcacheへ保持し、cache自体は上書きしない。log閾値、線形閾値、除外mask、Set・チャンネル別の除外数と除外率を別途保存する。Phase 1のICA学習用チャンネル除外maskはPSDには適用せず、最終HDF5に保持された32チャンネルを解析する。平均参照、ラプラシアン、追加フィルタは行わない。
 
 ## 5. PSD cache
 
@@ -60,13 +62,13 @@ Phase 1の `ica_training_excluded_mask` と各1秒PSD窓の重なり率を計算
         ...
 ```
 
-HDF5にはSet別PSD、チャンネル順、相対秒、OriginalTimestamp、Set内・全体progress、窓中心sample、区間mask重複率、ICA用チャンネルmask、PSD設定、入力fingerprint、設定hashを保存する。設定hashと入力情報が一致するcacheは再利用し、figureの調整だけではPSDを再計算しない。
+HDF5にはSet別の元PSD、チャンネル順、相対秒、OriginalTimestamp、Set内・全体progress、窓中心sample、区間mask重複率、log10上側3SD閾値・mask・除外数・率、ICA用チャンネルmask、PSD設定、入力fingerprint、設定hashを保存する。設定hashと入力情報が一致するcacheは再利用し、figureの調整だけではPSDを再計算しない。
 
 ## 6. Fz時間変化
 
 ### 個人figure
 
-Fzの未平滑PSDへ、Set内だけで **60秒中心化単純移動平均**を適用する。NaNは無視し、移動窓の全値がNaNの場合だけ結果をNaNとする。Set境界をまたいで平滑化しない。
+Phase 1区間maskとlog10上側3SD maskを適用したFzの未平滑PSDへ、Set内だけで **60秒中心化単純移動平均**を適用する。NaNは無視し、移動窓の全値がNaNの場合だけ結果をNaNとする。Set境界をまたいで平滑化しない。
 
 平滑化後、各Setを0–100%へ対応付け、6 Setを0–600%として横に連結する。
 
@@ -76,7 +78,8 @@ Fzの未平滑PSDへ、Set内だけで **60秒中心化単純移動平均**を�
 - ControlとEye Dropを同一figureへ描画
 - Set境界：100、200、300、400、500
 - 主figure：60秒平滑化後
-- `Individual/Unsmoothed/`：未平滑PSDの確認用figure
+- `Individual/Unsmoothed/BeforeThresholdExclusion/`：3SD閾値除外前の未平滑PSD確認用figure
+- `Individual/Unsmoothed/AfterThresholdExclusion/`：3SD閾値除外後の未平滑PSD確認用figure
 
 主figureのy軸下限は0とし、両条件・全Setの平滑化後有限最大値が軸高のおよそ70%以内に入る切りのよい上限を使う。
 
@@ -88,7 +91,7 @@ Fzの未平滑PSDへ、Set内だけで **60秒中心化単純移動平均**を�
 
 ## 7. 定量化と統計
 
-定量化には平滑化前の有限なFz PSD窓を使用する。
+定量化にはPhase 1区間maskとlog10上側3SD maskを適用後、平滑化前の有限なFz PSD窓を使用する。
 
 - Set別値：各Set内の有限PSD窓の時間平均
 - 全Set統合値：両条件で共通利用可能なSetの有限PSD窓をすべて連結した平均
@@ -149,6 +152,8 @@ Eye Drop − Control
       CCube/
         Individual/
           Unsmoothed/
+            BeforeThresholdExclusion/
+            AfterThresholdExclusion/
         GrandAverage/
         SetQuantification/
         Topography/
@@ -157,6 +162,8 @@ Eye Drop − Control
       VRohtoPremium/
         Individual/
           Unsmoothed/
+            BeforeThresholdExclusion/
+            AfterThresholdExclusion/
         GrandAverage/
         SetQuantification/
         Topography/
@@ -168,7 +175,8 @@ Eye Drop − Control
 ```
 
 - `Individual/`：60秒平滑化後のFz時間変化
-- `Individual/Unsmoothed/`：未平滑Fz時間変化のQC
+- `Individual/Unsmoothed/BeforeThresholdExclusion/`：3SD閾値除外前の未平滑Fz時間変化
+- `Individual/Unsmoothed/AfterThresholdExclusion/`：3SD閾値除外後の未平滑Fz時間変化
 - `GrandAverage/`：製品群別の平均±SEM
 - `SetQuantification/`：Set別・全Set統合のbar＋dot figureと統計CSV
 - `Topography/Individual/`：被験者別の全32ch条件差
