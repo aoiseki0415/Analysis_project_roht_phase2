@@ -106,6 +106,10 @@ def test_timecourse_uses_sixty_seconds_and_grand_axis_override_is_explicit():
     upper, ticks = MODULE._nice_upper(np.array([46.78]), 0.95)
     assert upper == 50.0
     assert ticks[-1] == 50.0
+    exact_upper = 26.803261 / 0.95
+    exact_ticks = MODULE._nice_ticks_below_upper(exact_upper)
+    assert np.isclose(26.803261 / exact_upper, 0.95)
+    assert exact_ticks[-1] == 25.0
 
 
 def test_progress_interpolation_does_not_bridge_all_nan_gap():

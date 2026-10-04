@@ -727,6 +727,23 @@ def _nice_upper(values: np.ndarray, target_fraction: float) -> tuple[float, np.n
     return float(upper), ticks
 
 
+def _nice_ticks_below_upper(upper: float) -> np.ndarray:
+    exponent = int(math.floor(math.log10(upper)))
+    candidates: list[tuple[float, float, np.ndarray]] = []
+    for power in range(exponent - 2, exponent + 2):
+        scale = 10.0**power
+        for multiplier in (1.0, 2.0, 2.5, 5.0):
+            step = multiplier * scale
+            ticks = np.arange(0.0, upper + step * 0.01, step)
+            if ticks.size and ticks[-1] > upper:
+                ticks = ticks[:-1]
+            if 3 <= ticks.size <= 6:
+                candidates.append((abs(ticks.size - 5), -step, ticks))
+    if not candidates:
+        return np.linspace(0.0, upper, 5)
+    return min(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
 def _configure_time_axis(axis: plt.Axes, upper: float, ticks: np.ndarray) -> None:
     for boundary in range(100, 600, 100):
         axis.axvline(boundary, color="#9E9E9E", linestyle="--", linewidth=1.5, zorder=0)
@@ -1426,14 +1443,29 @@ def write_group_outputs(
         else:
             raise ValueError(f"Unknown Grand-average y-axis basis: {grand_average_y_basis}")
         proposed[product] = _nice_upper(displayed, grand_average_target_fraction)
-    common_upper = max(value[0] for value in proposed.values())
-    _, common_ticks = _nice_upper(
-        np.array([common_upper * grand_average_target_fraction]),
-        grand_average_target_fraction,
-    )
-    if common_ticks[-1] != common_upper:
-        step = common_ticks[1] - common_ticks[0]
-        common_ticks = np.arange(0.0, common_upper + step * 0.01, step)
+    if grand_average_y_basis == "mean":
+        finite_maxima = [
+            np.nanmax(
+                np.concatenate(
+                    [
+                        grand["EyeDrop_Mean_PSD_uV2_per_Hz"].to_numpy(dtype=float),
+                        grand["Control_Mean_PSD_uV2_per_Hz"].to_numpy(dtype=float),
+                    ]
+                )
+            )
+            for grand in grand_by_product.values()
+        ]
+        common_upper = max(finite_maxima) / grand_average_target_fraction
+        common_ticks = _nice_ticks_below_upper(common_upper)
+    else:
+        common_upper = max(value[0] for value in proposed.values())
+        _, common_ticks = _nice_upper(
+            np.array([common_upper * grand_average_target_fraction]),
+            grand_average_target_fraction,
+        )
+        if common_ticks[-1] != common_upper:
+            step = common_ticks[1] - common_ticks[0]
+            common_ticks = np.arange(0.0, common_upper + step * 0.01, step)
 
     outputs: dict[str, Any] = {}
     for product in products:
