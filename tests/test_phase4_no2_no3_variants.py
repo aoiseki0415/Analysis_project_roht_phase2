@@ -90,8 +90,8 @@ def test_no3_sub_and_add_configuration() -> None:
     add = _inspect("Phase4_No3_add_FzTimeFrequencyMap")
     assert sub["analysis_stem"] == "No3_sub_FrontalDeltaChange"
     assert sub["focus_channel"] == "Fz"
-    assert sub["star_factor_override"] == 1.11
-    assert sub["star_fontsize_override"] == 40.0
+    assert sub["star_factor_override"] == 1.08
+    assert sub["star_fontsize_override"] == 42.0
     assert add["analysis_stem"] == "No3_add_FzTimeFrequencyMap"
     assert add["focus_channel"] == "Fz"
     assert add["focus_index"] == 1
