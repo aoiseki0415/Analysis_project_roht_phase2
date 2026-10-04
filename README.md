@@ -110,7 +110,7 @@ No1の代表figureはFzを用い、個人時間変化、製品群別Grand-averag
 
 Grand-averageのy軸は最大 `mean + SEM` を約75%の高さに置く標準規則を使用します。平均線だけを基準にする特例や95%表示は使用しません。
 
-No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。2026-10-04に全40被験者ペア・80セッションを白紙から同一スクリプトで再計算し、80件のcache読戻し、既知欠測4 Set、閾値・mask・除外数・率、全figure・表・実行ログを検証済みです。個人時間変化は主figureに加え、未平滑PSDを `BeforeThresholdExclusion/` と `AfterThresholdExclusion/` に分けて全40組保存します。No1_addは仕様確定済み・未実装であり、No1本体と別スクリプト、別cache、別OneDrive成果物として実装します。
+No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。2026-10-04に全40被験者ペア・80セッションを白紙から同一スクリプトで再計算して80件のcacheを確定し、その後、60秒窓の有限点要件を30点以上へ変更して全40ペアを再描画・再集計しました。既知欠測4 Set、閾値・mask・除外数・率、全figure・表・実行ログを検証済みです。個人時間変化は主figureに加え、未平滑PSDを `BeforeThresholdExclusion/` と `AfterThresholdExclusion/` に分けて全40組保存します。No1_addは仕様確定済み・未実装であり、No1本体と別スクリプト、別cache、別OneDrive成果物として実装します。
 
 ## 文書構成
 
