@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import subprocess
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
@@ -1774,6 +1775,18 @@ def _write_log(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def git_revision() -> str:
+    repository = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--participant", action="append", type=parse_participant, default=[])
@@ -1856,6 +1869,7 @@ def main() -> int:
                 log_root / "No1_FmTheta_PSDCacheSummary.json",
                 {
                     "script_version": SCRIPT_VERSION,
+                    "git_commit": git_revision(),
                     "completed_at": datetime.now().astimezone().isoformat(),
                     "mode": "compute-psd",
                     "preflight": preflight,
@@ -1888,6 +1902,7 @@ def main() -> int:
                 log_root / "No1_FmTheta_IndividualSummary.json",
                 {
                     "script_version": SCRIPT_VERSION,
+                    "git_commit": git_revision(),
                     "completed_at": datetime.now().astimezone().isoformat(),
                     "mode": "individual-only",
                     "preflight": preflight,
@@ -1909,6 +1924,7 @@ def main() -> int:
         summary_path,
         {
             "script_version": SCRIPT_VERSION,
+            "git_commit": git_revision(),
             "completed_at": datetime.now().astimezone().isoformat(),
             "mode": "all" if args.all else "group-outputs-only",
             "cache_configuration": analysis_configuration(),
