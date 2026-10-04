@@ -104,13 +104,13 @@ Phase 3のセット別定量化も、製品群・解析版ごとに6つの両側
 
 Phase 4は、No1 Fmθ（Fz、4–7 Hz）、独立した追加解析No1_add Fz Time-Frequency Map（Fz、1–30 Hz）、No2後頭alpha（Oz、8–15 Hz）、No3前頭delta（Fz、帯域未確定）で構成します。No1は、Phase 1のセット別脳活動解析用HDF5から全32chのWelch PSDを1秒Hann窓・1秒移動・1 Hz分解能で一度だけ計算し、4–7 Hz平均後の未平滑PSD時間変化をローカルの指定HDF5へ保存します。figure作成、Grand-average、定量化、統計、topographyは保存済みPSDを再利用し、figure調整だけでPSDを再計算しません。
 
-No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。Phase 1のICA学習除外区間と1%以上重なる1秒PSD窓を全32chでNaNにした後、セッションID・chごとに利用可能な全Setの未平滑4–7 Hz平均PSDをまとめ、`log10(PSD)`の平均＋3標準偏差を超える上側値だけを、そのch・その時刻でNaNにします。閾値はSet別・条件横断では作らず、下側除外もしません。元PSD、閾値、mask、除外数・率をcacheへ残します。ICA学習用ch除外maskはPSDへ適用せず、32chを保持します。時間変化figureは両mask適用後に各Set内で60秒中心化単純移動平均をかけ、60点中30点以上が有限な窓だけを算出します。Grand-averageは平滑化後にprogress 100点へ対応付けます。定量化とtopographyは両mask適用後の未平滑PSDを使用します。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。計算関数と全引数、Set端padding、progress変換、PSDキャッシュ構造、実行モード、各figureの寸法・軸・目盛・文字・線・色・上限、統計位置、topography設定、命名、検証条件は[Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)を唯一の実装正本とします。
+No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。Phase 1のICA学習除外区間と1%以上重なる1秒PSD窓を全32chでNaNにした後、セッションID・chごとに利用可能な全Setの未平滑4–7 Hz平均PSDをまとめ、`log10(PSD)`の平均＋3標準偏差を超える上側値だけを、そのch・その時刻でNaNにします。閾値はSet別・条件横断では作らず、下側除外もしません。元PSD、閾値、mask、除外数・率をcacheへ残します。ICA学習用ch除外maskはPSDへ適用せず、32chを保持します。時間変化figureは両mask適用後に各Set内で60秒中心化単純移動平均をかけ、NaNを無視して1点以上が有限なら算出し、窓全体がNaNの場合だけNaNとします。Grand-averageは平滑化後にprogress 100点へ対応付けます。定量化とtopographyは両mask適用後の未平滑PSDを使用します。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。計算関数と全引数、Set端padding、progress変換、PSDキャッシュ構造、実行モード、各figureの寸法・軸・目盛・文字・線・色・上限、統計位置、topography設定、命名、検証条件は[Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)を唯一の実装正本とします。
 
 個人時間変化は、3SD mask適用後・60秒平滑化後の主figureを `Individual/` 直下、未平滑の閾値除外前後を `Individual/Unsmoothed/BeforeThresholdExclusion/` と `AfterThresholdExclusion/` に保存します。固定y軸版と平滑化比較フォルダは保存しません。定量化figureはPhase 3と同じ文字階層を使い、`Eye Drop`を22 pt、括弧付き製品名を18 ptで分離表示します。Topographyは両mask適用後の各Set・各chの有限な未平滑PSD窓を時間平均してから `Eye Drop − Control` を計算します。同一図の全6 Set・全32chの最大絶対差を `M` とし、`M / 0.85` 以上の切りのよい値 `V` を用いて `−V〜+V` の左右対称カラースケールにします。
 
 Grand-averageのy軸は最大 `mean + SEM` を約75%の高さに置く標準規則を使用します。平均線だけを基準にする特例や95%表示は使用しません。
 
-No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。2026-10-04に全40被験者ペア・80セッションを白紙から同一スクリプトで再計算して80件のcacheを確定し、その後、60秒窓の有限点要件を30点以上へ変更して全40ペアを再描画・再集計しました。既知欠測4 Set、閾値・mask・除外数・率、全figure・表・実行ログを検証済みです。個人時間変化は主figureに加え、未平滑PSDを `BeforeThresholdExclusion/` と `AfterThresholdExclusion/` に分けて全40組保存します。No1_addは仕様確定済み・未実装であり、No1本体と別スクリプト、別cache、別OneDrive成果物として実装します。
+No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。2026-10-04に全40被験者ペア・80セッションを白紙から同一スクリプトで再計算して80件のcacheを確定しました。60秒平滑化は有限点数の追加基準を設けず、1点以上が有限なら算出する元仕様を確定版とします。既知欠測4 Set、閾値・mask・除外数・率、全figure・表・実行ログを検証します。個人時間変化は主figureに加え、未平滑PSDを `BeforeThresholdExclusion/` と `AfterThresholdExclusion/` に分けて全40組保存します。No1_addは仕様確定済み・未実装であり、No1本体と別スクリプト、別cache、別OneDrive成果物として実装します。
 
 ## 文書構成
 

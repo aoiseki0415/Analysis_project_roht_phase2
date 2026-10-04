@@ -2,7 +2,7 @@
 
 脳波解析のPythonスクリプトを配置します。命名形式は `Phase4_No<番号>_<内容>.py` です。
 
-成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。No1の現行スクリプトは `Phase4_No1_FmTheta.py` です。log10 PSD上側3SD除外は実装済みで、2026-10-04に全40被験者ペア・80セッションを白紙から再計算してcacheを確定し、その後、60秒窓の有限点要件を30点以上へ変更して全40ペアを再描画・再集計しました。既知欠測・全成果物は検証済みです。No1_addは将来の `Phase4_No1_add_FzTimeFrequencyMap.py` としてNo1本体から分離して実装します。
+成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。No1の現行スクリプトは `Phase4_No1_FmTheta.py` です。log10 PSD上側3SD除外は実装済みで、60秒平滑化は有限点数の追加基準を設けず、1点以上が有限なら算出する元仕様とします。2026-10-04に全40被験者ペア・80セッションのcacheを確定済みです。No1_addは将来の `Phase4_No1_add_FzTimeFrequencyMap.py` としてNo1本体から分離して実装します。
 
 ## 事前定義した解析対象
 
@@ -47,7 +47,7 @@ preflight完了後の本計算では、同じmanifestに `--all` を指定しま
 - PSD上側外れ値：Phase 1 mask後、セッションID・ch別に全Setをまとめた `log10(PSD)` の平均＋3SD（`ddof=1`）を超える上側値だけをNaN化。元PSD、閾値、mask、除外数・率を保存
 - 閾値監査表：`Sub/tables/Log3SDThresholdExclusion/` にセッションID・Set・ch別のlog平均、標本SD、log／線形閾値、有効窓数、除外窓数・率を保存
 - ch mask：ICA学習用ch除外maskはPSDへ適用せず、32chを保持
-- 時間変化：各Set内で60秒中心化単純移動平均。NaNは無視するが、60点中30点以上が有限な場合だけ平均し、30点未満はNaN
+- 時間変化：各Set内で60秒中心化単純移動平均。NaNは無視し、1点以上が有限なら平均し、窓全体がNaNの場合だけNaN
 - 現行非適用：平均参照、ラプラシアン
 - cache：全32chの帯域平均PSD時間変化、中心時刻、progress、mask監査情報をHDF5保存
 - figure：両mask適用後に60秒平滑化した個人Fzと製品群別Fz Grand-average、両mask適用後の未平滑PSDによる定量化、全32ch差topography

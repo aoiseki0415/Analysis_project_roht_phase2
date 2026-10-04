@@ -83,15 +83,17 @@ def test_set_psd_uses_exact_bins_units_progress_and_mask_fraction():
     assert result.ica_training_mask_fraction[1] > 0
 
 
-def test_centered_nanmean_requires_half_of_full_window_to_be_finite():
+def test_centered_nanmean_uses_any_finite_value_and_preserves_all_nan_windows():
     values = np.full(120, np.nan)
     values[:29] = 10.0
     values[60:90] = 20.0
     smoothed = MODULE.centered_nanmean(values, 60)
-    assert np.isnan(smoothed[0])
-    assert np.isnan(smoothed[29])
+    assert np.isclose(smoothed[0], 10.0)
+    assert np.isclose(smoothed[29], 10.0)
     assert np.isclose(smoothed[60], 20.0)
     assert np.isclose(smoothed[89], 20.0)
+    all_nan = MODULE.centered_nanmean(np.full(60, np.nan), 60)
+    assert np.isnan(all_nan).all()
 
 
 def test_log3sd_exclusion_is_session_wide_channel_specific_and_upper_only():
@@ -132,12 +134,11 @@ def test_log3sd_exclusion_is_session_wide_channel_specific_and_upper_only():
 
 def test_timecourse_uses_sixty_seconds_and_grand_axis_override_is_explicit():
     assert MODULE.TIMECOURSE_SMOOTHING_SECONDS == 60
-    assert MODULE.TIMECOURSE_MIN_VALID_FRACTION == 0.50
     assert MODULE.DEFAULT_GRAND_AVERAGE_TARGET_FRACTION == 0.75
     standard = MODULE.downstream_configuration()
     current_rerender = MODULE.downstream_configuration(0.95, "mean")
     assert standard["timecourse_smoothing"]["seconds"] == 60
-    assert standard["timecourse_smoothing"]["minimum_valid_points"] == 30
+    assert standard["timecourse_smoothing"]["minimum_valid_points"] == 1
     assert standard["quantification_smoothing"] == "none"
     assert standard["topography_smoothing"] == "none"
     assert standard["grand_average_y_axis"]["target_fraction"] == 0.75
