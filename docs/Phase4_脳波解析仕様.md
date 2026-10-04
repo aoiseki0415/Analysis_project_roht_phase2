@@ -71,7 +71,7 @@ first_session_id,second_session_id,drops_session_id,product
 | ch名 | `signal/channel_names` | 32要素 | Fz抽出・topography |
 | Set内時刻 | `time/relative_seconds` | 秒 | 窓中心・progress |
 | 実時刻 | `time/OriginalTimestamp` | 秒 | 出力時刻対応 |
-| ICA用区間除外 | `qc/ica_training_excluded_mask` | `n_samples` bool | 保存のみ。現行PSD除外には使わない |
+| ICA用区間除外 | `qc/ica_training_excluded_mask` | `n_samples` bool | 1秒PSD窓との重複率を保存し、1%以上重なる窓を解析時に全32chでNaN化 |
 | ICA用ch除外 | `qc/ica_channel_excluded_mask` | 32要素bool | 保存のみ。現行PSD除外には使わない |
 | ch除外詳細 | `qc/ica_excluded_channel_records_json` | JSON | 監査情報 |
 | 区間除外詳細 | `qc/ica_training_exclusions_json` | JSON | 監査情報 |
