@@ -26,7 +26,7 @@ import mne
 import numpy as np
 import pandas as pd
 
-SCRIPT_VERSION = "phase4-no1-add-fz-tfm-2026-10-04.1"
+SCRIPT_VERSION = "phase4-no1-add-fz-tfm-2026-10-04.2"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-add-fz-tfm-2026-10-04.1"
 N_SETS = 6
 SFREQ = 256.0
@@ -40,6 +40,10 @@ PSD_MASK_OVERLAP_THRESHOLD = 0.01
 LOG3SD_MULTIPLIER = 3.0
 SMOOTHING_SECONDS = 60
 GROUP_PROGRESS_POINTS_PER_SET = 100
+ABSOLUTE_PSD_COLOR_LIMIT = 30.0
+ABSOLUTE_PSD_COLOR_TICKS = np.array([0.0, 10.0, 20.0, 30.0])
+DIFFERENCE_COLOR_LIMIT = 20.0
+DIFFERENCE_COLOR_TICKS = np.array([-20.0, -10.0, 0.0, 10.0, 20.0])
 PRODUCTION_PARTICIPANT_COUNT = 40
 PRODUCTION_PARTICIPANTS_PER_PRODUCT = 20
 EXCLUDED_SESSION_IDS = {"130", "230"}
@@ -721,24 +725,6 @@ def build_grand_average(items: list[dict[str, Any]], product: str) -> dict[str, 
     }
 
 
-def _nice_scale(maximum: float, target_ticks: int = 5) -> tuple[float, np.ndarray]:
-    maximum = max(float(maximum), np.finfo(float).eps)
-    exponent = math.floor(math.log10(maximum))
-    candidates: list[tuple[float, float, np.ndarray]] = []
-    for power in range(exponent - 2, exponent + 2):
-        scale = 10.0**power
-        for multiplier in (1.0, 2.0, 2.5, 5.0):
-            step = multiplier * scale
-            upper = math.ceil(maximum / step) * step
-            ticks = np.arange(0.0, upper + step * 0.01, step)
-            if 3 <= ticks.size <= 7:
-                candidates.append((abs(ticks.size - target_ticks), upper, ticks))
-    if not candidates:
-        return maximum, np.linspace(0.0, maximum, target_ticks)
-    _, upper, ticks = min(candidates, key=lambda item: (item[0], item[1]))
-    return float(upper), ticks
-
-
 def grand_average_table(product: str, values: dict[str, np.ndarray]) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     within = np.linspace(0.0, 100.0, GROUP_PROGRESS_POINTS_PER_SET, endpoint=False)
@@ -897,14 +883,10 @@ def build_mask_diagnostics(items: list[dict[str, Any]]) -> pd.DataFrame:
 def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any]:
     products = sorted({item["product"] for item in items})
     grand = {product: build_grand_average(items, product) for product in products}
-    absolute_max = max(
-        float(np.nanmax(np.concatenate([grand[p]["eye_mean"], grand[p]["control_mean"]])))
-        for p in products
-    )
-    difference_max = max(float(np.nanmax(np.abs(grand[p]["difference_mean"]))) for p in products)
-    absolute_limit, absolute_ticks = _nice_scale(absolute_max)
-    difference_limit, positive_ticks = _nice_scale(difference_max, target_ticks=4)
-    difference_ticks = np.unique(np.concatenate([-positive_ticks[:0:-1], positive_ticks]))
+    absolute_limit = ABSOLUTE_PSD_COLOR_LIMIT
+    absolute_ticks = ABSOLUTE_PSD_COLOR_TICKS
+    difference_limit = DIFFERENCE_COLOR_LIMIT
+    difference_ticks = DIFFERENCE_COLOR_TICKS
     outputs: dict[str, Any] = {}
     for product in products:
         dirs = output_directories(output_root, product)

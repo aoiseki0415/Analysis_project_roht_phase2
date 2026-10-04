@@ -20,7 +20,7 @@ No1_addはFzの1–30 Hz線形PSDを用いる追加解析です。No1のシー�
 
 No1_subは `Phase4_No1_sub_FmThetaChange.py` として独立実装します。ローカルのNo1 PSD cacheを読み、各セッションID・各chのSet 1平均を基準にPSD Change（%）へ変換します。Fzの個人時間変化・Grand-average、Set別および全Set統合定量化、全32chの条件差topographyを専用OneDriveルートへ出力します。全Set統合値はSet 1–6の全有限時間窓を直接平均します。Grand-averageは平均線の最大絶対値をy軸の約70%、定量化は0より上：下を約2：1とし、Set名を統計表示より十分上へ離して置きます。ローカル派生cacheは作成せず、ペア109–209はSet 1 baselineが定義できないため除外します。正本は [`docs/Phase4_No1_sub_FmThetaChange仕様.md`](../../docs/Phase4_No1_sub_FmThetaChange仕様.md) です。2026-10-04に本番40ペアを事前検査し、規定どおり109–209を除く39ペアの実行・成果物検証を完了しました。Set 2–6の統計は両側対応ありt検定、補正対象は5比較で固定し、独立再計算により未補正値とFDR-BH値が保存CSVへ完全一致することを確認済みです。No1とNo1_subは現行確定版として扱い、明示的な仕様変更または成果物不具合がない限り再計算しません。
 
-No1_addの実行スクリプトは `Phase4_No1_add_FzTimeFrequencyMap.py` です。3段TFMは絶対PSDに `viridis`、差分にゼロ中心の `RdBu_r` を使い、2製品で各カラースケールを共通化します。
+No1_addの実行スクリプトは `Phase4_No1_add_FzTimeFrequencyMap.py` です。3段TFMは絶対PSDに `viridis` の `0–30 µV²/Hz`、差分にゼロ中心の `RdBu_r` の `−20–20 µV²/Hz` を使い、2製品で各カラースケールを共通化します。表示範囲外は色だけを飽和させ、保存数値はクリップしません。
 
 2026-10-04にNo1_addを全40ペア・80セッションへ実行し、80件のFz TFM cache、476件の利用可能Set、既知欠測4 Set、2製品のGrand-average TFM、値・有効N・mask監査表・実行ログを検証しました。figureだけの変更では検証済みcacheを再計算しません。
 
