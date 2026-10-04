@@ -50,3 +50,24 @@ Ozの1–30 Hz線形PSDをセッション別HDF5へ保存する。Phase 1区間m
 - OneDrive：`Phase4_脳波解析/No2_OccipitalAlpha/`、`No2_sub_OccipitalAlphaChange/`、`No2_add_OzTimeFrequencyMap/`
 
 各主成果物フォルダにはPNGだけを置き、表・統計・監査情報・実行ログは各解析の `Sub/` へ保存する。
+
+## 6. 結果の読み方
+
+- `Individual/`：Ozの60秒平滑化後alpha PSD時間変化。Eye DropとControlを同一被験者内で比較する
+- `Individual/Unsmoothed/BeforeThresholdExclusion/`：Phase 1区間maskだけを反映した未平滑PSD
+- `Individual/Unsmoothed/AfterThresholdExclusion/`：さらにセッションID・ch別のlog10上側3SD除外を反映した未平滑PSD
+- `GrandAverage/`：40被験者ペアを製品群別に平均した線。シェードは被験者間SEM
+- `SetQuantification/`：各Setおよび全Set統合の未平滑PSD時間平均。線で結ばれた2点が同一被験者で、PNGの統計表示は未補正の両側対応ありt検定
+- `Sub/tables/SetQuantification/`：未補正pとBonferroni、Holm、FDR-BH補正結果を含むCSV
+- `Topography/`：各chの `Eye Drop − Control`。暖色がEye Dropで高く、寒色がControlで高いことを表す
+- No2_sub：Set 1 baselineからの変化率。0%がSet 1水準で、正値は増加、負値は減少を表す
+- No2_add：上段がEye Drop、中段がControl、下段が `Eye Drop − Control` の1–30 Hz TFM
+
+## 7. 全件実行・検証状態（2026-10-04）
+
+- No2本体：40被験者ペア・80セッションを処理し、セッション別cache 80件、PNG 168件を生成
+- No2_sub：Set 1欠測の109–209を仕様どおり除外し、39被験者ペア、PNG 86件を生成
+- No2_add：セッション別cache 80件、製品群別TFM 2件を生成
+- 既知欠測はID109 Set 1、ID120 Set 6、ID225 Set 4、ID135 Set 2。Grand-average、定量化、topographyでは対応条件側の同一Setも欠測として扱う
+- 代表cacheでOz、8–15 Hz全bin、256 Hz、`µV²/Hz` を確認し、主PNG・統計CSV・topography・TFMを目視確認した
+- 0 byteの出力はなく、No1の既存成果物は保持されている
