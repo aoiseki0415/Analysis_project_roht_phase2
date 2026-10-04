@@ -34,7 +34,7 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-sub-fmtheta-change-2026-10-04.4"
+SCRIPT_VERSION = "phase4-no1-sub-fmtheta-change-2026-10-04.5"
 N_SETS = no1.N_SETS
 PROGRESS_POINTS = no1.GROUP_PROGRESS_POINTS_PER_SET
 SMOOTHING_SECONDS = no1.TIMECOURSE_SMOOTHING_SECONDS
@@ -471,8 +471,8 @@ def _quantification_layout(
     finite = finite[np.isfinite(finite)]
     observed_max = float(np.max(finite)) if finite.size else 0.0
     observed_min = float(np.min(finite)) if finite.size else 0.0
-    reference_max = max(observed_max, 2.0 * abs(min(observed_min, 0.0)) / 1.48, 1.0)
-    upper = 1.48 * reference_max
+    reference_max = max(observed_max, 2.0 * abs(min(observed_min, 0.0)) / 1.54, 1.0)
+    upper = 1.54 * reference_max
     lower = -upper / 2.0
 
     exponent = int(np.floor(np.log10(upper))) if upper > 0 else 0
@@ -497,7 +497,7 @@ def _quantification_layout(
         ticks,
         1.15 * reference_max,
         1.20 * reference_max,
-        1.38 * reference_max,
+        1.42 * reference_max,
     )
 
 

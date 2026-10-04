@@ -67,8 +67,8 @@ def test_quantification_layout_reserves_two_to_one_space_and_set_is_highest() ->
     assert lower < -50.0 < 140.0 < line_y < text_y < set_y < upper
     assert np.isclose(line_y, 1.15 * 140.0)
     assert np.isclose(text_y, 1.20 * 140.0)
-    assert np.isclose(set_y, 1.38 * 140.0)
-    assert np.isclose(upper, 1.48 * 140.0)
+    assert np.isclose(set_y, 1.42 * 140.0)
+    assert np.isclose(upper, 1.54 * 140.0)
     assert 3 <= ticks.size <= 6
     assert np.any(np.isclose(ticks, 0.0))
 
