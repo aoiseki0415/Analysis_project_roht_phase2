@@ -23,6 +23,13 @@ payload = {{
         if hasattr(getattr(engine, 'INCLUDED_FREQUENCIES_HZ', []), 'tolist')
         else [],
     'focus_index': getattr(engine, 'FOCUS_CHANNEL_INDEX', None),
+    'absolute_color_limit': getattr(engine, 'ABSOLUTE_PSD_COLOR_LIMIT', None),
+    'absolute_color_ticks': getattr(engine, 'ABSOLUTE_PSD_COLOR_TICKS', []).tolist()
+        if hasattr(getattr(engine, 'ABSOLUTE_PSD_COLOR_TICKS', []), 'tolist') else [],
+    'difference_color_limit': getattr(engine, 'DIFFERENCE_COLOR_LIMIT', None),
+    'difference_color_ticks': getattr(engine, 'DIFFERENCE_COLOR_TICKS', []).tolist()
+        if hasattr(getattr(engine, 'DIFFERENCE_COLOR_TICKS', []), 'tolist') else [],
+    'standard_significance_style': getattr(engine, 'USE_STANDARD_SIGNIFICANCE_STYLE', None),
     'ccube_color': engine.PRODUCTS['ccube'][2] if hasattr(engine, 'PRODUCTS')
         and len(engine.PRODUCTS['ccube']) == 4 else None,
     'vrohto_color': engine.PRODUCTS['vrohtopremium'][2] if hasattr(engine, 'PRODUCTS')
@@ -58,6 +65,10 @@ def test_no2_sub_and_add_configuration() -> None:
     assert add["analysis_stem"] == "No2_add_OzTimeFrequencyMap"
     assert add["focus_channel"] == "Oz"
     assert add["focus_index"] == 17
+    assert add["absolute_color_limit"] == 20.0
+    assert add["absolute_color_ticks"] == [0.0, 5.0, 10.0, 15.0, 20.0]
+    assert add["difference_color_limit"] == 15.0
+    assert add["difference_color_ticks"] == [-15.0, -10.0, -5.0, 0.0, 5.0, 10.0, 15.0]
     assert "/No2_add_OzTimeFrequencyMap/TimeFrequencySeries" in add["cache_root"]
 
 
@@ -76,6 +87,7 @@ def test_no3_sub_and_add_configuration() -> None:
     add = _inspect("Phase4_No3_add_FzTimeFrequencyMap")
     assert sub["analysis_stem"] == "No3_sub_FrontalDeltaChange"
     assert sub["focus_channel"] == "Fz"
+    assert sub["standard_significance_style"] is True
     assert add["analysis_stem"] == "No3_add_FzTimeFrequencyMap"
     assert add["focus_channel"] == "Fz"
     assert add["focus_index"] == 1

@@ -22,7 +22,7 @@ No1_subは `Phase4_No1_sub_FmThetaChange.py` として独立実装します。�
 
 No1_addの実行スクリプトは `Phase4_No1_add_FzTimeFrequencyMap.py` です。3段TFMは絶対PSDに `viridis` の `0–30 µV²/Hz`、差分にゼロ中心の `RdBu_r` の `−20–20 µV²/Hz` を使い、2製品で各カラースケールを共通化します。表示範囲外は色だけを飽和させ、保存数値はクリップしません。
 
-No2とNo3はNo1三解析と同じ実装エンジン・処理順・figure比率を用いる独立エントリポイントです。No2はOz・8–15 Hz、No3はFz・1–3 Hzです。`_sub` は対応する主解析cacheからSet 1基準変化率を作り、`_add` はNo2でOz、No3でFzの1–30 Hz TFMを専用cacheへ保存します。No2のEye Drop色はC Cube `#C23B8A`／V Rohto Premium `#E36A8D`、No3は `#8F7300`／`#C29A00`、Controlは共通 `#402B5D` です。
+No2とNo3はNo1三解析と同じ実装エンジン・処理順・figure比率を用いる独立エントリポイントです。No2はOz・8–15 Hz、No3はFz・1–3 Hzです。`_sub` は対応する主解析cacheからSet 1基準変化率を作り、`_add` はNo2でOz、No3でFzの1–30 Hz TFMを専用cacheへ保存します。No2_addの表示範囲は絶対PSD `0–20 µV²/Hz`、差分 `−15–15 µV²/Hz`、No3_addはNo1_addと同じ絶対PSD `0–30 µV²/Hz`、差分 `−20–20 µV²/Hz` です。No3_sub定量化の統計表示は通常解析と同じ有意マーク42 pt／n.s. 26 ptと相対位置を使います。No2のEye Drop色はC Cube `#C23B8A`／V Rohto Premium `#E36A8D`、No3は `#8F7300`／`#C29A00`、Controlは共通 `#402B5D` です。
 
 2026-10-04にNo1_addを全40ペア・80セッションへ実行し、80件のFz TFM cache、476件の利用可能Set、既知欠測4 Set、2製品のGrand-average TFM、値・有効N・mask監査表・実行ログを検証しました。figureだけの変更では検証済みcacheを再計算しません。
 

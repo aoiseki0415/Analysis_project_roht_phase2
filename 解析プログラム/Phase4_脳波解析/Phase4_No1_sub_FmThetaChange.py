@@ -29,6 +29,7 @@ if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
 from paired_statistics import (  # noqa: E402
+    add_significance_bracket,
     adjusted_p_values,
     paired_t_statistics,
     significance_label,
@@ -43,6 +44,7 @@ SMOOTHING_SECONDS = no1.TIMECOURSE_SMOOTHING_SECONDS
 SET1_MISSING_PAIR_ID = "109-209"
 Y_LABEL = "PSD Change, %"
 TOPOGRAPHY_LABEL = "Difference in PSD Change, %"
+USE_STANDARD_SIGNIFICANCE_STYLE = False
 
 DEFAULT_CACHE_ROOT = no1.DEFAULT_CACHE_ROOT
 DEFAULT_OUTPUT_ROOT = no1.DEFAULT_OUTPUT_ROOT
@@ -564,6 +566,21 @@ def _draw_quant_panel(
     axis.axhline(0, color="#9E9E9E", linewidth=1.2, zorder=0)
     if p_value is None:
         axis.text(0, text_y, "Baseline", ha="center", va="bottom", fontsize=22, fontfamily="Arial")
+    elif USE_STANDARD_SIGNIFICANCE_STYLE:
+        # Keep the established sub-analysis axes, but use the shared Phase 2/3
+        # significance typography and its lower relative placement.
+        reference_max = line_y / 1.15
+        y_span = upper - lower
+        add_significance_bracket(
+            axis,
+            x[0],
+            x[1],
+            significance_label(p_value),
+            line_y=(1.13 * reference_max - lower) / y_span,
+            text_y=(1.17 * reference_max - lower) / y_span,
+            nonsignificant_text_y=(1.18 * reference_max - lower) / y_span,
+            linewidth=2.2,
+        )
     else:
         axis.plot(
             [x[0], x[0], x[1], x[1]],

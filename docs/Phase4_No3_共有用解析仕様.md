@@ -61,6 +61,7 @@ Fzの1–30 Hz線形PSDをNo3_add専用のセッション別HDF5へ保存する�
 - `Sub/tables/SetQuantification/`：未補正pとBonferroni、Holm、FDR-BH補正結果を含むCSV
 - `Topography/`：各chの `Eye Drop − Control`。暖色がEye Dropで高く、寒色がControlで高いことを表す
 - No3_sub：Set 1 baselineからの変化率。0%がSet 1水準で、正値は増加、負値は減少を表す
+- No3_subの定量化では、統計線をデータ基準値の1.13倍、統計文字を有意時1.17倍・n.s.時1.18倍の位置に置き、通常解析と同じ有意マーク42 pt／n.s. 26 ptを用いる
 - No3_add：上段がEye Drop、中段がControl、下段が `Eye Drop − Control` の1–30 Hz TFM
 
 ## 7. 全件実行・検証状態（2026-10-04）
@@ -71,3 +72,4 @@ Fzの1–30 Hz線形PSDをNo3_add専用のセッション別HDF5へ保存する�
 - 既知欠測はID109 Set 1、ID120 Set 6、ID225 Set 4、ID135 Set 2。Grand-average、定量化、topographyでは対応条件側の同一Setも欠測として扱う
 - 代表cacheでFz、1–3 Hz全bin、256 Hz、`µV²/Hz` を確認し、主PNG・統計CSV・topography・TFMを目視確認した
 - 0 byteの出力はなく、No1の既存成果物は保持されている
+- 2026-10-04にNo3_subの定量化figureだけ、Phase 2／通常解析と同じ統計マークの大きさ・相対位置へ更新した。数値・検定結果は変更していない

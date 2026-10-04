@@ -61,7 +61,7 @@ Ozの1–30 Hz線形PSDをセッション別HDF5へ保存する。Phase 1区間m
 - `Sub/tables/SetQuantification/`：未補正pとBonferroni、Holm、FDR-BH補正結果を含むCSV
 - `Topography/`：各chの `Eye Drop − Control`。暖色がEye Dropで高く、寒色がControlで高いことを表す
 - No2_sub：Set 1 baselineからの変化率。0%がSet 1水準で、正値は増加、負値は減少を表す
-- No2_add：上段がEye Drop、中段がControl、下段が `Eye Drop − Control` の1–30 Hz TFM
+- No2_add：上段がEye Drop、中段がControl、下段が `Eye Drop − Control` の1–30 Hz TFM。絶対PSDは `0–20 µV²/Hz`、差分は `−15–15 µV²/Hz` の固定表示範囲を使用する
 
 ## 7. 全件実行・検証状態（2026-10-04）
 
@@ -71,3 +71,4 @@ Ozの1–30 Hz線形PSDをセッション別HDF5へ保存する。Phase 1区間m
 - 既知欠測はID109 Set 1、ID120 Set 6、ID225 Set 4、ID135 Set 2。Grand-average、定量化、topographyでは対応条件側の同一Setも欠測として扱う
 - 代表cacheでOz、8–15 Hz全bin、256 Hz、`µV²/Hz` を確認し、主PNG・統計CSV・topography・TFMを目視確認した
 - 0 byteの出力はなく、No1の既存成果物は保持されている
+- 2026-10-04の表示更新で、No2_addだけ絶対PSDを `0–20 µV²/Hz`、差分を `−15–15 µV²/Hz` に変更した。cache内の数値は変更・クリップせず再利用する
