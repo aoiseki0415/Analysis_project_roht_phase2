@@ -38,8 +38,8 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.6"
-CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.2"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.7"
+CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.3"
 N_SETS = 6
 SFREQ = 256.0
 WINDOW_SAMPLES = 256
@@ -52,6 +52,7 @@ GROUP_PROGRESS_POINTS_PER_SET = 100
 PSD_WINDOW_BATCH_SIZE = 512
 PSD_MASK_OVERLAP_THRESHOLD = 0.01
 TIMECOURSE_SMOOTHING_SECONDS = 60
+LOG3SD_MULTIPLIER = 3.0
 DEFAULT_GRAND_AVERAGE_TARGET_FRACTION = 0.75
 EXCLUDED_SESSION_IDS = {"130", "230"}
 PRODUCTION_PARTICIPANT_COUNT = 40
@@ -155,6 +156,8 @@ class SetPSD:
     global_progress_pct: np.ndarray
     source_center_sample: np.ndarray
     ica_training_mask_fraction: np.ndarray
+    psd_before_log3sd_exclusion: np.ndarray | None = None
+    log3sd_outlier_mask: np.ndarray | None = None
 
 
 @dataclass
@@ -166,6 +169,13 @@ class SessionPSD:
     channel_names: list[str]
     sets: dict[int, SetPSD]
     channel_excluded_mask: np.ndarray
+    log3sd_mean_by_channel: np.ndarray | None = None
+    log3sd_sd_by_channel: np.ndarray | None = None
+    log3sd_threshold_log_by_channel: np.ndarray | None = None
+    log3sd_threshold_linear_by_channel: np.ndarray | None = None
+    log3sd_excluded_count_by_set_ch: np.ndarray | None = None
+    log3sd_valid_count_by_set_ch: np.ndarray | None = None
+    log3sd_excluded_rate_by_set_ch: np.ndarray | None = None
 
 
 def normalize_product(value: str) -> tuple[str, str, str, str]:
@@ -360,6 +370,13 @@ def analysis_configuration() -> dict[str, Any]:
         "time_smoothing": "none",
         "interval_mask_policy": "retain_all_samples_store_window_overlap_fraction",
         "channel_mask_policy": "retain_all_32_channels_store_phase1_ica_mask",
+        "log3sd_exclusion": {
+            "scope": "session_id_x_channel_across_all_available_sets",
+            "transform": "log10_positive_finite_psd_after_phase1_interval_mask",
+            "threshold": "mean_plus_3_sample_sd",
+            "sides": "upper_only",
+            "preserve_time_axis": True,
+        },
         "channel_names": EXPECTED_CHANNEL_NAMES,
     }
 
@@ -372,6 +389,10 @@ def downstream_configuration(
         "interval_mask_policy": "set_psd_nan_when_phase1_mask_overlap_fraction_gte_0.01",
         "interval_mask_overlap_threshold": PSD_MASK_OVERLAP_THRESHOLD,
         "channel_mask_policy": "do_not_apply_phase1_ica_channel_mask_to_psd",
+        "log3sd_exclusion_policy": (
+            "per_session_per_channel_across_all_available_sets_upper_mean_plus_3sd"
+        ),
+        "log3sd_multiplier": LOG3SD_MULTIPLIER,
         "timecourse_smoothing": {
             "type": "centered_simple_moving_average",
             "seconds": TIMECOURSE_SMOOTHING_SECONDS,
@@ -477,6 +498,75 @@ def _load_and_calculate_source(path: Path, set_number: int) -> tuple[SetPSD, np.
     return result, channel_mask, records
 
 
+def calculate_log3sd_exclusion(sets: dict[int, SetPSD]) -> dict[str, Any]:
+    """Build session-wide, channel-specific upper outlier masks in log10 PSD space."""
+    n_channels = len(EXPECTED_CHANNEL_NAMES)
+    pooled: list[list[np.ndarray]] = [[] for _ in range(n_channels)]
+    phase1_valid_by_set: dict[int, np.ndarray] = {}
+    for set_number, result in sorted(sets.items()):
+        phase1_valid = (
+            np.isfinite(result.psd_band_mean)
+            & (result.psd_band_mean > 0)
+            & (result.ica_training_mask_fraction[:, None] < PSD_MASK_OVERLAP_THRESHOLD)
+        )
+        phase1_valid_by_set[set_number] = phase1_valid
+        for channel_index in range(n_channels):
+            pooled[channel_index].append(
+                result.psd_band_mean[phase1_valid[:, channel_index], channel_index]
+            )
+
+    means = np.full(n_channels, np.nan, dtype=float)
+    sample_sds = np.full(n_channels, np.nan, dtype=float)
+    thresholds_log = np.full(n_channels, np.nan, dtype=float)
+    thresholds_linear = np.full(n_channels, np.nan, dtype=float)
+    for channel_index, pieces in enumerate(pooled):
+        values = np.concatenate(pieces) if pieces else np.array([], dtype=float)
+        if values.size < 2:
+            continue
+        transformed = np.log10(values)
+        means[channel_index] = float(np.mean(transformed))
+        sample_sds[channel_index] = float(np.std(transformed, ddof=1))
+        thresholds_log[channel_index] = (
+            means[channel_index] + LOG3SD_MULTIPLIER * sample_sds[channel_index]
+        )
+        thresholds_linear[channel_index] = 10.0 ** thresholds_log[channel_index]
+
+    masks: dict[int, np.ndarray] = {}
+    excluded_counts = np.zeros((N_SETS, n_channels), dtype=np.int64)
+    valid_counts = np.zeros((N_SETS, n_channels), dtype=np.int64)
+    excluded_rates = np.full((N_SETS, n_channels), np.nan, dtype=float)
+    for set_number, result in sorted(sets.items()):
+        valid = phase1_valid_by_set[set_number]
+        mask = np.zeros(result.psd_band_mean.shape, dtype=bool)
+        threshold_available = np.isfinite(thresholds_log)
+        if threshold_available.any():
+            logged = np.full(result.psd_band_mean.shape, np.nan, dtype=float)
+            logged[valid] = np.log10(result.psd_band_mean[valid])
+            mask[:, threshold_available] = (
+                valid[:, threshold_available]
+                & (logged[:, threshold_available] > thresholds_log[threshold_available])
+            )
+        masks[set_number] = mask
+        excluded_counts[set_number - 1] = mask.sum(axis=0)
+        valid_counts[set_number - 1] = valid.sum(axis=0)
+        excluded_rates[set_number - 1] = np.divide(
+            excluded_counts[set_number - 1],
+            valid_counts[set_number - 1],
+            out=np.full(n_channels, np.nan, dtype=float),
+            where=valid_counts[set_number - 1] > 0,
+        )
+    return {
+        "masks": masks,
+        "mean": means,
+        "sample_sd": sample_sds,
+        "threshold_log": thresholds_log,
+        "threshold_linear": thresholds_linear,
+        "excluded_count_by_set_ch": excluded_counts,
+        "valid_count_by_set_ch": valid_counts,
+        "excluded_rate_by_set_ch": excluded_rates,
+    }
+
+
 def _write_cache(
     path: Path,
     spec: ParticipantSpec,
@@ -487,6 +577,7 @@ def _write_cache(
     exclusion_records_json: str,
     config_hash: str,
     fingerprints: list[dict[str, Any]],
+    log3sd: dict[str, Any],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     utf8 = h5py.string_dtype("utf-8")
@@ -521,6 +612,10 @@ def _write_cache(
                     "time_smoothing": "none",
                     "interval_mask_policy": ("retain_all_samples_store_window_overlap_fraction"),
                     "channel_mask_policy": "retain_all_32_channels_store_phase1_ica_mask",
+                    "log3sd_scope": "session_id_x_channel_across_all_available_sets",
+                    "log3sd_transform": "log10",
+                    "log3sd_multiplier": LOG3SD_MULTIPLIER,
+                    "log3sd_sides": "upper_only",
                     "configuration_hash": config_hash,
                     "input_fingerprints_json": json.dumps(fingerprints, ensure_ascii=False),
                     "script_version": SCRIPT_VERSION,
@@ -550,6 +645,7 @@ def _write_cache(
                     ("global_progress_pct", result.global_progress_pct),
                     ("source_center_sample", result.source_center_sample),
                     ("ica_training_mask_fraction", result.ica_training_mask_fraction),
+                    ("log3sd_outlier_mask", log3sd["masks"][set_number]),
                 ):
                     group.create_dataset(
                         name,
@@ -567,6 +663,16 @@ def _write_cache(
                 [set_number in sets for set_number in range(1, N_SETS + 1)], dtype=bool
             )
             qc.create_dataset("source_set_availability", data=availability)
+            for name, values in (
+                ("log3sd_mean_by_channel", log3sd["mean"]),
+                ("log3sd_sd_by_channel", log3sd["sample_sd"]),
+                ("log3sd_threshold_log_by_channel", log3sd["threshold_log"]),
+                ("log3sd_threshold_linear_by_channel", log3sd["threshold_linear"]),
+                ("log3sd_excluded_count_by_set_ch", log3sd["excluded_count_by_set_ch"]),
+                ("log3sd_valid_count_by_set_ch", log3sd["valid_count_by_set_ch"]),
+                ("log3sd_excluded_rate_by_set_ch", log3sd["excluded_rate_by_set_ch"]),
+            ):
+                qc.create_dataset(name, data=values)
         os.replace(temporary_path, path)
     finally:
         temporary_path.unlink(missing_ok=True)
@@ -599,6 +705,7 @@ def validate_cache(path: Path, expected_hash: str | None = None) -> dict[str, An
                 "global_progress_pct",
                 "source_center_sample",
                 "ica_training_mask_fraction",
+                "log3sd_outlier_mask",
             ]
             missing = [name for name in required if name not in group]
             if missing:
@@ -611,7 +718,12 @@ def validate_cache(path: Path, expected_hash: str | None = None) -> dict[str, An
                 raise ValueError(f"{path}: invalid Set{set_number} PSD values")
             for name in required[1:]:
                 array = group[name][:]
-                if array.shape != (n_windows,) or not np.isfinite(array).all():
+                expected_shape = (
+                    (n_windows, len(EXPECTED_CHANNEL_NAMES))
+                    if name == "log3sd_outlier_mask"
+                    else (n_windows,)
+                )
+                if array.shape != expected_shape or not np.isfinite(array).all():
                     raise ValueError(f"{path}: invalid Set{set_number}/{name}")
             if np.any(np.diff(group["relative_seconds_center"][:]) <= 0):
                 raise ValueError(f"{path}: non-monotonic relative center time")
@@ -620,6 +732,19 @@ def validate_cache(path: Path, expected_hash: str | None = None) -> dict[str, An
             progress = group["set_progress_pct"][:]
             if not np.isclose(progress[0], 0.0) or not np.isclose(progress[-1], 100.0):
                 raise ValueError(f"{path}: progress endpoints are not 0 and 100")
+        qc_shapes = {
+            "log3sd_mean_by_channel": (len(EXPECTED_CHANNEL_NAMES),),
+            "log3sd_sd_by_channel": (len(EXPECTED_CHANNEL_NAMES),),
+            "log3sd_threshold_log_by_channel": (len(EXPECTED_CHANNEL_NAMES),),
+            "log3sd_threshold_linear_by_channel": (len(EXPECTED_CHANNEL_NAMES),),
+            "log3sd_excluded_count_by_set_ch": (N_SETS, len(EXPECTED_CHANNEL_NAMES)),
+            "log3sd_valid_count_by_set_ch": (N_SETS, len(EXPECTED_CHANNEL_NAMES)),
+            "log3sd_excluded_rate_by_set_ch": (N_SETS, len(EXPECTED_CHANNEL_NAMES)),
+        }
+        for name, expected_shape in qc_shapes.items():
+            key = f"qc/{name}"
+            if key not in handle or handle[key].shape != expected_shape:
+                raise ValueError(f"{path}: invalid or missing {key}")
     return {"path": str(path), "ok": True, "configuration_hash": expected_hash}
 
 
@@ -657,6 +782,7 @@ def compute_session_cache(
         raise ValueError(f"ID{session_id}: ICA channel mask differs across sets")
     if records and any(records[0] != item for item in records[1:]):
         raise ValueError(f"ID{session_id}: ICA channel exclusion records differ across sets")
+    log3sd = calculate_log3sd_exclusion(sets)
     _write_cache(
         destination,
         spec,
@@ -667,6 +793,7 @@ def compute_session_cache(
         records[0],
         config_hash,
         fingerprints,
+        log3sd,
     )
     validate_cache(destination, config_hash)
     return {"path": str(destination), "status": "computed", "hash": config_hash}
@@ -683,7 +810,11 @@ def load_session_cache(path: Path) -> SessionPSD:
             group = handle[key]
             psd_band_mean = group["psd_band_mean"][:]
             mask_fraction = group["ica_training_mask_fraction"][:]
-            psd_band_mean[mask_fraction >= PSD_MASK_OVERLAP_THRESHOLD] = np.nan
+            before_log3sd = np.asarray(psd_band_mean, dtype=float).copy()
+            before_log3sd[mask_fraction >= PSD_MASK_OVERLAP_THRESHOLD] = np.nan
+            log3sd_mask = group["log3sd_outlier_mask"][:].astype(bool)
+            psd_band_mean = before_log3sd.copy()
+            psd_band_mean[log3sd_mask] = np.nan
             sets[set_number] = SetPSD(
                 set_number,
                 psd_band_mean,
@@ -693,6 +824,8 @@ def load_session_cache(path: Path) -> SessionPSD:
                 group["global_progress_pct"][:],
                 group["source_center_sample"][:],
                 mask_fraction,
+                before_log3sd,
+                log3sd_mask,
             )
         return SessionPSD(
             session_id=str(handle.attrs["participant_id"]),
@@ -702,6 +835,19 @@ def load_session_cache(path: Path) -> SessionPSD:
             channel_names=_decode_names(handle["signal/channel_names"][:]),
             sets=sets,
             channel_excluded_mask=handle["qc/ica_channel_excluded_mask"][:].astype(bool),
+            log3sd_mean_by_channel=handle["qc/log3sd_mean_by_channel"][:],
+            log3sd_sd_by_channel=handle["qc/log3sd_sd_by_channel"][:],
+            log3sd_threshold_log_by_channel=handle[
+                "qc/log3sd_threshold_log_by_channel"
+            ][:],
+            log3sd_threshold_linear_by_channel=handle[
+                "qc/log3sd_threshold_linear_by_channel"
+            ][:],
+            log3sd_excluded_count_by_set_ch=handle[
+                "qc/log3sd_excluded_count_by_set_ch"
+            ][:],
+            log3sd_valid_count_by_set_ch=handle["qc/log3sd_valid_count_by_set_ch"][:],
+            log3sd_excluded_rate_by_set_ch=handle["qc/log3sd_excluded_rate_by_set_ch"][:],
         )
 
 
@@ -797,8 +943,14 @@ def _set_channel_values(
     channel_index: int,
     *,
     smoothing_seconds: int | None = None,
+    before_log3sd_exclusion: bool = False,
 ) -> np.ndarray:
-    raw = values.psd_band_mean[:, channel_index]
+    source = (
+        values.psd_before_log3sd_exclusion
+        if before_log3sd_exclusion and values.psd_before_log3sd_exclusion is not None
+        else values.psd_band_mean
+    )
+    raw = source[:, channel_index]
     if smoothing_seconds is None:
         return np.asarray(raw, dtype=float)
     points = int(round(float(smoothing_seconds) * SFREQ / STEP_SAMPLES))
@@ -810,11 +962,17 @@ def _time_series_values(
     channel: str = "Fz",
     *,
     smoothing_seconds: int | None = None,
+    before_log3sd_exclusion: bool = False,
 ) -> np.ndarray:
     index = _channel_index(session, channel)
     return np.concatenate(
         [
-            _set_channel_values(item, index, smoothing_seconds=smoothing_seconds)
+            _set_channel_values(
+                item,
+                index,
+                smoothing_seconds=smoothing_seconds,
+                before_log3sd_exclusion=before_log3sd_exclusion,
+            )
             for _, item in sorted(session.sets.items())
         ]
     )
@@ -827,6 +985,7 @@ def plot_individual_timecourse(
     path: Path,
     *,
     smoothing_seconds: int | None = None,
+    before_log3sd_exclusion: bool = False,
 ) -> None:
     product_dir, product_label, product_color, _ = normalize_product(spec.product)
     if {eye_drop.product, control.product} != {product_dir}:
@@ -844,6 +1003,7 @@ def plot_individual_timecourse(
                 values,
                 fz_index,
                 smoothing_seconds=smoothing_seconds,
+                before_log3sd_exclusion=before_log3sd_exclusion,
             )
             axis.plot(
                 values.global_progress_pct,
@@ -855,8 +1015,16 @@ def plot_individual_timecourse(
             first = False
     displayed = np.concatenate(
         [
-            _time_series_values(eye_drop, smoothing_seconds=smoothing_seconds),
-            _time_series_values(control, smoothing_seconds=smoothing_seconds),
+            _time_series_values(
+                eye_drop,
+                smoothing_seconds=smoothing_seconds,
+                before_log3sd_exclusion=before_log3sd_exclusion,
+            ),
+            _time_series_values(
+                control,
+                smoothing_seconds=smoothing_seconds,
+                before_log3sd_exclusion=before_log3sd_exclusion,
+            ),
         ]
     )
     upper, ticks = _nice_upper(displayed, 0.70)
@@ -1367,7 +1535,12 @@ def _output_directories(output_root: Path, product_dir: str) -> dict[str, Path]:
     return {
         "no1": no1,
         "individual": product / "Individual",
-        "individual_unsmoothed": product / "Individual" / "Unsmoothed",
+        "individual_unsmoothed_before": (
+            product / "Individual" / "Unsmoothed" / "BeforeThresholdExclusion"
+        ),
+        "individual_unsmoothed_after": (
+            product / "Individual" / "Unsmoothed" / "AfterThresholdExclusion"
+        ),
         "grand": product / "GrandAverage",
         "quantification": product / "SetQuantification",
         "topography_individual": product / "Topography" / "Individual",
@@ -1375,6 +1548,7 @@ def _output_directories(output_root: Path, product_dir: str) -> dict[str, Path]:
         "grand_tables": no1 / "Sub" / "tables" / "GrandAverage",
         "quantification_tables": no1 / "Sub" / "tables" / "SetQuantification",
         "topography_tables": no1 / "Sub" / "tables" / "Topography",
+        "threshold_tables": no1 / "Sub" / "tables" / "Log3SDThresholdExclusion",
         "logs": no1 / "Sub" / "logs",
     }
 
@@ -1391,13 +1565,69 @@ def load_pair_item(spec: ParticipantSpec, cache_root: Path) -> dict[str, Any]:
     }
 
 
+def build_threshold_diagnostics(items: list[dict[str, Any]]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        for session in (item["eye_drop"], item["control"]):
+            required = (
+                session.log3sd_mean_by_channel,
+                session.log3sd_sd_by_channel,
+                session.log3sd_threshold_log_by_channel,
+                session.log3sd_threshold_linear_by_channel,
+                session.log3sd_excluded_count_by_set_ch,
+                session.log3sd_valid_count_by_set_ch,
+                session.log3sd_excluded_rate_by_set_ch,
+            )
+            if any(value is None for value in required):
+                raise ValueError(f"ID{session.session_id}: log3SD diagnostics are absent")
+            for set_number in range(1, N_SETS + 1):
+                for channel_index, channel in enumerate(session.channel_names):
+                    rows.append(
+                        {
+                            "PairID": item["spec"].pair_id,
+                            "SessionID": session.session_id,
+                            "Condition": session.condition,
+                            "Product": item["product_dir"],
+                            "Set": set_number,
+                            "Channel": channel,
+                            "Log10Mean": session.log3sd_mean_by_channel[channel_index],
+                            "Log10SampleSD": session.log3sd_sd_by_channel[channel_index],
+                            "Log10UpperThreshold": (
+                                session.log3sd_threshold_log_by_channel[channel_index]
+                            ),
+                            "LinearUpperThreshold_uV2_per_Hz": (
+                                session.log3sd_threshold_linear_by_channel[channel_index]
+                            ),
+                            "ValidWindowCount": session.log3sd_valid_count_by_set_ch[
+                                set_number - 1, channel_index
+                            ],
+                            "ExcludedWindowCount": session.log3sd_excluded_count_by_set_ch[
+                                set_number - 1, channel_index
+                            ],
+                            "ExcludedRate": session.log3sd_excluded_rate_by_set_ch[
+                                set_number - 1, channel_index
+                            ],
+                        }
+                    )
+    return pd.DataFrame(rows)
+
+
 def write_individual_outputs(item: dict[str, Any], output_root: Path) -> dict[str, str]:
     spec = item["spec"]
     paths = _output_directories(output_root, item["product_dir"])
     individual = paths["individual"] / f"ID{spec.pair_id}_No1_FmTheta_Individual.png"
-    individual_unsmoothed = paths["individual_unsmoothed"] / (
-        f"ID{spec.pair_id}_No1_FmTheta_Individual_Unsmoothed.png"
+    individual_unsmoothed_before = paths["individual_unsmoothed_before"] / (
+        f"ID{spec.pair_id}_No1_FmTheta_Individual_Unsmoothed_BeforeThresholdExclusion.png"
     )
+    individual_unsmoothed_after = paths["individual_unsmoothed_after"] / (
+        f"ID{spec.pair_id}_No1_FmTheta_Individual_Unsmoothed_AfterThresholdExclusion.png"
+    )
+    legacy_unsmoothed = (
+        paths["individual"]
+        / "Unsmoothed"
+        / f"ID{spec.pair_id}_No1_FmTheta_Individual_Unsmoothed.png"
+    )
+    legacy_unsmoothed.unlink(missing_ok=True)
     topography = paths["topography_individual"] / (f"ID{spec.pair_id}_No1_FmTheta_Topography.png")
     plot_individual_timecourse(
         spec,
@@ -1407,12 +1637,23 @@ def write_individual_outputs(item: dict[str, Any], output_root: Path) -> dict[st
         smoothing_seconds=TIMECOURSE_SMOOTHING_SECONDS,
     )
     plot_individual_timecourse(
-        spec, item["eye_drop"], item["control"], individual_unsmoothed
+        spec,
+        item["eye_drop"],
+        item["control"],
+        individual_unsmoothed_before,
+        before_log3sd_exclusion=True,
+    )
+    plot_individual_timecourse(
+        spec,
+        item["eye_drop"],
+        item["control"],
+        individual_unsmoothed_after,
     )
     plot_topography_grid(pair_topography_values(item), topography)
     return {
         "individual": str(individual),
-        "individual_unsmoothed": str(individual_unsmoothed),
+        "individual_unsmoothed_before_threshold": str(individual_unsmoothed_before),
+        "individual_unsmoothed_after_threshold": str(individual_unsmoothed_after),
         "topography": str(topography),
     }
 
@@ -1625,6 +1866,16 @@ def main() -> int:
             return 0
 
     items = [load_pair_item(spec, args.cache_root) for spec in specs]
+    diagnostic_scope = (
+        "AllParticipants"
+        if args.production_batch
+        else "_".join(f"ID{spec.pair_id}" for spec in specs)
+    )
+    threshold_path = _output_directories(args.output_root, "CCube")["threshold_tables"] / (
+        f"No1_FmTheta_Log3SDThresholdExclusion_{diagnostic_scope}.csv"
+    )
+    threshold_path.parent.mkdir(parents=True, exist_ok=True)
+    build_threshold_diagnostics(items).to_csv(threshold_path, index=False)
     individual_outputs: dict[str, dict[str, str]] = {}
     if args.individual_only or args.all:
         for item in items:
@@ -1668,6 +1919,7 @@ def main() -> int:
             "participants": [asdict(spec) | {"pair_id": spec.pair_id} for spec in specs],
             "preflight": preflight,
             "cache_records": cache_records,
+            "log3sd_threshold_diagnostics": str(threshold_path),
             "individual_outputs": individual_outputs,
             "group_outputs": group_outputs,
         },

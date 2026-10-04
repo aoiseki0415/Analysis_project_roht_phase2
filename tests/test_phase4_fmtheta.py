@@ -91,6 +91,42 @@ def test_centered_nanmean_ignores_nan_and_preserves_all_nan_windows():
     assert np.isclose(smoothed[-1], 7.0)
 
 
+def test_log3sd_exclusion_is_session_wide_channel_specific_and_upper_only():
+    channels = MODULE.EXPECTED_CHANNEL_NAMES
+    first = np.ones((20, len(channels)), dtype=float)
+    second = np.ones((20, len(channels)), dtype=float)
+    second[-1, 0] = 1e8
+    first[0, 1] = 1e9
+    phase1_fraction = np.zeros(20)
+    phase1_fraction[0] = MODULE.PSD_MASK_OVERLAP_THRESHOLD
+
+    def make_set(number: int, matrix: np.ndarray, fractions: np.ndarray) -> object:
+        progress = np.linspace(0.0, 100.0, matrix.shape[0])
+        return MODULE.SetPSD(
+            number,
+            matrix,
+            progress,
+            1_000.0 + progress,
+            progress,
+            (number - 1) * 100.0 + progress,
+            np.arange(matrix.shape[0]),
+            fractions,
+        )
+
+    sets = {
+        1: make_set(1, first, phase1_fraction),
+        2: make_set(2, second, np.zeros(20)),
+    }
+    result = MODULE.calculate_log3sd_exclusion(sets)
+    pooled = np.log10(np.array([1.0] * 38 + [1e8]))
+    expected_threshold = pooled.mean() + 3.0 * pooled.std(ddof=1)
+    assert np.isclose(result["threshold_log"][0], expected_threshold)
+    assert result["masks"][2][-1, 0]
+    assert not result["masks"][1][0, 1]
+    assert result["valid_count_by_set_ch"][0, 1] == 19
+    assert result["excluded_count_by_set_ch"][:, 0].sum() == 1
+
+
 def test_timecourse_uses_sixty_seconds_and_grand_axis_override_is_explicit():
     assert MODULE.TIMECOURSE_SMOOTHING_SECONDS == 60
     assert MODULE.DEFAULT_GRAND_AVERAGE_TARGET_FRACTION == 0.75
@@ -161,6 +197,9 @@ def test_cache_roundtrip_and_hash_validation(tmp_path: Path):
         assert handle["sets/Set1/psd_band_mean"].dtype == np.dtype("float32")
         assert np.isfinite(handle["sets/Set1/psd_band_mean"][:]).all()
         assert json.loads(handle.attrs["included_frequencies_hz"]) == [4.0, 5.0, 6.0, 7.0]
+        assert handle["sets/Set1/log3sd_outlier_mask"].shape == (3, 32)
+        assert handle["qc/log3sd_threshold_log_by_channel"].shape == (32,)
+        assert handle.attrs["log3sd_multiplier"] == 3.0
     reused = MODULE.compute_session_cache(spec, "101", input_root, cache_root)
     assert reused["status"] == "reused"
 
@@ -327,7 +366,12 @@ def test_complete_figure_and_table_outputs_are_generated_from_cached_values(tmp_
     individual = MODULE.write_individual_outputs(items[0], tmp_path)
     group = MODULE.write_group_outputs(items, tmp_path)
     assert all(Path(path).is_file() for path in individual.values())
-    assert Path(individual["individual_unsmoothed"]).parent.name == "Unsmoothed"
+    assert Path(individual["individual_unsmoothed_before_threshold"]).parent.name == (
+        "BeforeThresholdExclusion"
+    )
+    assert Path(individual["individual_unsmoothed_after_threshold"]).parent.name == (
+        "AfterThresholdExclusion"
+    )
     assert all(Path(path).is_file() for path in group["CCube"].values())
     statistics = (
         tmp_path
