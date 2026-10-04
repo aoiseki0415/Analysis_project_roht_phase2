@@ -491,11 +491,11 @@ qc/
 
 Vロートプレミアム群は `VRohtoPremium` を使い、探索用の `Pattern`、`Test`、`New` 等は本番名へ入れません。
 
-## 18. Notion記録
+## 18. 記録先
 
 Phase 4親ページにはNo1〜No3の概要だけを置きます。No1詳細ページに本書と同じ確定仕様を置き、その下へ文献調査ページを置きます。
 
-解析実行時は、被験者ペア、製品群、Eye Drop ID、Control ID、利用可能Set、欠測Set、cache作成・検証、個人figure、topography、備考を結果表へ記録します。集団結果は製品群、Set、有効N、統計、成果物名を記録します。観察結果と解釈を分けます。
+Phase 4の被験者別結果表と日次解析記録はNotionへ作成しません。解析実行時は、対象範囲、製品群、利用可能Set、欠測Set、cache作成・検証、個人figure、topography、警告、失敗理由、集団結果の有効N、統計、成果物名をOneDriveの `Sub/logs/` と `Sub/tables/` のCSVへ保存します。観察結果と解釈を分け、コード・文書の変更履歴はGitで管理します。
 
 ## 19. 実装と完了条件
 
@@ -519,8 +519,8 @@ Phase 4親ページにはNo1〜No3の概要だけを置きます。No1詳細ペ�
 - figureの軸、目盛り、色、線幅、文字、凡例、ファイル名を検証
 - Grand-averageのSEM・Nと定量化の対応NをCSVから再計算して一致確認
 - topographyの差の向きが `Eye Drop − Control` であることを確認
-- OneDrive、ローカルcache、Notion結果、解析の記録を更新
-- Git変更時は検証、commit、push、remote一致後にcommitをNotionへ記録
+- OneDriveのfigure・表・実行ログと、ローカルcacheを更新して読み戻し確認
+- Git変更時は検証、commit、push、remote一致を確認し、実行ログへcommit番号を記録
 
 ## 20. 現時点の未確定事項
 

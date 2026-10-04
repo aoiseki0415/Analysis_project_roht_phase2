@@ -39,8 +39,8 @@
 
 ## Analysis records
 
-- For every day on which analysis work is performed, update the Notion page `解析の記録` with purpose, data scope, methods, results, interpretation, output location, issues, and next steps.
-- When repository changes are part of the work, add the verified Git commit hash and a brief description to the corresponding Notion analysis record after push succeeds.
+- Do not create routine daily analysis logs or participant-level result tables in Notion unless the user explicitly requests them for a specific phase.
+- Store execution scope, methods, validation results, output locations, warnings, failures, and next actions in the authorized OneDrive result tree, using the phase-specific `Sub/logs/` and supporting CSV files. Keep repository changes traceable through verified Git history.
 - Keep observations, interpretations, and hypotheses clearly separated.
 - When a standing operating rule, analysis decision, or project-wide assumption is established, update the relevant checked-in document and the corresponding Notion page during the same task without waiting for a separate request.
 - After any repository documentation or script change, complete validation, commit, push, and remote verification before reporting completion.

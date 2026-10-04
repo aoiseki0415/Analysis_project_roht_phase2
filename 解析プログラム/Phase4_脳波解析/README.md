@@ -50,3 +50,5 @@ preflight完了後の本計算では、同じmanifestに `--all` を指定しま
 - 欠測：個人時間変化は欠測側だけ空白、集団集計・定量化・topographyは対応条件も対称除外
 
 Figureの寸法、フォント、軸名、目盛、Set位置、線幅、色、y上限、統計マーク位置、topographyのmontage・カラースケールはPhase 4仕様書の数値をコード定数としてそのまま実装します。定量化はPhase 3と同様に条件名22 ptと製品名18 ptを分離します。Topographyは6 Set横一列、太い円形頭部輪郭・鼻、8 ptの電極点、等高線なしの滑らかな色面、十分な間隔を空けた太いSet別colorbarで描画し、全Set共通の左右対称かつ切りのよい上限を使います。Phase 2・3を再解釈して別の値を採用しません。
+
+Phase 4の被験者別結果表や日次実行記録はNotionへ作成しません。preflight、本計算、cache検証、出力確認、警告、失敗理由、成果物一覧はOneDriveの `No1_FmTheta/Sub/logs/` と `Sub/tables/` へ保存し、コード・文書の版はGit履歴で追跡します。NotionはPhase 4の概要・確定仕様・文献調査の管理に限定します。
