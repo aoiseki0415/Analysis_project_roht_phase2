@@ -9,7 +9,7 @@
 - 入力：ローカルデスクトップに保存済みのNo1 PSD HDF5 cache
 - ローカルへの派生データ保存：行わない
 - OneDrive：`Phase4_脳波解析/No1_sub_FmThetaChange/`
-- 状態：スクリプト作成済み、解析未実行
+- 状態：2026-10-04に本番実行・検証完了
 
 No1_subはWelch PSDを再計算しません。No1のPhase 1区間maskと、セッションID・ch別の全Set一括log10上側3SD maskを適用した未平滑PSDを読み込みます。
 
@@ -138,4 +138,12 @@ No1_subにPSD再計算モードは設けません。figure調整時にもロー�
 
 ## 12. 実装状態
 
-運用文書、独立スクリプト、単体テスト、空のOneDrive成果物構造まで作成済みです。pilotおよび全対象の解析実行は未実施です。
+2026-10-04に本番manifestの40ペアを事前検査し、Set 1 baselineを定義できない既知の109–209を規定どおり除外しました。残る39ペア（78セッション）を同一スクリプトで実行し、個人時間変化、個人topography、製品群別Grand-average、Set別・Sets 2–6統合定量化、統計、Grand-average topographyをOneDriveへ保存しました。
+
+検証結果は次のとおりです。
+
+- Set 1 baseline：39ペア×2セッション×32ch＝2,496件がすべて有限かつ正
+- Set 1定量値とSet 1 topography差：浮動小数点誤差の範囲で0%
+- 既知欠測Set：対応条件側も同じSetから除外され、有効Nの減少を確認
+- 成果物：PNG 86件、CSV 11件、実行要約JSON 1件
+- No1_sub用のローカル派生cache：作成なし
