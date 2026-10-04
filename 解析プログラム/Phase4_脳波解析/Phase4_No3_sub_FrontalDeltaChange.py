@@ -12,12 +12,12 @@ configure_change_engine(
     parent_engine,
     analysis_stem="No3_sub_FrontalDeltaChange",
     focus_channel="Fz",
-    script_version="phase4-no3-sub-frontal-delta-change-2026-10-05.3",
+    script_version="phase4-no3-sub-frontal-delta-change-2026-10-05.4",
 )
 
 # Keep the No1_sub/No2_sub bracket and n.s. settings, but enlarge and lower
 # significant asterisks for the No3_sub Set-quantification figure only.
-engine.SIGNIFICANCE_STAR_FACTOR_OVERRIDE = 1.18
+engine.SIGNIFICANCE_STAR_FACTOR_OVERRIDE = 1.15
 engine.SIGNIFICANCE_STAR_FONTSIZE_OVERRIDE = 40.0
 
 
