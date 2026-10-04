@@ -42,7 +42,7 @@ PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
 - x軸：`Experimental Progress, %`、0–600
 - y軸：`PSD Change, %`
 - 0%の水平線を表示する
-- 個人figureは最大絶対値がy軸絶対上限の約70%、Grand-averageはSEMを軸決定に含めず、平均線の最大絶対値が約75%となる0中心の左右対称軸を用いる
+- 個人figureは最大絶対値がy軸絶対上限の約70%、Grand-averageはSEMを軸決定に含めず、平均線の最大絶対値が約70%となる0中心の左右対称軸を用いる
 - 色、線幅、Arial、Set境界、Set名、凡例、文字サイズはNo1本体に合わせる
 
 ## 5. Grand-average
@@ -63,7 +63,7 @@ PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
 - CSVには未補正、Bonferroni、Holm、FDR-BHの結果を保存する。補正対象はSet 2–6の5比較とする
 - Set別figureのSet 1はBaselineとして表示し、統計線を描かない。Set 2–6と全Set統合版は両側対応ありt検定を行う
 - y軸：`PSD Change, %`。0より上：下の表示範囲を約2：1とし、全有限値が入るようにする
-- 統計線、統計文字、Set名、上限は最大データ点を基準に順に配置し、Set名を統計表示より上に置く
+- 統計線と統計文字は最大データ点 `M` に対して従来どおり `1.13M`、`1.18M` に置く。Set名は重なりを避けて `1.36M`、y上限は `1.45M` とし、Set名を統計表示より明確に上へ離す
 
 ## 7. Topography
 
@@ -77,7 +77,7 @@ Difference in PSD Change(ch, Set) = Eye Drop - Control
 - 6 Setを横一列に表示する
 - Set 1は定義上0%であるため平坦なBaseline mapとする
 - colorbar：`Difference in PSD Change, %`
-- colorbarラベル：Arial 18 pt
+- colorbarラベル：Arial 20 pt
 - 各figure内の6 Setは共通、0中心・左右対称スケールとする
 - 上限は有限値の最大絶対値がカラースケールの約85%となる切りのよい値にする
 - 10-20 system、全32電極点、No1本体と同じ頭部輪郭・補間・文字サイズを用いる

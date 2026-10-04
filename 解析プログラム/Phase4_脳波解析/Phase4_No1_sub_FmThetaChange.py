@@ -34,7 +34,7 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-sub-fmtheta-change-2026-10-04.2"
+SCRIPT_VERSION = "phase4-no1-sub-fmtheta-change-2026-10-04.3"
 N_SETS = no1.N_SETS
 PROGRESS_POINTS = no1.GROUP_PROGRESS_POINTS_PER_SET
 SMOOTHING_SECONDS = no1.TIMECOURSE_SMOOTHING_SECONDS
@@ -161,7 +161,7 @@ def _nice_close_symmetric_limit(
     limits = [
         multiplier * 10.0**power
         for power in range(exponent - 2, exponent + 2)
-        for multiplier in (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
+        for multiplier in (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 8.5, 9.0, 10.0)
         if multiplier * 10.0**power >= raw
     ]
     limit = min(limits)
@@ -170,7 +170,9 @@ def _nice_close_symmetric_limit(
         scale = 10.0**power
         for multiplier in (1.0, 2.0, 2.5, 4.0, 5.0, 10.0):
             step = multiplier * scale
-            ticks = np.arange(-limit, limit + step * 0.01, step)
+            start = math.ceil(-limit / step) * step
+            stop = math.floor(limit / step) * step
+            ticks = np.arange(start, stop + step * 0.01, step)
             if 3 <= ticks.size <= 7 and np.any(np.isclose(ticks, 0.0)):
                 tick_choices.append((abs(ticks.size - 5), step, ticks))
     ticks = (
@@ -352,7 +354,7 @@ def grand_average_axis(frames: list[pd.DataFrame]) -> tuple[float, np.ndarray]:
         for frame in frames
         for prefix in ("EyeDrop", "Control")
     ]
-    return _nice_close_symmetric_limit(np.concatenate(values), 0.75)
+    return _nice_close_symmetric_limit(np.concatenate(values), 0.70)
 
 
 def set_channel_means(session: ChangeSession) -> dict[int, np.ndarray]:
@@ -469,8 +471,8 @@ def _quantification_layout(
     finite = finite[np.isfinite(finite)]
     observed_max = float(np.max(finite)) if finite.size else 0.0
     observed_min = float(np.min(finite)) if finite.size else 0.0
-    reference_max = max(observed_max, 2.0 * abs(min(observed_min, 0.0)) / 1.37, 1.0)
-    upper = 1.37 * reference_max
+    reference_max = max(observed_max, 2.0 * abs(min(observed_min, 0.0)) / 1.45, 1.0)
+    upper = 1.45 * reference_max
     lower = -upper / 2.0
 
     exponent = int(np.floor(np.log10(upper))) if upper > 0 else 0
@@ -495,7 +497,7 @@ def _quantification_layout(
         ticks,
         1.13 * reference_max,
         1.18 * reference_max,
-        1.29 * reference_max,
+        1.36 * reference_max,
     )
 
 
@@ -733,7 +735,7 @@ def plot_topography(values: np.ndarray, path: Path) -> float:
                 line.set_visible(False)
         colorbar = figure.colorbar(image, ax=axis, fraction=0.080, pad=0.10, aspect=12, shrink=0.94)
         colorbar.set_ticks([-limit, 0, limit])
-        colorbar.set_label(TOPOGRAPHY_LABEL, fontsize=18, rotation=270, labelpad=28)
+        colorbar.set_label(TOPOGRAPHY_LABEL, fontsize=20, rotation=270, labelpad=29)
         colorbar.ax.tick_params(labelsize=24, width=1.5, length=7)
     figure.subplots_adjust(left=0.018, right=0.99, top=0.86, bottom=0.08, wspace=0.62)
     path.parent.mkdir(parents=True, exist_ok=True)

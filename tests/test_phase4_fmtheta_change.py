@@ -47,15 +47,16 @@ def test_grand_average_axis_uses_mean_lines_not_sem() -> None:
 
     frame = pd.DataFrame(
         {
-            "EyeDrop_Mean_PSDChange_pct": [-30.0, 60.0],
+            "EyeDrop_Mean_PSDChange_pct": [-30.0, 58.0],
             "Control_Mean_PSDChange_pct": [-20.0, 40.0],
             "EyeDrop_SEM_PSDChange_pct": [500.0, 500.0],
             "Control_SEM_PSDChange_pct": [500.0, 500.0],
         }
     )
-    limit, _ = module.grand_average_axis([frame])
-    assert limit >= 60.0 / 0.75
-    assert np.isclose(limit, 80.0)
+    limit, ticks = module.grand_average_axis([frame])
+    assert limit >= 58.0 / 0.70
+    assert np.isclose(limit, 85.0)
+    assert np.allclose(ticks, [-80.0, -40.0, 0.0, 40.0, 80.0])
 
 
 def test_quantification_layout_reserves_two_to_one_space_and_set_is_highest() -> None:
@@ -64,6 +65,7 @@ def test_quantification_layout_reserves_two_to_one_space_and_set_is_highest() ->
     )
     assert np.isclose(abs(lower) * 2.0, upper)
     assert lower < -50.0 < 140.0 < line_y < text_y < set_y < upper
+    assert np.isclose(set_y, 1.36 * 140.0)
     assert 3 <= ticks.size <= 6
     assert np.any(np.isclose(ticks, 0.0))
 
