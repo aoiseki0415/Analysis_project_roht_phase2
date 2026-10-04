@@ -91,6 +91,16 @@ def test_centered_nanmean_ignores_nan_and_preserves_all_nan_windows():
     assert np.isclose(smoothed[-1], 7.0)
 
 
+def test_progress_interpolation_does_not_bridge_all_nan_gap():
+    source_x = np.array([0.0, 20.0, 40.0, 60.0, 80.0, 100.0])
+    source_y = np.array([1.0, 2.0, np.nan, np.nan, 5.0, 6.0])
+    target_x = np.arange(0.0, 101.0, 10.0)
+    result = MODULE._interpolate_finite_runs(source_x, source_y, target_x)
+    assert np.isfinite(result[:3]).all()
+    assert np.isnan(result[3:8]).all()
+    assert np.isfinite(result[8:]).all()
+
+
 def test_preflight_accepts_only_the_declared_missing_set(tmp_path: Path):
     spec = MODULE.ParticipantSpec("109", "209", "109", "CCube")
     for session_id in ("109", "209"):
@@ -248,7 +258,7 @@ def test_topography_is_channelwise_set_mean_eye_drop_minus_control():
     values = MODULE.pair_topography_values(item)
     assert np.allclose(values[0], np.full(n_channels, 4.0))
     assert np.isnan(values[1:]).all()
-    assert MODULE._nice_symmetric_topography_limit(np.array([-28.33, 12.0])) == 30.0
+    assert MODULE._nice_symmetric_topography_limit(np.array([-28.33, 12.0])) == 40.0
 
 
 def test_complete_figure_and_table_outputs_are_generated_from_cached_values(tmp_path: Path):
@@ -296,6 +306,7 @@ def test_complete_figure_and_table_outputs_are_generated_from_cached_values(tmp_
     individual = MODULE.write_individual_outputs(items[0], tmp_path)
     group = MODULE.write_group_outputs(items, tmp_path)
     assert all(Path(path).is_file() for path in individual.values())
+    assert Path(individual["individual_unsmoothed"]).parent.name == "Unsmoothed"
     assert all(Path(path).is_file() for path in group["CCube"].values())
     statistics = (
         tmp_path

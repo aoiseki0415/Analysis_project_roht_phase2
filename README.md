@@ -102,11 +102,11 @@ Phase 3のセット別定量化も、製品群・解析版ごとに6つの両側
 
 ## Phase 4脳波解析の確定方針
 
-Phase 4は、No1 Fmθ（Fz、4–7 Hz）、No2後頭alpha（Oz、8–15 Hz）、No3前頭delta（Fz、帯域未確定）の3解析で構成します。No1は、Phase 1のセット別脳活動解析用HDF5から全32chのWelch PSDを1秒Hann窓・0.5秒移動・1 Hz分解能で一度だけ計算し、4–7 Hz平均後の時間変化をローカルの指定HDF5へ保存します。figure作成、Grand-average、定量化、統計、topographyは保存済みPSDを再利用し、figure調整だけでPSDを再計算しません。
+Phase 4は、No1 Fmθ（Fz、4–7 Hz）、No2後頭alpha（Oz、8–15 Hz）、No3前頭delta（Fz、帯域未確定）の3解析で構成します。No1は、Phase 1のセット別脳活動解析用HDF5から全32chのWelch PSDを1秒Hann窓・1秒移動・1 Hz分解能で一度だけ計算し、4–7 Hz平均後の未平滑PSD時間変化をローカルの指定HDF5へ保存します。figure作成、Grand-average、定量化、統計、topographyは保存済みPSDを再利用し、figure調整だけでPSDを再計算しません。
 
-No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。Phase 1のICA学習除外区間と1%以上重なる1秒PSD窓は、時間軸を詰めず全32chをNaNにします。ICA学習用ch除外maskはPSDへ適用せず、32chを保持します。時間平滑化は行いません。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。計算関数と全引数、Set端padding、progress変換、PSDキャッシュ構造、実行モード、各figureの寸法・軸・目盛・文字・線・色・上限、統計位置、topography設定、命名、検証条件は[Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)を唯一の実装正本とします。
+No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。Phase 1のICA学習除外区間と1%以上重なる1秒PSD窓は、時間軸を詰めず全32chをNaNにします。ICA学習用ch除外maskはPSDへ適用せず、32chを保持します。時間変化figureは各Set内で30秒中心化単純移動平均をかけ、NaNは無視して窓全体がNaNのときだけNaNとします。Grand-averageは平滑化後にprogress 100点へ対応付けます。定量化とtopographyは未平滑PSDを使用します。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。計算関数と全引数、Set端padding、progress変換、PSDキャッシュ構造、実行モード、各figureの寸法・軸・目盛・文字・線・色・上限、統計位置、topography設定、命名、検証条件は[Phase 4 脳波解析仕様](docs/Phase4_脳波解析仕様.md)を唯一の実装正本とします。
 
-個人時間変化は、被験者ごとにy上限を自動調整する標準版に加え、`Individual/FixedYAxis_0to100uV2PerHz/`へ全被験者共通の0–100 µV²/Hz固定版を追加します。定量化figureはPhase 3と同じ文字階層を使い、`Eye Drop`を22 pt、括弧付き製品名を18 ptで分離表示します。Topographyは各Set・各chの有限PSD窓を時間平均してから `Eye Drop − Control` を計算し、左右対称かつ切りのよいカラースケールで表示します。
+個人時間変化は、30秒平滑化後の主figureを `Individual/` 直下、未平滑の確認用figureを `Individual/Unsmoothed/` に保存します。固定y軸版と平滑化比較フォルダは保存しません。定量化figureはPhase 3と同じ文字階層を使い、`Eye Drop`を22 pt、括弧付き製品名を18 ptで分離表示します。Topographyは各Set・各chの有限な未平滑PSD窓を時間平均してから `Eye Drop − Control` を計算します。同一図の全6 Set・全32chの最大絶対差を `M` とし、`M / 0.85` 以上の切りのよい値 `V` を用いて `−V〜+V` の左右対称カラースケールにします。
 
 No1の `Phase4_No1_FmTheta.py` と単体テストは作成済みです。ID101–201を用いた実データ試行で、全32ch PSDキャッシュ、Fz個人時間変化、N=1のGrand-average・定量化、個人・Grand-average topographyまで出力と検証を完了しています。N=1では平均を表示しますが、SD・SEMおよび推測統計は算出不能です。本番一括解析は確定manifestを用いた全件preflightから開始します。
 

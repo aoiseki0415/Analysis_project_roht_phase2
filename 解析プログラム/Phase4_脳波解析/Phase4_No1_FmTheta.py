@@ -38,7 +38,7 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.3"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.4"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.2"
 N_SETS = 6
 SFREQ = 256.0
@@ -51,9 +51,7 @@ INCLUDED_FREQUENCIES_HZ = np.array([4.0, 5.0, 6.0, 7.0])
 GROUP_PROGRESS_POINTS_PER_SET = 100
 PSD_WINDOW_BATCH_SIZE = 512
 PSD_MASK_OVERLAP_THRESHOLD = 0.01
-FIXED_INDIVIDUAL_Y_UPPER = 100.0
-FIXED_INDIVIDUAL_Y_TICKS = np.arange(0.0, 101.0, 20.0)
-SMOOTHING_COMPARISON_SECONDS = (15, 30, 60)
+TIMECOURSE_SMOOTHING_SECONDS = 30
 EXCLUDED_SESSION_IDS = {"130", "230"}
 PRODUCTION_PARTICIPANT_COUNT = 40
 PRODUCTION_PARTICIPANTS_PER_PRODUCT = 20
@@ -370,7 +368,15 @@ def downstream_configuration() -> dict[str, Any]:
         "interval_mask_policy": "set_psd_nan_when_phase1_mask_overlap_fraction_gte_0.01",
         "interval_mask_overlap_threshold": PSD_MASK_OVERLAP_THRESHOLD,
         "channel_mask_policy": "do_not_apply_phase1_ica_channel_mask_to_psd",
-        "time_smoothing": "none",
+        "timecourse_smoothing": {
+            "type": "centered_simple_moving_average",
+            "seconds": TIMECOURSE_SMOOTHING_SECONDS,
+            "scope": "within_set",
+            "nan_policy": "ignore_nan_return_nan_only_when_window_all_nan",
+            "applies_to": ["individual_timecourse", "grand_average_timecourse"],
+        },
+        "quantification_smoothing": "none",
+        "topography_smoothing": "none",
     }
 
 
@@ -794,9 +800,7 @@ def plot_individual_timecourse(
     control: SessionPSD,
     path: Path,
     *,
-    fixed_y_upper: float | None = None,
     smoothing_seconds: int | None = None,
-    common_y_axis: tuple[float, np.ndarray] | None = None,
 ) -> None:
     product_dir, product_label, product_color, _ = normalize_product(spec.product)
     if {eye_drop.product, control.product} != {product_dir}:
@@ -829,13 +833,7 @@ def plot_individual_timecourse(
             _time_series_values(control, smoothing_seconds=smoothing_seconds),
         ]
     )
-    if common_y_axis is not None:
-        upper, ticks = common_y_axis
-    elif fixed_y_upper is None:
-        upper, ticks = _nice_upper(displayed, 0.70)
-    else:
-        upper = float(fixed_y_upper)
-        ticks = FIXED_INDIVIDUAL_Y_TICKS
+    upper, ticks = _nice_upper(displayed, 0.70)
     _configure_time_axis(axis, upper, ticks)
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.18), ncol=2, frameon=False, fontsize=20)
     figure.subplots_adjust(left=0.08, right=0.99, top=0.78, bottom=0.20)
@@ -849,6 +847,7 @@ def interpolate_session_progress(
     channel: str = "Fz",
     *,
     symmetrically_missing_sets: set[int] | None = None,
+    smoothing_seconds: int | None = None,
 ) -> np.ndarray:
     output = np.full((N_SETS, GROUP_PROGRESS_POINTS_PER_SET), np.nan, dtype=float)
     index = _channel_index(session, channel)
@@ -857,10 +856,34 @@ def interpolate_session_progress(
     for set_number, values in session.sets.items():
         if set_number in symmetric:
             continue
-        output[set_number - 1] = np.interp(
-            target, values.set_progress_pct, values.psd_band_mean[:, index]
+        source = _set_channel_values(values, index, smoothing_seconds=smoothing_seconds)
+        output[set_number - 1] = _interpolate_finite_runs(
+            values.set_progress_pct, source, target
         )
     return output
+
+
+def _interpolate_finite_runs(
+    source_x: np.ndarray, source_y: np.ndarray, target_x: np.ndarray
+) -> np.ndarray:
+    """Interpolate finite contiguous runs without bridging all-NaN gaps."""
+    x = np.asarray(source_x, dtype=float)
+    y = np.asarray(source_y, dtype=float)
+    target = np.asarray(target_x, dtype=float)
+    result = np.full(target.shape, np.nan, dtype=float)
+    finite_indices = np.flatnonzero(np.isfinite(x) & np.isfinite(y))
+    if not finite_indices.size:
+        return result
+    breaks = np.where(np.diff(finite_indices) > 1)[0] + 1
+    for run in np.split(finite_indices, breaks):
+        if run.size == 1:
+            nearest = int(np.argmin(np.abs(target - x[run[0]])))
+            if np.isclose(target[nearest], x[run[0]]):
+                result[nearest] = y[run[0]]
+            continue
+        inside = (target >= x[run[0]]) & (target <= x[run[-1]])
+        result[inside] = np.interp(target[inside], x[run], y[run])
+    return result
 
 
 def _columnwise_statistics(values: np.ndarray) -> dict[str, np.ndarray]:
@@ -894,10 +917,18 @@ def build_grand_average(
         missing = set(range(1, N_SETS + 1)).difference(item["eye_drop"].sets)
         missing.update(set(range(1, N_SETS + 1)).difference(item["control"].sets))
         eye_values.append(
-            interpolate_session_progress(item["eye_drop"], symmetrically_missing_sets=missing)
+            interpolate_session_progress(
+                item["eye_drop"],
+                symmetrically_missing_sets=missing,
+                smoothing_seconds=TIMECOURSE_SMOOTHING_SECONDS,
+            )
         )
         control_values.append(
-            interpolate_session_progress(item["control"], symmetrically_missing_sets=missing)
+            interpolate_session_progress(
+                item["control"],
+                symmetrically_missing_sets=missing,
+                smoothing_seconds=TIMECOURSE_SMOOTHING_SECONDS,
+            )
         )
     eye = np.vstack([value.reshape(-1) for value in eye_values])
     control = np.vstack([value.reshape(-1) for value in control_values])
@@ -1225,9 +1256,10 @@ def _nice_symmetric_topography_limit(values: np.ndarray) -> float:
     maximum = float(np.max(finite)) if finite.size else 1.0
     if maximum <= np.finfo(float).eps:
         return 1.0
-    exponent = math.floor(math.log10(maximum))
+    target = maximum / 0.85
+    exponent = math.floor(math.log10(target))
     scale = 10.0**exponent
-    normalized = maximum / scale
+    normalized = target / scale
     for multiplier in (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0):
         if normalized <= multiplier:
             return float(multiplier * scale)
@@ -1309,8 +1341,7 @@ def _output_directories(output_root: Path, product_dir: str) -> dict[str, Path]:
     return {
         "no1": no1,
         "individual": product / "Individual",
-        "individual_fixed_y": product / "Individual" / "FixedYAxis_0to100uV2PerHz",
-        "individual_smoothing_comparison": product / "Individual" / "SmoothingComparison",
+        "individual_unsmoothed": product / "Individual" / "Unsmoothed",
         "grand": product / "GrandAverage",
         "quantification": product / "SetQuantification",
         "topography_individual": product / "Topography" / "Individual",
@@ -1338,57 +1369,26 @@ def write_individual_outputs(item: dict[str, Any], output_root: Path) -> dict[st
     spec = item["spec"]
     paths = _output_directories(output_root, item["product_dir"])
     individual = paths["individual"] / f"ID{spec.pair_id}_No1_FmTheta_Individual.png"
-    individual_fixed_y = paths["individual_fixed_y"] / (
-        f"ID{spec.pair_id}_No1_FmTheta_Individual_FixedYAxis_0to100uV2PerHz.png"
+    individual_unsmoothed = paths["individual_unsmoothed"] / (
+        f"ID{spec.pair_id}_No1_FmTheta_Individual_Unsmoothed.png"
     )
     topography = paths["topography_individual"] / (f"ID{spec.pair_id}_No1_FmTheta_Topography.png")
-    plot_individual_timecourse(spec, item["eye_drop"], item["control"], individual)
     plot_individual_timecourse(
         spec,
         item["eye_drop"],
         item["control"],
-        individual_fixed_y,
-        fixed_y_upper=FIXED_INDIVIDUAL_Y_UPPER,
+        individual,
+        smoothing_seconds=TIMECOURSE_SMOOTHING_SECONDS,
+    )
+    plot_individual_timecourse(
+        spec, item["eye_drop"], item["control"], individual_unsmoothed
     )
     plot_topography_grid(pair_topography_values(item), topography)
     return {
         "individual": str(individual),
-        "individual_fixed_y": str(individual_fixed_y),
+        "individual_unsmoothed": str(individual_unsmoothed),
         "topography": str(topography),
     }
-
-
-def write_smoothing_comparison_outputs(
-    item: dict[str, Any], output_root: Path
-) -> dict[str, str]:
-    """Write only the three exploratory individual smoothing comparisons."""
-    spec = item["spec"]
-    paths = _output_directories(output_root, item["product_dir"])
-    destination = paths["individual_smoothing_comparison"]
-    all_displayed = []
-    for seconds in SMOOTHING_COMPARISON_SECONDS:
-        all_displayed.extend(
-            [
-                _time_series_values(item["eye_drop"], smoothing_seconds=seconds),
-                _time_series_values(item["control"], smoothing_seconds=seconds),
-            ]
-        )
-    common_y_axis = _nice_upper(np.concatenate(all_displayed), 0.70)
-    outputs: dict[str, str] = {}
-    for seconds in SMOOTHING_COMPARISON_SECONDS:
-        path = destination / (
-            f"ID{spec.pair_id}_No1_FmTheta_Individual_Smoothing{seconds}s.png"
-        )
-        plot_individual_timecourse(
-            spec,
-            item["eye_drop"],
-            item["control"],
-            path,
-            smoothing_seconds=seconds,
-            common_y_axis=common_y_axis,
-        )
-        outputs[f"{seconds}s"] = str(path)
-    return outputs
 
 
 def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any]:
@@ -1491,7 +1491,6 @@ def parse_args() -> argparse.Namespace:
     modes.add_argument("--preflight-only", action="store_true")
     modes.add_argument("--compute-psd", action="store_true")
     modes.add_argument("--individual-only", action="store_true")
-    modes.add_argument("--smoothing-comparison-only", action="store_true")
     modes.add_argument("--group-outputs-only", action="store_true")
     modes.add_argument("--all", action="store_true")
     parser.add_argument(
@@ -1552,28 +1551,6 @@ def main() -> int:
             return 0
 
     items = [load_pair_item(spec, args.cache_root) for spec in specs]
-    if args.smoothing_comparison_only:
-        comparison_outputs = {
-            item["spec"].pair_id: write_smoothing_comparison_outputs(item, args.output_root)
-            for item in items
-        }
-        log_root = _output_directories(args.output_root, "CCube")["logs"]
-        _write_log(
-            log_root / "No1_FmTheta_SmoothingComparisonSummary.json",
-            {
-                "script_version": SCRIPT_VERSION,
-                "completed_at": datetime.now().astimezone().isoformat(),
-                "mode": "smoothing-comparison-only",
-                "psd_window_seconds": WINDOW_SAMPLES / SFREQ,
-                "psd_step_seconds": STEP_SAMPLES / SFREQ,
-                "smoothing_seconds": list(SMOOTHING_COMPARISON_SECONDS),
-                "nan_policy": "ignore_nan_return_nan_only_when_window_all_nan",
-                "preflight": preflight,
-                "comparison_outputs": comparison_outputs,
-            },
-        )
-        logging.info("Smoothing comparison outputs completed")
-        return 0
     individual_outputs: dict[str, dict[str, str]] = {}
     if args.individual_only or args.all:
         for item in items:

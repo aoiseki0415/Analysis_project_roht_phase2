@@ -104,7 +104,7 @@ psd, freqs = mne.time_frequency.psd_array_welch(
 )
 ```
 
-外側の時間窓を128 samplesずつ移動するため、関数内部では1つの256-sample segmentだけを評価し、`n_overlap=0`とします。窓内平均除去は `remove_dc=True` で明示します。
+外側の時間窓を256 samplesずつ移動するため、関数内部では1つの256-sample segmentだけを評価し、`n_overlap=0`とします。窓内平均除去は `remove_dc=True` で明示します。
 
 ### 5.2 固定パラメータ
 
@@ -113,7 +113,7 @@ psd, freqs = mne.time_frequency.psd_array_welch(
 | サンプリング周波数 | 256 Hz |
 | 入力単位 | µV |
 | 外側窓長 | 256 samples = 1秒 |
-| 通常の窓移動 | 128 samples = 0.5秒 |
+| 通常の窓移動 | 256 samples = 1秒 |
 | 窓関数 | Hann |
 | `n_fft` | 256 |
 | `n_per_seg` | 256 |
@@ -124,7 +124,7 @@ psd, freqs = mne.time_frequency.psd_array_welch(
 | PSD単位 | µV²/Hz |
 | 対数変換 | なし |
 | dB変換 | なし |
-| 時間平滑化 | 現時点ではなし |
+| 時間平滑化 | cacheはなし。時間変化figureはSet内30秒中心化単純移動平均 |
 | 区間maskによるNaN化 | 窓内重複率1%以上で全32chのPSDをNaN |
 | ch除外 | 現時点ではなし |
 
@@ -134,11 +134,11 @@ psd, freqs = mne.time_frequency.psd_array_welch(
 
 Setの先頭・末尾までPSDを定義するため、各chのSet信号を前後128 samplesずつ `np.pad(..., mode="reflect")` で延長します。
 
-- 窓中心sampleは `0, 128, 256, ...` とします。
+- 窓中心sampleは `0, 256, 512, ...` とします。
 - 最後の中心が元信号の `n_samples - 1` でない場合、`n_samples - 1` を追加します。
 - 各中心 `c` に対し、元信号上の `c - 128` から `c + 127` に相当する256 samplesを反射padding後の配列から取得します。
 - 最初の窓中心はSet開始、最後の窓中心はSet終了です。
-- 通常点の間隔は0.5秒ですが、最後だけ直前の中心との間隔が0.5秒未満になることがあります。
+- 通常点の間隔は1秒ですが、最後だけ直前の中心との間隔が1秒未満になることがあります。
 - padding部分はPSD計算の文脈だけに使い、保存時刻は元Set内の中心時刻を使います。
 
 ### 5.4 窓中心時刻とprogress
@@ -148,17 +148,17 @@ Setの先頭・末尾までPSDを定義するため、各chのSet信号を前後
 - `set_progress_pct = c / (n_samples - 1) × 100`
 - `global_progress_pct = (Set番号 - 1) × 100 + set_progress_pct`
 
-Set実時間の違いはprogress軸だけで線形伸縮します。PSDの1秒窓・0.5秒移動は必ず実時間で計算し、progress変換後に計算しません。
+Set実時間の違いはprogress軸だけで線形伸縮します。PSDの1秒窓・1秒移動は必ず実時間で計算し、progress変換後に計算しません。
 
-## 6. 区間maskと現時点で適用しない処理
-
-次は将来追加される可能性がありますが、現行主解析には含めません。
+## 6. 区間maskと平滑化
 
 ### 6.1 時間平滑化
 
-- PSD時間変化に移動平均、Gaussian、LOESS等をかけません。
-- 後日追加する場合は、保存済みの未平滑PSDから派生列を作り、未平滑値を上書きしません。
-- 窓幅、型、端処理を仕様書とメタデータへ追加してから実行します。
+- ID101–201で15、30、60秒の中心化単純移動平均を比較し、時間変化を滑らかに示しつつ局所変化を過度にならさない設定として30秒を採用しました。
+- 1秒刻みPSDに対し30点の中心化単純移動平均を、Setごとに独立して適用します。Set境界をまたぎません。
+- NaNを無視して有限値の算術平均を求め、移動窓内の全値がNaNの場合だけ結果をNaNとします。NaN区間の前詰めや補完はしません。
+- 平滑化は実時間で行い、その後にprogress軸へ表示します。Grand-averageは各条件・各Setの平滑化後系列を100点のprogress格子へ対応付けた後、被験者間平均します。
+- ローカルHDF5は未平滑PSDを正本とし、平滑化値で上書きしません。定量化とtopographyも未平滑PSDから計算します。
 
 ### 6.2 Phase 1区間除外mask
 
@@ -294,13 +294,15 @@ qc/
 - margins：left 0.08、right 0.99、top 0.78、bottom 0.20
 - 横グリッドなし、180 dpi、`bbox_inches="tight"`
 - 標準版は `Individual/` 直下へ保存します。
-- 同じ値・線・progressを用い、y軸だけを0–100 µV²/Hz、20 µV²/Hz刻みに固定した追加版を `Individual/FixedYAxis_0to100uV2PerHz/` へ保存します。
+- `Individual/` 直下の標準版は30秒平滑化後のFz PSDを描画します。y上限の `M` も平滑化後の2条件・全Setから求めます。
+- 確認用の未平滑PSD時間変化は `Individual/Unsmoothed/` に保存し、その未平滑値から同じ割合ルールで自動y軸を決めます。
+- y軸固定版は作らず、探索時の `SmoothingComparison/` も本番成果に残しません。
 
 ## 11. Grand-average時間変化figure
 
 ### 11.1 progress格子と集計
 
-- 各Setを `np.linspace(0, 100, 100, endpoint=False)` の100点へ線形補間します。
+- 各Setの未平滑PSDに30秒中心化単純移動平均を適用した後、`np.linspace(0, 100, 100, endpoint=False)` の100点へ線形対応付けします。
 - 補間は各被験者・各条件・各Set内だけで行い、Set間をまたぎません。
 - 欠測Setは100点すべてNaNです。既知欠測ペアでは対応条件側も同じSetをNaNにします。
 - 各progress点で有限値だけから平均、標本SD（`ddof=1`）、N、`SEM = SD / sqrt(N)`を計算します。
@@ -308,7 +310,7 @@ qc/
 
 ### 11.2 figure
 
-- 製品群ごとに1 PNG、figure size `24 × 8 inch`
+- 製品群ごとに1 PNG、figure size `24 × 8 inch`。平均線とSEM帯は30秒平滑化後の個人系列から計算します。
 - x軸、Set境界、Set名、文字、線、凡例、余白は個人figureと同じです。
 - 平均線3.0 pt、SEM帯は条件色・alpha 0.18・境界線なしです。
 - y下限は0です。両条件の `mean + SEM` の有限最大値を `M` とし、y上限は `M / 0.75` 以上となる切りのよい値にします。
@@ -399,7 +401,7 @@ qc/
 
 - 1被験者ペア1 PNG、6 Set横一列、`figsize=(36, 6.5)`、180 dpi
 - Set title 24 pt、Arial、pad 16
-- 生の最大絶対差を上回る切りのよい値を `V` とします。候補係数は `1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10 × 10ⁿ` とし、最小の候補を採用します。
+- 全6 Set・全32chの最大絶対差を `M` とし、`M / 0.85` 以上の切りのよい最小値を `V` とします。候補係数は `1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10 × 10ⁿ` とします。これにより、最大差が色軸の約85%以下に位置します。
 - 同一被験者の6 Setで共通スケール、被験者間では変更可
 - 欠測Setは中央へ `Missing` を22 ptで表示
 - 各Setの右横に十分な間隔を空け、太さを確保した同一スケールのcolorbarを1本ずつ置きます（`fraction=0.08`、`pad=0.10`、`aspect=12`）。
@@ -411,7 +413,7 @@ qc/
 - 製品群ごとに1 PNG、6 Set横一列
 - 各Setで有限な被験者差をchごとに平均
 - 既知欠測ペアは該当Setから除外
-- `V`は、その製品群の全Set・全chの群平均差の最大絶対値
+- `V`は、その製品群の全Set・全chの群平均差の最大絶対値 `M` から、個人版と同じ `M / 0.85` と切りのよい値で決める
 - 同一製品群の6 Setで共通スケール
 - Setごとの有効Nを表へ保存
 - figure size、title、輪郭、電極点、補間面、colorbar、文字は個人版と同じ
@@ -443,7 +445,7 @@ qc/
     No1_FmTheta/
       CCube/
         Individual/
-          FixedYAxis_0to100uV2PerHz/
+          Unsmoothed/
         GrandAverage/
         SetQuantification/
         Topography/
@@ -451,7 +453,7 @@ qc/
           GrandAverage/
       VRohtoPremium/
         Individual/
-          FixedYAxis_0to100uV2PerHz/
+          Unsmoothed/
         GrandAverage/
         SetQuantification/
         Topography/
@@ -465,9 +467,9 @@ qc/
         logs/
 ```
 
-- `Individual/`：被験者ペアごとのFz時間変化・自動y軸PNGだけ
-- `Individual/FixedYAxis_0to100uV2PerHz/`：同じ個人時間変化の0–100 µV²/Hz固定y軸PNGだけ
-- `GrandAverage/`：製品群別Fz平均±SEM PNGだけ
+- `Individual/`：被験者ペアごとの30秒平滑化後Fz時間変化・自動y軸PNGだけ
+- `Individual/Unsmoothed/`：同じ個人ペアの未平滑Fz時間変化・自動y軸PNGだけ
+- `GrandAverage/`：30秒平滑化後の製品群別Fz平均±SEM PNGだけ
 - `SetQuantification/`：Set別PNG、全Set統合PNG、統計CSV
 - `Topography/Individual/`：被験者ペアごとの6 Set topography PNG
 - `Topography/GrandAverage/`：製品群別6 Set topography PNG
@@ -479,7 +481,7 @@ qc/
 ## 17. 命名規則
 
 - 個人時間変化：`ID101-201_No1_FmTheta_Individual.png`
-- 個人時間変化・固定y軸：`ID101-201_No1_FmTheta_Individual_FixedYAxis_0to100uV2PerHz.png`
+- 個人時間変化・未平滑：`ID101-201_No1_FmTheta_Individual_Unsmoothed.png`
 - Grand-average：`No1_FmTheta_GrandAverage_CCube.png`
 - Set別定量化：`No1_FmTheta_SetQuantification_CCube.png`
 - 全Set統合：`No1_FmTheta_AllSetsQuantification_CCube.png`
@@ -522,7 +524,6 @@ Phase 4親ページにはNo1〜No3の概要だけを置きます。No1詳細ペ�
 
 ## 20. 現時点の未確定事項
 
-- No1の時間平滑化を将来追加するか
 - No2の完全な実装仕様
 - No3の周波数帯と完全な実装仕様
 
