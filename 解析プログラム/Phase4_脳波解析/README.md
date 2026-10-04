@@ -45,6 +45,7 @@ preflight完了後の本計算では、同じmanifestに `--all` を指定しま
 - Set端：前後128 samplesの反射padding、Set開始・終了を窓中心として評価
 - 区間mask：Phase 1のICA学習除外区間と1%以上重なるPSD窓を全32chでNaN化し、時刻・progressは保持
 - PSD上側外れ値：Phase 1 mask後、セッションID・ch別に全Setをまとめた `log10(PSD)` の平均＋3SD（`ddof=1`）を超える上側値だけをNaN化。元PSD、閾値、mask、除外数・率を保存
+- 閾値監査表：`Sub/tables/Log3SDThresholdExclusion/` にセッションID・Set・ch別のlog平均、標本SD、log／線形閾値、有効窓数、除外窓数・率を保存
 - ch mask：ICA学習用ch除外maskはPSDへ適用せず、32chを保持
 - 時間変化：各Set内で60秒中心化単純移動平均。NaNは無視し、窓内全てがNaNの場合のみNaN
 - 現行非適用：平均参照、ラプラシアン

@@ -497,6 +497,7 @@ qc/
       Sub/
         tables/
           GrandAverage/
+          Log3SDThresholdExclusion/
           SetQuantification/
           Topography/
         logs/
@@ -509,7 +510,8 @@ qc/
 - `SetQuantification/`：Set別PNG、全Set統合PNG、統計CSV
 - `Topography/Individual/`：被験者ペアごとの6 Set topography PNG
 - `Topography/GrandAverage/`：製品群別6 Set topography PNG
-- `Sub/tables/`：progress別集計、被験者別Set平均、統計詳細、topography値・N
+- `Sub/tables/Log3SDThresholdExclusion/`：セッションID・Set・ch別のlog平均、標本SD、log閾値、線形閾値、有効窓数、除外窓数、除外率
+- `Sub/tables/`：上記閾値記録に加え、progress別集計、被験者別Set平均、統計詳細、topography値・N
 - `Sub/logs/`：preflight、cache hash、実行モード、入力・出力、警告、失敗理由
 
 主成果物フォルダへJSONや補助CSVを混在させません。
@@ -525,6 +527,7 @@ qc/
 - 個人topography：`ID101-201_No1_FmTheta_Topography.png`
 - 群topography：`No1_FmTheta_Topography_GrandAverage_CCube.png`
 - 統計：`No1_FmTheta_SetQuantification_Statistics_CCube.csv`
+- 3SD閾値記録：`No1_FmTheta_Log3SDThresholdExclusion_ID101-201.csv`（pilot）／`No1_FmTheta_Log3SDThresholdExclusion_AllParticipants.csv`（全対象）
 
 Vロートプレミアム群は `VRohtoPremium` を使い、探索用の `Pattern`、`Test`、`New` 等は本番名へ入れません。
 
