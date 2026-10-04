@@ -28,6 +28,9 @@ import pandas as pd
 
 SCRIPT_VERSION = "phase4-no1-add-fz-tfm-2026-10-04.3"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-add-fz-tfm-2026-10-04.1"
+ANALYSIS_STEM = "No1_add_FzTimeFrequencyMap"
+CACHE_FILE_TAG = "FzTFM"
+FOCUS_CHANNEL = "Fz"
 DIFFERENCE_COLORBAR_LABEL = "Difference in PSD (µV²/Hz)"
 N_SETS = 6
 SFREQ = 256.0
@@ -35,7 +38,7 @@ WINDOW_SAMPLES = 256
 STEP_SAMPLES = 256
 PAD_SAMPLES = 128
 FREQUENCIES_HZ = np.arange(1.0, 31.0, 1.0)
-FZ_INDEX = 1
+FOCUS_CHANNEL_INDEX = 1
 PSD_WINDOW_BATCH_SIZE = 512
 PSD_MASK_OVERLAP_THRESHOLD = 0.01
 LOG3SD_MULTIPLIER = 3.0
@@ -226,7 +229,7 @@ def session_prefix(spec: ParticipantSpec, session_id: str) -> str:
 
 
 def cache_path(root: Path, spec: ParticipantSpec, session_id: str) -> Path:
-    return root / f"{session_prefix(spec, session_id)}_FzTFM.h5"
+    return root / f"{session_prefix(spec, session_id)}_{CACHE_FILE_TAG}.h5"
 
 
 def _decode_names(values: np.ndarray) -> list[str]:
@@ -254,7 +257,7 @@ def validate_source(path: Path, session_id: str, set_number: int) -> dict[str, A
         if str(handle.attrs.get("signal_unit")) != "V":
             raise ValueError(f"{path}: signal unit must be V")
         names = _decode_names(handle["signal/channel_names"][:])
-        if names != EXPECTED_CHANNEL_NAMES or names[FZ_INDEX] != "Fz":
+        if names != EXPECTED_CHANNEL_NAMES or names[FOCUS_CHANNEL_INDEX] != FOCUS_CHANNEL:
             raise ValueError(f"{path}: fixed channel order mismatch")
         shape = handle["signal/data"].shape
         if len(shape) != 2 or shape[1] != len(EXPECTED_CHANNEL_NAMES) or shape[0] < 2:
@@ -306,7 +309,7 @@ def preflight(specs: list[ParticipantSpec], root: Path) -> dict[str, Any]:
 def analysis_configuration() -> dict[str, Any]:
     return {
         "configuration_version": CACHE_CONFIGURATION_VERSION,
-        "channel": "Fz",
+        "channel": FOCUS_CHANNEL,
         "sfreq_hz": SFREQ,
         "window_samples": WINDOW_SAMPLES,
         "step_samples": STEP_SAMPLES,
@@ -440,7 +443,7 @@ def calculate_broadband_mask(sets: dict[int, SetTFM]) -> dict[str, Any]:
 def _load_source(path: Path, set_number: int) -> SetTFM:
     with h5py.File(path, "r") as handle:
         return calculate_set_tfm(
-            handle["signal/data"][:, FZ_INDEX],
+            handle["signal/data"][:, FOCUS_CHANNEL_INDEX],
             handle["time/relative_seconds"][:],
             handle["time/OriginalTimestamp"][:],
             handle["qc/ica_training_excluded_mask"][:],
@@ -470,7 +473,7 @@ def _write_cache(
                     "pair_id": spec.pair_id,
                     "condition": condition,
                     "product": product,
-                    "channel": "Fz",
+                    "channel": FOCUS_CHANNEL,
                     "sampling_frequency_hz": SFREQ,
                     "input_signal_unit": "V",
                     "psd_unit": "uV^2/Hz",
@@ -827,7 +830,7 @@ def plot_tfm(
 
 
 def output_directories(root: Path, product: str | None = None) -> dict[str, Path]:
-    no1_add = root / "Phase4_脳波解析" / "No1_add_FzTimeFrequencyMap"
+    no1_add = root / "Phase4_脳波解析" / ANALYSIS_STEM
     result = {
         "root": no1_add,
         "tables": no1_add / "Sub" / "tables",
@@ -893,8 +896,8 @@ def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[
         dirs = output_directories(output_root, product)
         for directory in dirs.values():
             directory.mkdir(parents=True, exist_ok=True)
-        png = dirs["grand"] / f"No1_add_FzTimeFrequencyMap_GrandAverage_{product}.png"
-        table = dirs["tables"] / (f"No1_add_FzTimeFrequencyMap_GrandAverage_Values_{product}.csv")
+        png = dirs["grand"] / f"{ANALYSIS_STEM}_GrandAverage_{product}.png"
+        table = dirs["tables"] / f"{ANALYSIS_STEM}_GrandAverage_Values_{product}.csv"
         plot_tfm(
             product,
             grand[product],
@@ -919,7 +922,7 @@ def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[
         ]
     )
     scale_path = output_directories(output_root)["tables"] / (
-        "No1_add_FzTimeFrequencyMap_ColorScale.csv"
+        f"{ANALYSIS_STEM}_ColorScale.csv"
     )
     scale_table.to_csv(scale_path, index=False)
     outputs["color_scale"] = str(scale_path)
@@ -990,7 +993,7 @@ def main() -> int:
                 logging.info("TFM cache %s: ID%s", record["status"], session_id)
         if args.compute_tfm:
             summary = output_directories(args.output_root)["logs"] / (
-                "No1_add_FzTimeFrequencyMap_CacheSummary.json"
+                f"{ANALYSIS_STEM}_CacheSummary.json"
             )
             write_log(
                 summary,
@@ -1010,11 +1013,11 @@ def main() -> int:
     directories = output_directories(args.output_root)
     directories["tables"].mkdir(parents=True, exist_ok=True)
     diagnostics_path = directories["tables"] / (
-        "No1_add_FzTimeFrequencyMap_BroadbandMaskDiagnostics.csv"
+        f"{ANALYSIS_STEM}_BroadbandMaskDiagnostics.csv"
     )
     build_mask_diagnostics(items).to_csv(diagnostics_path, index=False)
     outputs = write_group_outputs(items, args.output_root)
-    summary = directories["logs"] / "No1_add_FzTimeFrequencyMap_RunSummary.json"
+    summary = directories["logs"] / f"{ANALYSIS_STEM}_RunSummary.json"
     write_log(
         summary,
         {
@@ -1030,7 +1033,7 @@ def main() -> int:
             "outputs": outputs,
         },
     )
-    logging.info("Phase 4 No1_add completed: %s", summary)
+    logging.info("Phase 4 %s completed: %s", ANALYSIS_STEM, summary)
     return 0
 
 

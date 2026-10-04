@@ -11,8 +11,8 @@ Phase 4は、使用した目薬で被験者をCキューブ群とVロートプ�
 | No1 | frontal-midline theta（Fmθ） | Fz | 4–7 Hz（両端を含む） | 認知負荷・認知的努力 | 本書で実装仕様を確定 |
 | No1_add | Fz Time-Frequency Map | Fz | 1–30 Hz（1 Hz刻み） | No1を補足する追加解析 | 別仕様書・独立スクリプトで本番40ペア完了 |
 | No1_sub | Fmθ PSD Change | Fz（topographyは全32ch） | 4–7 Hz | Set 1基準の相対変化 | 別仕様書・独立スクリプトで本番39ペア完了 |
-| No2 | occipital alpha | Oz | 8–15 Hz（両端を含む） | 不注意・マインドワンダリング | 代表ch・帯域・配色のみ確定 |
-| No3 | frontal delta | Fz | 未確定 | 疲労・眠気 | 代表ch・配色のみ確定 |
+| No2／No2_sub／No2_add | occipital alpha／PSD Change／Oz TFM | Oz | 8–15 Hz／1–30 Hz | 不注意・マインドワンダリング | No1三解析と同構造で確定 |
+| No3／No3_sub／No3_add | frontal delta／PSD Change／Fz TFM | Fz | 1–3 Hz／1–30 Hz | 疲労・眠気 | No1三解析と同構造で確定 |
 
 代表chの文献根拠は[Phase 4 解析対象チャンネル文献調査](Phase4_解析対象チャンネル文献調査.md)を参照します。
 
@@ -535,7 +535,7 @@ Vロートプレミアム群は `VRohtoPremium` を使い、探索用の `Patter
 
 ## 18. 記録先
 
-Phase 4親ページにはNo1、No1_add、No1_sub、No2、No3の概要だけを独立見出しで置きます。No1詳細ページに本書と同じ確定仕様を置き、その下へ文献調査ページを置きます。No1_addとNo1_subはそれぞれ専用詳細ページと専用仕様書で管理し、No1本体へ混在させません。
+Phase 4親ページにはNo1／No1_sub／No1_add、No2／No2_sub／No2_add、No3／No3_sub／No3_addの概要だけを独立見出しで置きます。各解析は専用詳細ページ、専用スクリプト、専用cache、専用OneDriveルートで管理し、相互に混在させません。
 
 Phase 4の被験者別結果表と日次解析記録はNotionへ作成しません。解析実行時は、対象範囲、製品群、利用可能Set、欠測Set、cache作成・検証、個人figure、topography、警告、失敗理由、集団結果の有効N、統計、成果物名をOneDriveの `Sub/logs/` と `Sub/tables/` のCSVへ保存します。観察結果と解釈を分け、コード・文書の変更履歴はGitで管理します。
 
@@ -569,8 +569,7 @@ Phase 4の被験者別結果表と日次解析記録はNotionへ作成しませ�
 
 - No1専用log10 PSD上側3SD除外は実装済み。2026-10-04に全40被験者ペア・80セッションを白紙から同一スクリプトで再計算して80件のcacheを確定した。60秒平滑化は有限点数の追加基準を設けず、1点以上が有限なら算出する元仕様へ戻し、保存済みcacheを再利用して全40ペアを再描画・再集計した。既知欠測4 Set、個人figure各40組、製品群別Grand-average・定量化・topography、監査表、実行ログを検証済みであり、No1は現行確定版として固定する
 - No1_addは独立仕様書・独立スクリプトで本番40ペア・80セッションの解析と成果物検証を完了し、現行確定版として固定した
-- No2の完全な実装仕様
-- No3の周波数帯と完全な実装仕様
+- No2・No3はNo1三解析を派生元とする差分仕様を確定し、代表ch、帯域、配色、名称、保存先以外の処理をNo1から変更しない
 
 未確定事項を暗黙実装しません。変更時は本書、Notion、コード、テストを同時更新します。
 

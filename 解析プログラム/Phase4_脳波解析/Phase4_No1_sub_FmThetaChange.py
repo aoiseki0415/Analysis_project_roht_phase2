@@ -35,6 +35,8 @@ from paired_statistics import (  # noqa: E402
 )
 
 SCRIPT_VERSION = "phase4-no1-sub-fmtheta-change-2026-10-04.5"
+ANALYSIS_STEM = "No1_sub_FmThetaChange"
+FOCUS_CHANNEL = "Fz"
 N_SETS = no1.N_SETS
 PROGRESS_POINTS = no1.GROUP_PROGRESS_POINTS_PER_SET
 SMOOTHING_SECONDS = no1.TIMECOURSE_SMOOTHING_SECONDS
@@ -111,7 +113,8 @@ def set_change_values(
     return no1.centered_nanmean(raw, points)
 
 
-def _channel_index(session: ChangeSession, channel: str = "Fz") -> int:
+def _channel_index(session: ChangeSession, channel: str | None = None) -> int:
+    channel = channel or FOCUS_CHANNEL
     try:
         return session.channel_names.index(channel)
     except ValueError as error:
@@ -236,8 +239,8 @@ def plot_individual(item: dict[str, Any], path: Path) -> None:
             first = False
     displayed = np.concatenate(
         [
-            _all_displayed_values(eye, "Fz", SMOOTHING_SECONDS),
-            _all_displayed_values(control, "Fz", SMOOTHING_SECONDS),
+            _all_displayed_values(eye, FOCUS_CHANNEL, SMOOTHING_SECONDS),
+            _all_displayed_values(control, FOCUS_CHANNEL, SMOOTHING_SECONDS),
         ]
     )
     limit, ticks = _nice_symmetric_limit(displayed, 0.70)
@@ -745,7 +748,7 @@ def plot_topography(values: np.ndarray, path: Path) -> float:
 
 
 def output_directories(output_root: Path, product_dir: str) -> dict[str, Path]:
-    root = output_root / "Phase4_脳波解析" / "No1_sub_FmThetaChange"
+    root = output_root / "Phase4_脳波解析" / ANALYSIS_STEM
     product = root / product_dir
     return {
         "root": root,
@@ -790,7 +793,7 @@ def preflight(
         ]
         for path in paths:
             if not path.is_file():
-                raise FileNotFoundError(f"No1 cache is absent: {path}")
+                raise FileNotFoundError(f"Parent PSD cache is absent: {path}")
             no1.validate_cache(path)
         if spec.pair_id == SET1_MISSING_PAIR_ID:
             first = no1.load_session_cache(paths[0])
@@ -838,10 +841,8 @@ def baseline_table(items: list[dict[str, Any]]) -> pd.DataFrame:
 def write_individual(item: dict[str, Any], output_root: Path) -> dict[str, str]:
     spec = item["spec"]
     paths = output_directories(output_root, item["product_dir"])
-    individual = paths["individual"] / f"ID{spec.pair_id}_No1_sub_FmThetaChange_Individual.png"
-    topography = (
-        paths["topography_individual"] / f"ID{spec.pair_id}_No1_sub_FmThetaChange_Topography.png"
-    )
+    individual = paths["individual"] / f"ID{spec.pair_id}_{ANALYSIS_STEM}_Individual.png"
+    topography = paths["topography_individual"] / f"ID{spec.pair_id}_{ANALYSIS_STEM}_Topography.png"
     plot_individual(item, individual)
     plot_topography(pair_topography_values(item), topography)
     return {"individual": str(individual), "topography": str(topography)}
@@ -860,17 +861,14 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)
         for legacy_path in (
-            paths["quantification"]
-            / f"No1_sub_FmThetaChange_Sets2to6Quantification_{product}.png",
+            paths["quantification"] / f"{ANALYSIS_STEM}_Sets2to6Quantification_{product}.png",
             paths["quantification_tables"]
-            / f"No1_sub_FmThetaChange_Sets2to6Quantification_Statistics_{product}.csv",
+            / f"{ANALYSIS_STEM}_Sets2to6Quantification_Statistics_{product}.csv",
         ):
             legacy_path.unlink(missing_ok=True)
         grand = grand_by_product[product]
-        grand_png = paths["grand"] / f"No1_sub_FmThetaChange_GrandAverage_{product}.png"
-        grand_csv = (
-            paths["grand_tables"] / f"No1_sub_FmThetaChange_GrandAverage_Values_{product}.csv"
-        )
+        grand_png = paths["grand"] / f"{ANALYSIS_STEM}_GrandAverage_{product}.png"
+        grand_csv = paths["grand_tables"] / f"{ANALYSIS_STEM}_GrandAverage_Values_{product}.csv"
         plot_grand_average(
             grand, product, grand_png, common_limit=common_limit, common_ticks=common_ticks
         )
@@ -878,27 +876,23 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
 
         quant = build_quantification(items, product)
         set_stats, overall_stats = quantification_statistics(quant)
-        quant_png = (
-            paths["quantification"] / f"No1_sub_FmThetaChange_SetQuantification_{product}.png"
-        )
+        quant_png = paths["quantification"] / f"{ANALYSIS_STEM}_SetQuantification_{product}.png"
         overall_png = (
-            paths["quantification"] / f"No1_sub_FmThetaChange_AllSetsQuantification_{product}.png"
+            paths["quantification"] / f"{ANALYSIS_STEM}_AllSetsQuantification_{product}.png"
         )
         plot_quantification(quant, set_stats, product, quant_png)
         plot_overall_quantification(quant, overall_stats, product, overall_png)
         quant.to_csv(
-            paths["quantification_tables"]
-            / f"No1_sub_FmThetaChange_Quantification_Values_{product}.csv",
+            paths["quantification_tables"] / f"{ANALYSIS_STEM}_Quantification_Values_{product}.csv",
             index=False,
         )
         set_stats.to_csv(
-            paths["quantification"]
-            / f"No1_sub_FmThetaChange_SetQuantification_Statistics_{product}.csv",
+            paths["quantification"] / f"{ANALYSIS_STEM}_SetQuantification_Statistics_{product}.csv",
             index=False,
         )
         overall_stats.to_csv(
             paths["quantification_tables"]
-            / f"No1_sub_FmThetaChange_AllSetsQuantification_Statistics_{product}.csv",
+            / f"{ANALYSIS_STEM}_AllSetsQuantification_Statistics_{product}.csv",
             index=False,
         )
 
@@ -912,8 +906,7 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
             if valid.any():
                 group[index] = pair_values[valid, index].mean(axis=0)
         topo_png = (
-            paths["topography_grand"]
-            / f"No1_sub_FmThetaChange_Topography_GrandAverage_{product}.png"
+            paths["topography_grand"] / f"{ANALYSIS_STEM}_Topography_GrandAverage_{product}.png"
         )
         plot_topography(group, topo_png)
         topo_frame = pd.DataFrame(group, columns=no1.EXPECTED_CHANNEL_NAMES)
@@ -921,7 +914,7 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
         topo_frame.insert(1, "Valid_N", valid_n)
         topo_frame.to_csv(
             paths["topography_tables"]
-            / f"No1_sub_FmThetaChange_Topography_GrandAverage_Values_{product}.csv",
+            / f"{ANALYSIS_STEM}_Topography_GrandAverage_Values_{product}.csv",
             index=False,
         )
         outputs[product] = {
@@ -970,13 +963,15 @@ def main() -> int:
         raise SystemExit("Provide --participant or --manifest")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     items, preflight_summary = preflight(specs, args.cache_root, args.production_batch)
-    logging.info("No1_sub preflight passed: %s", json.dumps(preflight_summary, ensure_ascii=False))
+    logging.info(
+        "%s preflight passed: %s", ANALYSIS_STEM, json.dumps(preflight_summary, ensure_ascii=False)
+    )
     if args.preflight_only:
         return 0
 
     baseline_path = (
         output_directories(args.output_root, "CCube")["baseline_tables"]
-        / "No1_sub_FmThetaChange_Set1Baseline_AllAnalysablePairs.csv"
+        / f"{ANALYSIS_STEM}_Set1Baseline_AllAnalysablePairs.csv"
     )
     baseline_path.parent.mkdir(parents=True, exist_ok=True)
     baseline_table(items).to_csv(baseline_path, index=False)
@@ -988,7 +983,7 @@ def main() -> int:
         if args.individual_only:
             log = (
                 output_directories(args.output_root, "CCube")["logs"]
-                / "No1_sub_FmThetaChange_IndividualSummary.json"
+                / f"{ANALYSIS_STEM}_IndividualSummary.json"
             )
             write_log(
                 log,
@@ -1007,10 +1002,7 @@ def main() -> int:
     if args.group_outputs_only or args.all:
         group_outputs = write_group(items, args.output_root)
 
-    log = (
-        output_directories(args.output_root, "CCube")["logs"]
-        / "No1_sub_FmThetaChange_RunSummary.json"
-    )
+    log = output_directories(args.output_root, "CCube")["logs"] / f"{ANALYSIS_STEM}_RunSummary.json"
     write_log(
         log,
         {
@@ -1023,7 +1015,7 @@ def main() -> int:
             "group_outputs": group_outputs,
         },
     )
-    logging.info("No1_sub outputs completed")
+    logging.info("%s outputs completed", ANALYSIS_STEM)
     return 0
 
 

@@ -41,6 +41,9 @@ from paired_statistics import (  # noqa: E402
 
 SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.10"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.3"
+ANALYSIS_STEM = "No1_FmTheta"
+CACHE_FILE_TAG = "FmTheta"
+FOCUS_CHANNEL = "Fz"
 TOPOGRAPHY_COLORBAR_LABEL = "Difference in PSD (µV²/Hz)"
 N_SETS = 6
 SFREQ = 256.0
@@ -259,7 +262,9 @@ def session_file_prefix(spec: ParticipantSpec, session_id: str) -> str:
 
 
 def cache_path(root: Path, spec: ParticipantSpec, session_id: str) -> Path:
-    return root / f"{session_file_prefix(spec, session_id)}_FmTheta_AllChannelsPSD.h5"
+    return root / (
+        f"{session_file_prefix(spec, session_id)}_{CACHE_FILE_TAG}_AllChannelsPSD.h5"
+    )
 
 
 def _read_text_dataset(dataset: h5py.Dataset) -> str:
@@ -357,6 +362,8 @@ def preflight_inputs(specs: list[ParticipantSpec], root: Path) -> dict[str, Any]
 
 def analysis_configuration() -> dict[str, Any]:
     return {
+        "analysis_stem": ANALYSIS_STEM,
+        "focus_channel": FOCUS_CHANNEL,
         "script_version": CACHE_CONFIGURATION_VERSION,
         "sfreq": SFREQ,
         "window_samples": WINDOW_SAMPLES,
@@ -919,7 +926,8 @@ def _configure_time_axis(axis: plt.Axes, upper: float, ticks: np.ndarray) -> Non
     axis.spines["right"].set_visible(False)
 
 
-def _channel_index(session: SessionPSD, channel: str = "Fz") -> int:
+def _channel_index(session: SessionPSD, channel: str | None = None) -> int:
+    channel = channel or FOCUS_CHANNEL
     try:
         return session.channel_names.index(channel)
     except ValueError as error:
@@ -962,7 +970,7 @@ def _set_channel_values(
 
 def _time_series_values(
     session: SessionPSD,
-    channel: str = "Fz",
+    channel: str | None = None,
     *,
     smoothing_seconds: int | None = None,
     before_log3sd_exclusion: bool = False,
@@ -1041,7 +1049,7 @@ def plot_individual_timecourse(
 
 def interpolate_session_progress(
     session: SessionPSD,
-    channel: str = "Fz",
+    channel: str | None = None,
     *,
     symmetrically_missing_sets: set[int] | None = None,
     smoothing_seconds: int | None = None,
@@ -1533,7 +1541,7 @@ def plot_topography_grid(values: np.ndarray, path: Path, *, missing_label: bool 
 
 
 def _output_directories(output_root: Path, product_dir: str) -> dict[str, Path]:
-    no1 = output_root / "Phase4_脳波解析" / "No1_FmTheta"
+    no1 = output_root / "Phase4_脳波解析" / ANALYSIS_STEM
     product = no1 / product_dir
     return {
         "no1": no1,
@@ -1618,20 +1626,22 @@ def build_threshold_diagnostics(items: list[dict[str, Any]]) -> pd.DataFrame:
 def write_individual_outputs(item: dict[str, Any], output_root: Path) -> dict[str, str]:
     spec = item["spec"]
     paths = _output_directories(output_root, item["product_dir"])
-    individual = paths["individual"] / f"ID{spec.pair_id}_No1_FmTheta_Individual.png"
+    individual = paths["individual"] / f"ID{spec.pair_id}_{ANALYSIS_STEM}_Individual.png"
     individual_unsmoothed_before = paths["individual_unsmoothed_before"] / (
-        f"ID{spec.pair_id}_No1_FmTheta_Individual_Unsmoothed_BeforeThresholdExclusion.png"
+        f"ID{spec.pair_id}_{ANALYSIS_STEM}_Individual_Unsmoothed_BeforeThresholdExclusion.png"
     )
     individual_unsmoothed_after = paths["individual_unsmoothed_after"] / (
-        f"ID{spec.pair_id}_No1_FmTheta_Individual_Unsmoothed_AfterThresholdExclusion.png"
+        f"ID{spec.pair_id}_{ANALYSIS_STEM}_Individual_Unsmoothed_AfterThresholdExclusion.png"
     )
     legacy_unsmoothed = (
         paths["individual"]
         / "Unsmoothed"
-        / f"ID{spec.pair_id}_No1_FmTheta_Individual_Unsmoothed.png"
+        / f"ID{spec.pair_id}_{ANALYSIS_STEM}_Individual_Unsmoothed.png"
     )
     legacy_unsmoothed.unlink(missing_ok=True)
-    topography = paths["topography_individual"] / (f"ID{spec.pair_id}_No1_FmTheta_Topography.png")
+    topography = paths["topography_individual"] / (
+        f"ID{spec.pair_id}_{ANALYSIS_STEM}_Topography.png"
+    )
     plot_individual_timecourse(
         spec,
         item["eye_drop"],
@@ -1717,8 +1727,8 @@ def write_group_outputs(
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)
         grand = grand_by_product[product]
-        grand_png = paths["grand"] / f"No1_FmTheta_GrandAverage_{product}.png"
-        grand_csv = paths["grand_tables"] / f"No1_FmTheta_GrandAverage_Values_{product}.csv"
+        grand_png = paths["grand"] / f"{ANALYSIS_STEM}_GrandAverage_{product}.png"
+        grand_csv = paths["grand_tables"] / f"{ANALYSIS_STEM}_GrandAverage_Values_{product}.csv"
         plot_grand_average(
             grand, product, grand_png, common_upper=common_upper, common_ticks=common_ticks
         )
@@ -1726,16 +1736,18 @@ def write_group_outputs(
 
         quantification = build_quantification(items, product)
         set_statistics, overall_statistics = quantification_statistics(quantification)
-        quant_png = paths["quantification"] / f"No1_FmTheta_SetQuantification_{product}.png"
-        overall_png = paths["quantification"] / (f"No1_FmTheta_AllSetsQuantification_{product}.png")
+        quant_png = paths["quantification"] / f"{ANALYSIS_STEM}_SetQuantification_{product}.png"
+        overall_png = paths["quantification"] / (
+            f"{ANALYSIS_STEM}_AllSetsQuantification_{product}.png"
+        )
         statistics_csv = paths["quantification"] / (
-            f"No1_FmTheta_SetQuantification_Statistics_{product}.csv"
+            f"{ANALYSIS_STEM}_SetQuantification_Statistics_{product}.csv"
         )
         values_csv = paths["quantification_tables"] / (
-            f"No1_FmTheta_SetQuantification_Values_{product}.csv"
+            f"{ANALYSIS_STEM}_SetQuantification_Values_{product}.csv"
         )
         overall_csv = paths["quantification_tables"] / (
-            f"No1_FmTheta_AllSetsQuantification_Statistics_{product}.csv"
+            f"{ANALYSIS_STEM}_AllSetsQuantification_Statistics_{product}.csv"
         )
         plot_set_quantification(quantification, set_statistics, product, quant_png)
         plot_all_sets_quantification(quantification, overall_statistics, product, overall_png)
@@ -1753,14 +1765,14 @@ def write_group_outputs(
             if valid_pairs.any():
                 group_topography[set_index] = pair_values[valid_pairs, set_index].mean(axis=0)
         group_topography_png = paths["topography_grand"] / (
-            f"No1_FmTheta_Topography_GrandAverage_{product}.png"
+            f"{ANALYSIS_STEM}_Topography_GrandAverage_{product}.png"
         )
         plot_topography_grid(group_topography, group_topography_png)
         topography_values = pd.DataFrame(group_topography, columns=EXPECTED_CHANNEL_NAMES)
         topography_values.insert(0, "Set", np.arange(1, N_SETS + 1))
         topography_values.insert(1, "Valid_N", n_by_set)
         topography_csv = paths["topography_tables"] / (
-            f"No1_FmTheta_Topography_GrandAverage_Values_{product}.csv"
+            f"{ANALYSIS_STEM}_Topography_GrandAverage_Values_{product}.csv"
         )
         topography_values.to_csv(topography_csv, index=False)
         outputs[product] = {
@@ -1868,7 +1880,7 @@ def main() -> int:
         if args.compute_psd:
             log_root = _output_directories(args.output_root, "CCube")["logs"]
             _write_log(
-                log_root / "No1_FmTheta_PSDCacheSummary.json",
+                log_root / f"{ANALYSIS_STEM}_PSDCacheSummary.json",
                 {
                     "script_version": SCRIPT_VERSION,
                     "git_commit": git_revision(),
@@ -1888,7 +1900,7 @@ def main() -> int:
         else "_".join(f"ID{spec.pair_id}" for spec in specs)
     )
     threshold_path = _output_directories(args.output_root, "CCube")["threshold_tables"] / (
-        f"No1_FmTheta_Log3SDThresholdExclusion_{diagnostic_scope}.csv"
+        f"{ANALYSIS_STEM}_Log3SDThresholdExclusion_{diagnostic_scope}.csv"
     )
     threshold_path.parent.mkdir(parents=True, exist_ok=True)
     build_threshold_diagnostics(items).to_csv(threshold_path, index=False)
@@ -1901,7 +1913,7 @@ def main() -> int:
         if args.individual_only:
             log_root = _output_directories(args.output_root, "CCube")["logs"]
             _write_log(
-                log_root / "No1_FmTheta_IndividualSummary.json",
+                log_root / f"{ANALYSIS_STEM}_IndividualSummary.json",
                 {
                     "script_version": SCRIPT_VERSION,
                     "git_commit": git_revision(),
@@ -1921,7 +1933,7 @@ def main() -> int:
         grand_average_y_basis=args.grand_y_basis,
     )
     log_root = _output_directories(args.output_root, "CCube")["logs"]
-    summary_path = log_root / "No1_FmTheta_RunSummary.json"
+    summary_path = log_root / f"{ANALYSIS_STEM}_RunSummary.json"
     _write_log(
         summary_path,
         {
@@ -1942,7 +1954,7 @@ def main() -> int:
             "group_outputs": group_outputs,
         },
     )
-    logging.info("Phase 4 No1 outputs completed: %s", summary_path)
+    logging.info("Phase 4 %s outputs completed: %s", ANALYSIS_STEM, summary_path)
     return 0
 
 
