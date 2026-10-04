@@ -23,6 +23,10 @@ payload = {{
         if hasattr(getattr(engine, 'INCLUDED_FREQUENCIES_HZ', []), 'tolist')
         else [],
     'focus_index': getattr(engine, 'FOCUS_CHANNEL_INDEX', None),
+    'star_factor_override': getattr(engine, 'SIGNIFICANCE_STAR_FACTOR_OVERRIDE', None),
+    'star_fontsize_override': getattr(
+        engine, 'SIGNIFICANCE_STAR_FONTSIZE_OVERRIDE', None
+    ),
     'absolute_color_limit': getattr(engine, 'ABSOLUTE_PSD_COLOR_LIMIT', None),
     'absolute_color_ticks': getattr(engine, 'ABSOLUTE_PSD_COLOR_TICKS', []).tolist()
         if hasattr(getattr(engine, 'ABSOLUTE_PSD_COLOR_TICKS', []), 'tolist') else [],
@@ -86,6 +90,8 @@ def test_no3_sub_and_add_configuration() -> None:
     add = _inspect("Phase4_No3_add_FzTimeFrequencyMap")
     assert sub["analysis_stem"] == "No3_sub_FrontalDeltaChange"
     assert sub["focus_channel"] == "Fz"
+    assert sub["star_factor_override"] == 1.18
+    assert sub["star_fontsize_override"] == 40.0
     assert add["analysis_stem"] == "No3_add_FzTimeFrequencyMap"
     assert add["focus_channel"] == "Fz"
     assert add["focus_index"] == 1

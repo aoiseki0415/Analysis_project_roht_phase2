@@ -61,7 +61,7 @@ Fzの1–30 Hz線形PSDをNo3_add専用のセッション別HDF5へ保存する�
 - `Sub/tables/SetQuantification/`：未補正pとBonferroni、Holm、FDR-BH補正結果を含むCSV
 - `Topography/`：各chの `Eye Drop − Control`。暖色がEye Dropで高く、寒色がControlで高いことを表す
 - No3_sub：Set 1 baselineからの変化率。0%がSet 1水準で、正値は増加、負値は減少を表す
-- No3_subの定量化はNo1_sub／No2_subと完全に同じ表示規則を用いる。統計線をデータ基準値の1.15倍、n.s.とアスタリスクの文字下端をともに1.20倍へ配置し、n.s.は26 pt、アスタリスクは34 pt、Arialとする
+- No3_subの定量化は、統計線をデータ基準値の1.15倍、n.s.の文字下端を1.20倍・26 ptとし、ここまではNo1_sub／No2_subと同じにする。アスタリスクだけは文字下端を1.18倍、40 ptとする。フォントはArialとする
 - No3_add：上段がEye Drop、中段がControl、下段が `Eye Drop − Control` の1–30 Hz TFM
 
 ## 7. 全件実行・検証状態（2026-10-04）
@@ -72,4 +72,4 @@ Fzの1–30 Hz線形PSDをNo3_add専用のセッション別HDF5へ保存する�
 - 既知欠測はID109 Set 1、ID120 Set 6、ID225 Set 4、ID135 Set 2。Grand-average、定量化、topographyでは対応条件側の同一Setも欠測として扱う
 - 代表cacheでFz、1–3 Hz全bin、256 Hz、`µV²/Hz` を確認し、主PNG・統計CSV・topography・TFMを目視確認した
 - 0 byteの出力はなく、No1の既存成果物は保持されている
-- 2026-10-05にNo3_subのSet別定量化figureだけ、No1_sub／No2_subと同じ統計表示へ統一した。数値・検定結果は変更していない
+- 2026-10-05にNo3_subのSet別定量化figureだけ、アスタリスクを1.18M・40 ptへ変更した。統計線、n.s.、数値・検定結果は変更していない

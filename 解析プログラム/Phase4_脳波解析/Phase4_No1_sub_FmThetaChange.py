@@ -43,6 +43,8 @@ SMOOTHING_SECONDS = no1.TIMECOURSE_SMOOTHING_SECONDS
 SET1_MISSING_PAIR_ID = "109-209"
 Y_LABEL = "PSD Change, %"
 TOPOGRAPHY_LABEL = "Difference in PSD Change, %"
+SIGNIFICANCE_STAR_FACTOR_OVERRIDE: float | None = None
+SIGNIFICANCE_STAR_FONTSIZE_OVERRIDE: float | None = None
 
 DEFAULT_CACHE_ROOT = no1.DEFAULT_CACHE_ROOT
 DEFAULT_OUTPUT_ROOT = no1.DEFAULT_OUTPUT_ROOT
@@ -565,6 +567,14 @@ def _draw_quant_panel(
     if p_value is None:
         axis.text(0, text_y, "Baseline", ha="center", va="bottom", fontsize=22, fontfamily="Arial")
     else:
+        label = significance_label(p_value)
+        label_y = text_y
+        label_fontsize = 34 if p_value < 0.05 else 26
+        if p_value < 0.05 and SIGNIFICANCE_STAR_FACTOR_OVERRIDE is not None:
+            reference_max = line_y / 1.15
+            label_y = SIGNIFICANCE_STAR_FACTOR_OVERRIDE * reference_max
+        if p_value < 0.05 and SIGNIFICANCE_STAR_FONTSIZE_OVERRIDE is not None:
+            label_fontsize = SIGNIFICANCE_STAR_FONTSIZE_OVERRIDE
         axis.plot(
             [x[0], x[0], x[1], x[1]],
             [line_y - 0.02 * (upper - lower), line_y, line_y, line_y - 0.02 * (upper - lower)],
@@ -573,11 +583,11 @@ def _draw_quant_panel(
         )
         axis.text(
             0,
-            text_y,
-            significance_label(p_value),
+            label_y,
+            label,
             ha="center",
             va="bottom",
-            fontsize=34 if p_value < 0.05 else 26,
+            fontsize=label_fontsize,
             fontfamily="Arial",
         )
     axis.text(
