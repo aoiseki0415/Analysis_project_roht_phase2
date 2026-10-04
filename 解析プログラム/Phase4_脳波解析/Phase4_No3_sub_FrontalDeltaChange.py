@@ -12,11 +12,8 @@ configure_change_engine(
     parent_engine,
     analysis_stem="No3_sub_FrontalDeltaChange",
     focus_channel="Fz",
-    script_version="phase4-no3-sub-frontal-delta-change-2026-10-05.1",
+    script_version="phase4-no3-sub-frontal-delta-change-2026-10-05.2",
 )
-
-# Use the standard Phase 2/3 paired-comparison typography and placement.
-engine.USE_STANDARD_SIGNIFICANCE_STYLE = True
 
 
 if __name__ == "__main__":
