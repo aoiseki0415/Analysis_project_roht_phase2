@@ -26,8 +26,9 @@ import mne
 import numpy as np
 import pandas as pd
 
-SCRIPT_VERSION = "phase4-no1-add-fz-tfm-2026-10-04.2"
+SCRIPT_VERSION = "phase4-no1-add-fz-tfm-2026-10-04.3"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-add-fz-tfm-2026-10-04.1"
+DIFFERENCE_COLORBAR_LABEL = "Difference in PSD (µV²/Hz)"
 N_SETS = 6
 SFREQ = 256.0
 WINDOW_SAMPLES = 256
@@ -814,7 +815,7 @@ def plot_tfm(
             colorbar.set_label("PSD (µV²/Hz)", fontsize=26, rotation=270, labelpad=32)
         else:
             colorbar.set_ticks(difference_ticks)
-            colorbar.set_label("ΔPSD (µV²/Hz)", fontsize=26, rotation=270, labelpad=32)
+            colorbar.set_label(DIFFERENCE_COLORBAR_LABEL, fontsize=26, rotation=270, labelpad=32)
         colorbar.ax.tick_params(labelsize=20, width=1.4, length=6)
     axes[-1].set_xlim(0.0, 600.0)
     axes[-1].set_xticks(np.arange(0.0, 601.0, 50.0))

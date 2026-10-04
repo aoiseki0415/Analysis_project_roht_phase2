@@ -39,8 +39,9 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.9"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.10"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.3"
+TOPOGRAPHY_COLORBAR_LABEL = "Difference in PSD (µV²/Hz)"
 N_SETS = 6
 SFREQ = 256.0
 WINDOW_SAMPLES = 256
@@ -1521,7 +1522,7 @@ def plot_topography_grid(values: np.ndarray, path: Path, *, missing_label: bool 
             shrink=0.94,
         )
         colorbar.set_ticks([-limit, 0.0, limit])
-        colorbar.set_label("ΔPSD (µV²/Hz)", fontsize=28, rotation=270, labelpad=34)
+        colorbar.set_label(TOPOGRAPHY_COLORBAR_LABEL, fontsize=28, rotation=270, labelpad=34)
         colorbar.ax.tick_params(labelsize=24, width=1.5, length=7)
         colorbar.outline.set_linewidth(1.3)
     figure.subplots_adjust(left=0.018, right=0.99, top=0.86, bottom=0.08, wspace=0.62)

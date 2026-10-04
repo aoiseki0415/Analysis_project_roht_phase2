@@ -438,7 +438,7 @@ qc/
 - 同一被験者の6 Setで共通スケール、被験者間では変更可
 - 欠測Setは中央へ `Missing` を22 ptで表示
 - 各Setの右横に十分な間隔を空け、太さを確保した同一スケールのcolorbarを1本ずつ置きます（`fraction=0.08`、`pad=0.10`、`aspect=12`）。
-- colorbar tickは `−V, 0, V`、label `ΔPSD (µV²/Hz)`・28 pt、tick 24 pt
+- colorbar tickは `−V, 0, V`、label `Difference in PSD (µV²/Hz)`・28 pt、tick 24 pt。条件差の表記に `Δ` は使用しない
 - figure titleなし
 
 ### 14.4 Grand-average topography

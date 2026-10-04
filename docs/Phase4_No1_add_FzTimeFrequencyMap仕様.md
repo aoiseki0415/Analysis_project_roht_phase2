@@ -21,7 +21,7 @@ Fzの1–30 Hzパワーが実験進行に伴ってどのように変化するか
 - 対象ch：Fzだけ
 - 周波数：1–30 Hz、1 Hz刻み
 - 0 Hz：DC成分のため解析対象に含めない
-- 比較差：`ΔPSD = Eye Drop − Control`
+- 比較差：`Difference in PSD = Eye Drop − Control`
 
 ## 3. TFM計算
 
@@ -72,7 +72,7 @@ No1本体の4–7 Hz平均から作るch別maskは使用しません。No1_add�
 5. Set間をまたいで平滑化・補間しない
 6. 対応するEye DropとControlを被験者内で揃える
 7. 各製品群で、条件別TFMを被験者間平均する
-8. `ΔPSD` は被験者ごとに `Eye Drop − Control` を計算してから被験者間平均する
+8. `Difference in PSD` は被験者ごとに `Eye Drop − Control` を計算してから被験者間平均する
 
 Grand-averageより前に個人系列をprogressへ対応付けます。Setの実時間長が異なっても、PSD計算、mask、60秒平滑化までは実時間上で行います。
 
@@ -119,14 +119,14 @@ No1_addはGrand-averageだけを作るため、該当Setでは欠測セッショ
 
 1. Eye Drop Grand-average
 2. Control Grand-average
-3. `ΔPSD = Eye Drop − Control` Grand-average
+3. `Difference in PSD = Eye Drop − Control` Grand-average
 
 - x軸：`Experimental Progress, %`、0–600
 - y軸：`Frequency (Hz)`、1–30
 - Set境界：100、200、300、400、500
 - Set名：各Set中央
 - 条件mapのcolorbar：`PSD (µV²/Hz)`
-- 差分mapのcolorbar：`ΔPSD (µV²/Hz)`
+- 差分mapのcolorbar：`Difference in PSD (µV²/Hz)`
 - Eye DropとControlは共通カラースケール
 - 差分は0中心の左右対称カラースケール
 - 対数・dB・ベースライン補正は行わない
@@ -147,7 +147,7 @@ No1_addはGrand-averageだけを作るため、該当Setでは欠測セッショ
 - 補間表示、信頼区間shade、帯域shadeは追加せず、計算済みの1 Hz × progress格子をそのまま描画する
 - x軸は `Experimental Progress, %`、範囲0–600、50刻み。100ごとにSet境界の薄い灰色破線を置き、各Set名を上部に表示する
 - y軸は `Frequency (Hz)`、範囲1–30 Hz、目盛は1、5、10、15、20、25、30 Hz
-- colorbarは各段の右側へ十分な間隔をあけて配置し、上2段は `PSD (µV²/Hz)`、下段は `ΔPSD (µV²/Hz)` とする
+- colorbarは各段の右側へ十分な間隔をあけて配置し、上2段は `PSD (µV²/Hz)`、下段は `Difference in PSD (µV²/Hz)` とする。条件差の表記に `Δ` は使用しない
 - フォントはArial。軸名30 pt、目盛22 pt、各段タイトル28 pt、Set名20 pt、colorbarラベル26 pt、colorbar目盛20 ptとする
 - figureは横長3段の `24 × 18 inch`、180 dpi、白背景とする
 

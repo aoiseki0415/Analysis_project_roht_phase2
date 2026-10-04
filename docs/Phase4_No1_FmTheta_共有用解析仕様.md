@@ -123,6 +123,7 @@ Eye Drop − Control
 - colormap：`RdBu_r`
 - 0を中心とする左右対称スケール
 - 6 Setで共通スケール
+- colorbar label：`Difference in PSD (µV²/Hz)`。条件差の表記に `Δ` は使用しない
 - 電極点を表示、チャンネル名と等高線は表示しない
 - 統計maskや有意電極は重ねない
 

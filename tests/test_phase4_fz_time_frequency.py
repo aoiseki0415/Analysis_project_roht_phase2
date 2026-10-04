@@ -20,6 +20,7 @@ SPEC.loader.exec_module(MODULE)
 
 
 def test_fixed_grand_average_color_scales() -> None:
+    assert MODULE.DIFFERENCE_COLORBAR_LABEL == "Difference in PSD (µV²/Hz)"
     assert MODULE.ABSOLUTE_PSD_COLOR_LIMIT == 30.0
     assert np.array_equal(MODULE.ABSOLUTE_PSD_COLOR_TICKS, [0.0, 10.0, 20.0, 30.0])
     assert MODULE.DIFFERENCE_COLOR_LIMIT == 20.0

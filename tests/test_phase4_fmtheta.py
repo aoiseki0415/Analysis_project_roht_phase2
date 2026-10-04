@@ -16,6 +16,10 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
+def test_topography_uses_difference_label_instead_of_delta_symbol() -> None:
+    assert MODULE.TOPOGRAPHY_COLORBAR_LABEL == "Difference in PSD (µV²/Hz)"
+
+
 def _source_hdf5(path: Path, session_id: str, set_number: int, *, frequency: float = 6.0) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     n_samples = 513
