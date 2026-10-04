@@ -293,6 +293,8 @@ qc/
 - 凡例：上中央、`bbox_to_anchor=(0.5, 1.18)`、2列、枠なし、20 pt
 - margins：left 0.08、right 0.99、top 0.78、bottom 0.20
 - 横グリッドなし、180 dpi、`bbox_inches="tight"`
+- 標準版は `Individual/` 直下へ保存します。
+- 同じ値・線・progressを用い、y軸だけを0–100 µV²/Hz、20 µV²/Hz刻みに固定した追加版を `Individual/FixedYAxis_0to100uV2PerHz/` へ保存します。
 
 ## 11. Grand-average時間変化figure
 
@@ -334,6 +336,7 @@ qc/
 - 対応線 `#777777`・1.2 pt・alpha 0.34
 - jitterは両条件で同一offset、最大±0.055、固定seed `4000 + Set番号`
 - x条件名22 pt、製品名18 pt、y目盛23 pt、y軸名30 pt、Set名26 pt
+- x軸は `Eye Drop` と `Control` を22 ptで同じ高さに置き、Eye Dropの直下だけへ括弧付き製品名を18 ptで独立表示します。製品名を条件名と同じtick labelへ結合しません。
 - 全6パネルにy目盛数字を表示します。
 - margins：left 0.06、right 0.995、top 0.94、bottom 0.25、wspace 0.24
 - 上・右spine非表示、グリッドなし、180 dpi
@@ -375,7 +378,7 @@ qc/
 
 ### 14.1 値の作成
 
-各被験者ペア・Set・chで、Set内全PSD窓を時間平均し、`Eye Drop − Control`を計算します。欠測Setは計算せず、補間、空間平滑化、平均参照、ラプラシアンを追加しません。
+各被験者ペア・Set・chで、1%以上区間maskと重なる窓をNaNにした後、有限なSet内PSD窓を時間方向に算術平均し、`Eye Dropのch別Set平均 − Controlのch別Set平均`を計算します。32chすべてで同じ計算を行います。欠測Setは計算せず、補間、空間平滑化、平均参照、ラプラシアンを追加しません。
 
 ### 14.2 描画関数と座標
 
@@ -389,18 +392,18 @@ qc/
 - 10-20法の電極位置、補間面、頭部輪郭を同じ座標系で描くため、sphereは `(0, 0, 0, 0.095 m)` に固定
 - 現行32chが32/32対応することをpreflightで再確認
 - 頭部は太さ4.0 ptの濃色円形輪郭と鼻を表示し、耳輪郭は非表示
-- 電極位置は4.0 ptの小さな濃色点で表示し、ch名は表示しない
+- 電極位置は8.0 ptの濃色点で表示し、ch名は表示しない
 - 等高線を重ねず、滑らかな補間色面だけを表示
 
 ### 14.3 個人topography
 
 - 1被験者ペア1 PNG、6 Set横一列、`figsize=(36, 6.5)`、180 dpi
 - Set title 24 pt、Arial、pad 16
-- `V`は、その被験者の利用可能な全Set・全chの差の最大絶対値
+- 生の最大絶対差を上回る切りのよい値を `V` とします。候補係数は `1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10 × 10ⁿ` とし、最小の候補を採用します。
 - 同一被験者の6 Setで共通スケール、被験者間では変更可
 - 欠測Setは中央へ `Missing` を22 ptで表示
-- 各Setの右横に同一スケールのcolorbarを1本ずつ置く
-- colorbar tickは `−V, 0, V`、label `ΔPSD (µV²/Hz)`・20 pt、tick 17 pt
+- 各Setの右横に十分な間隔を空け、太さを確保した同一スケールのcolorbarを1本ずつ置きます（`fraction=0.08`、`pad=0.10`、`aspect=12`）。
+- colorbar tickは `−V, 0, V`、label `ΔPSD (µV²/Hz)`・28 pt、tick 24 pt
 - figure titleなし
 
 ### 14.4 Grand-average topography
@@ -440,6 +443,7 @@ qc/
     No1_FmTheta/
       CCube/
         Individual/
+          FixedYAxis_0to100uV2PerHz/
         GrandAverage/
         SetQuantification/
         Topography/
@@ -447,6 +451,7 @@ qc/
           GrandAverage/
       VRohtoPremium/
         Individual/
+          FixedYAxis_0to100uV2PerHz/
         GrandAverage/
         SetQuantification/
         Topography/
@@ -460,7 +465,8 @@ qc/
         logs/
 ```
 
-- `Individual/`：被験者ペアごとのFz時間変化PNGだけ
+- `Individual/`：被験者ペアごとのFz時間変化・自動y軸PNGだけ
+- `Individual/FixedYAxis_0to100uV2PerHz/`：同じ個人時間変化の0–100 µV²/Hz固定y軸PNGだけ
 - `GrandAverage/`：製品群別Fz平均±SEM PNGだけ
 - `SetQuantification/`：Set別PNG、全Set統合PNG、統計CSV
 - `Topography/Individual/`：被験者ペアごとの6 Set topography PNG
@@ -473,6 +479,7 @@ qc/
 ## 17. 命名規則
 
 - 個人時間変化：`ID101-201_No1_FmTheta_Individual.png`
+- 個人時間変化・固定y軸：`ID101-201_No1_FmTheta_Individual_FixedYAxis_0to100uV2PerHz.png`
 - Grand-average：`No1_FmTheta_GrandAverage_CCube.png`
 - Set別定量化：`No1_FmTheta_SetQuantification_CCube.png`
 - 全Set統合：`No1_FmTheta_AllSetsQuantification_CCube.png`

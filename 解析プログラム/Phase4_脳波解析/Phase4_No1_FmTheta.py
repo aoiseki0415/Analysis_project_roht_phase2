@@ -38,7 +38,7 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.1"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.2"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-03.1"
 N_SETS = 6
 SFREQ = 256.0
@@ -51,6 +51,8 @@ INCLUDED_FREQUENCIES_HZ = np.array([4.0, 5.0, 6.0, 7.0])
 GROUP_PROGRESS_POINTS_PER_SET = 100
 PSD_WINDOW_BATCH_SIZE = 512
 PSD_MASK_OVERLAP_THRESHOLD = 0.01
+FIXED_INDIVIDUAL_Y_UPPER = 100.0
+FIXED_INDIVIDUAL_Y_TICKS = np.arange(0.0, 101.0, 20.0)
 EXCLUDED_SESSION_IDS = {"130", "230"}
 PRODUCTION_PARTICIPANT_COUNT = 40
 PRODUCTION_PARTICIPANTS_PER_PRODUCT = 20
@@ -754,6 +756,8 @@ def plot_individual_timecourse(
     eye_drop: SessionPSD,
     control: SessionPSD,
     path: Path,
+    *,
+    fixed_y_upper: float | None = None,
 ) -> None:
     product_dir, product_label, product_color, _ = normalize_product(spec.product)
     if {eye_drop.product, control.product} != {product_dir}:
@@ -776,7 +780,11 @@ def plot_individual_timecourse(
             )
             first = False
     displayed = np.concatenate([_time_series_values(eye_drop), _time_series_values(control)])
-    upper, ticks = _nice_upper(displayed, 0.70)
+    if fixed_y_upper is None:
+        upper, ticks = _nice_upper(displayed, 0.70)
+    else:
+        upper = float(fixed_y_upper)
+        ticks = FIXED_INDIVIDUAL_Y_TICKS
     _configure_time_axis(axis, upper, ticks)
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, 1.18), ncol=2, frameon=False, fontsize=20)
     figure.subplots_adjust(left=0.08, right=0.99, top=0.78, bottom=0.20)
@@ -1059,8 +1067,20 @@ def _draw_quantification_panel(
     axis.set_xlim(-0.90, 0.90)
     axis.set_ylim(0.0, upper)
     axis.set_yticks(ticks)
-    axis.set_xticks([-0.32, 0.32], ["Eye Drop\n" + product_label, "Control"])
-    axis.tick_params(axis="x", labelsize=22, width=1.5, length=6)
+    axis.set_xticks([-0.32, 0.32])
+    axis.set_xticklabels(["Eye Drop", "Control"], fontsize=22)
+    axis.text(
+        -0.32,
+        -0.105,
+        f"({product_label})",
+        transform=axis.get_xaxis_transform(),
+        ha="center",
+        va="top",
+        fontsize=18,
+        fontfamily="Arial",
+        clip_on=False,
+    )
+    axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
     axis.tick_params(axis="y", labelsize=23, width=1.5, length=6, labelleft=True)
     if show_ylabel:
         axis.set_ylabel("PSD (µV²/Hz)", fontsize=30)
@@ -1148,12 +1168,25 @@ def _topomap_info() -> mne.Info:
     return info
 
 
+def _nice_symmetric_topography_limit(values: np.ndarray) -> float:
+    finite = np.abs(np.asarray(values, dtype=float))
+    finite = finite[np.isfinite(finite)]
+    maximum = float(np.max(finite)) if finite.size else 1.0
+    if maximum <= np.finfo(float).eps:
+        return 1.0
+    exponent = math.floor(math.log10(maximum))
+    scale = 10.0**exponent
+    normalized = maximum / scale
+    for multiplier in (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0):
+        if normalized <= multiplier:
+            return float(multiplier * scale)
+    raise RuntimeError("Unable to determine topography colour limit")
+
+
 def plot_topography_grid(values: np.ndarray, path: Path, *, missing_label: bool = True) -> float:
     if values.shape != (N_SETS, len(EXPECTED_CHANNEL_NAMES)):
         raise ValueError(f"Unexpected topography matrix shape {values.shape}")
-    finite = values[np.isfinite(values)]
-    limit = float(np.max(np.abs(finite))) if finite.size else 1.0
-    limit = max(limit, np.finfo(float).eps)
+    limit = _nice_symmetric_topography_limit(values)
     plt.rcParams.update({"font.family": "Arial"})
     figure, axes = plt.subplots(1, N_SETS, figsize=(36, 6.5))
     info = _topomap_info()
@@ -1191,7 +1224,7 @@ def plot_topography_grid(values: np.ndarray, path: Path, *, missing_label: bool 
         # outline and nose, and no ear outlines.
         for line_number, line in enumerate(axis.lines):
             if line_number == 0:
-                line.set_markersize(4.0)
+                line.set_markersize(8.0)
                 line.set_markeredgewidth(0.0)
                 line.set_color("#2F2F2F")
                 line.set_alpha(0.82)
@@ -1200,12 +1233,19 @@ def plot_topography_grid(values: np.ndarray, path: Path, *, missing_label: bool 
                 line.set_color("#303030")
             else:
                 line.set_visible(False)
-        colorbar = figure.colorbar(image, ax=axis, fraction=0.050, pad=0.035)
+        colorbar = figure.colorbar(
+            image,
+            ax=axis,
+            fraction=0.080,
+            pad=0.10,
+            aspect=12,
+            shrink=0.94,
+        )
         colorbar.set_ticks([-limit, 0.0, limit])
-        colorbar.set_label("ΔPSD (µV²/Hz)", fontsize=20, rotation=270, labelpad=24)
-        colorbar.ax.tick_params(labelsize=17, width=1.2, length=5)
-        colorbar.outline.set_linewidth(1.0)
-    figure.subplots_adjust(left=0.018, right=0.99, top=0.86, bottom=0.08, wspace=0.42)
+        colorbar.set_label("ΔPSD (µV²/Hz)", fontsize=28, rotation=270, labelpad=34)
+        colorbar.ax.tick_params(labelsize=24, width=1.5, length=7)
+        colorbar.outline.set_linewidth(1.3)
+    figure.subplots_adjust(left=0.018, right=0.99, top=0.86, bottom=0.08, wspace=0.62)
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
@@ -1218,6 +1258,7 @@ def _output_directories(output_root: Path, product_dir: str) -> dict[str, Path]:
     return {
         "no1": no1,
         "individual": product / "Individual",
+        "individual_fixed_y": product / "Individual" / "FixedYAxis_0to100uV2PerHz",
         "grand": product / "GrandAverage",
         "quantification": product / "SetQuantification",
         "topography_individual": product / "Topography" / "Individual",
@@ -1245,10 +1286,24 @@ def write_individual_outputs(item: dict[str, Any], output_root: Path) -> dict[st
     spec = item["spec"]
     paths = _output_directories(output_root, item["product_dir"])
     individual = paths["individual"] / f"ID{spec.pair_id}_No1_FmTheta_Individual.png"
+    individual_fixed_y = paths["individual_fixed_y"] / (
+        f"ID{spec.pair_id}_No1_FmTheta_Individual_FixedYAxis_0to100uV2PerHz.png"
+    )
     topography = paths["topography_individual"] / (f"ID{spec.pair_id}_No1_FmTheta_Topography.png")
     plot_individual_timecourse(spec, item["eye_drop"], item["control"], individual)
+    plot_individual_timecourse(
+        spec,
+        item["eye_drop"],
+        item["control"],
+        individual_fixed_y,
+        fixed_y_upper=FIXED_INDIVIDUAL_Y_UPPER,
+    )
     plot_topography_grid(pair_topography_values(item), topography)
-    return {"individual": str(individual), "topography": str(topography)}
+    return {
+        "individual": str(individual),
+        "individual_fixed_y": str(individual_fixed_y),
+        "topography": str(topography),
+    }
 
 
 def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any]:

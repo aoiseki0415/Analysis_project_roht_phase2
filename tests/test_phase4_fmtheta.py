@@ -204,6 +204,45 @@ def test_all_sets_quantification_pools_windows_not_set_means():
     assert np.isclose(overall["Control_PSD_uV2_per_Hz"], 5.0)
 
 
+def test_topography_is_channelwise_set_mean_eye_drop_minus_control():
+    channels = MODULE.EXPECTED_CHANNEL_NAMES
+    n_channels = len(channels)
+
+    def make_session(session_id: str, condition: str, offset: float):
+        base = np.arange(n_channels, dtype=float)
+        matrix = np.vstack([base + offset, base + offset + 2.0, np.full(n_channels, np.nan)])
+        set_data = MODULE.SetPSD(
+            1,
+            matrix,
+            np.array([0.0, 0.5, 1.0]),
+            np.array([1_000.0, 1_000.5, 1_001.0]),
+            np.array([0.0, 50.0, 100.0]),
+            np.array([0.0, 50.0, 100.0]),
+            np.array([0, 128, 256]),
+            np.array([0.0, 0.0, 1.0]),
+        )
+        return MODULE.SessionPSD(
+            session_id,
+            condition,
+            "101-201",
+            "CCube",
+            channels,
+            {1: set_data},
+            np.zeros(n_channels, dtype=bool),
+        )
+
+    item = {
+        "spec": MODULE.ParticipantSpec("101", "201", "101", "CCube"),
+        "product_dir": "CCube",
+        "eye_drop": make_session("101", "Eye Drop", 5.0),
+        "control": make_session("201", "Control", 1.0),
+    }
+    values = MODULE.pair_topography_values(item)
+    assert np.allclose(values[0], np.full(n_channels, 4.0))
+    assert np.isnan(values[1:]).all()
+    assert MODULE._nice_symmetric_topography_limit(np.array([-28.33, 12.0])) == 30.0
+
+
 def test_complete_figure_and_table_outputs_are_generated_from_cached_values(tmp_path: Path):
     channels = MODULE.EXPECTED_CHANNEL_NAMES
 
