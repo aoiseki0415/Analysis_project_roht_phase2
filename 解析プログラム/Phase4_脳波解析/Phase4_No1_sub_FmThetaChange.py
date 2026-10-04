@@ -34,7 +34,7 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-sub-fmtheta-change-2026-10-04.1"
+SCRIPT_VERSION = "phase4-no1-sub-fmtheta-change-2026-10-04.2"
 N_SETS = no1.N_SETS
 PROGRESS_POINTS = no1.GROUP_PROGRESS_POINTS_PER_SET
 SMOOTHING_SECONDS = no1.TIMECOURSE_SMOOTHING_SECONDS
@@ -146,6 +146,38 @@ def _nice_symmetric_limit(values: np.ndarray, target_fraction: float) -> tuple[f
     if not candidates:
         return raw, np.linspace(-raw, raw, 5)
     _, limit, ticks = min(candidates, key=lambda item: (item[0], item[1]))
+    return float(limit), ticks
+
+
+def _nice_close_symmetric_limit(
+    values: np.ndarray, target_fraction: float
+) -> tuple[float, np.ndarray]:
+    """Choose a readable symmetric limit while prioritising target occupancy."""
+    finite = np.abs(np.asarray(values, dtype=float))
+    finite = finite[np.isfinite(finite)]
+    maximum = float(finite.max()) if finite.size else 1.0
+    raw = max(maximum / target_fraction, 1.0)
+    exponent = math.floor(math.log10(raw))
+    limits = [
+        multiplier * 10.0**power
+        for power in range(exponent - 2, exponent + 2)
+        for multiplier in (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
+        if multiplier * 10.0**power >= raw
+    ]
+    limit = min(limits)
+    tick_choices: list[tuple[float, float, np.ndarray]] = []
+    for power in range(exponent - 2, exponent + 2):
+        scale = 10.0**power
+        for multiplier in (1.0, 2.0, 2.5, 4.0, 5.0, 10.0):
+            step = multiplier * scale
+            ticks = np.arange(-limit, limit + step * 0.01, step)
+            if 3 <= ticks.size <= 7 and np.any(np.isclose(ticks, 0.0)):
+                tick_choices.append((abs(ticks.size - 5), step, ticks))
+    ticks = (
+        min(tick_choices, key=lambda item: (item[0], item[1]))[2]
+        if tick_choices
+        else np.linspace(-limit, limit, 5)
+    )
     return float(limit), ticks
 
 
@@ -313,6 +345,16 @@ def plot_grand_average(
     plt.close(figure)
 
 
+def grand_average_axis(frames: list[pd.DataFrame]) -> tuple[float, np.ndarray]:
+    """Return a shared symmetric axis from mean lines only."""
+    values = [
+        frame[f"{prefix}_Mean_PSDChange_pct"].to_numpy(float)
+        for frame in frames
+        for prefix in ("EyeDrop", "Control")
+    ]
+    return _nice_close_symmetric_limit(np.concatenate(values), 0.75)
+
+
 def set_channel_means(session: ChangeSession) -> dict[int, np.ndarray]:
     return {
         number: np.nanmean(
@@ -344,7 +386,7 @@ def build_quantification(items: list[dict[str, Any]], product_dir: str) -> pd.Da
                     else np.nan,
                 }
             )
-        analysis_sets = sorted(common.difference({1}))
+        analysis_sets = sorted(common)
         eye_values = np.concatenate(
             [
                 to_percent_change(
@@ -366,7 +408,7 @@ def build_quantification(items: list[dict[str, Any]], product_dir: str) -> pd.Da
         rows.append(
             {
                 "PairID": item["spec"].pair_id,
-                "Set": "Sets 2-6",
+                "Set": "All Sets",
                 "EyeDrop_PSDChange_pct": float(np.nanmean(eye_values)),
                 "Control_PSDChange_pct": float(np.nanmean(control_values)),
             }
@@ -405,11 +447,11 @@ def quantification_statistics(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
     ):
         statistics[column] = np.nan
         statistics.loc[statistics["Set"] != 1, column] = adjusted_p_values(p_values, method)
-    selected = frame.loc[frame["Set"] == "Sets 2-6"]
+    selected = frame.loc[frame["Set"] == "All Sets"]
     overall = pd.DataFrame(
         [
             {
-                "Set": "Sets 2-6",
+                "Set": "All Sets",
                 **paired_t_statistics(
                     selected["EyeDrop_PSDChange_pct"].to_numpy(float),
                     selected["Control_PSDChange_pct"].to_numpy(float),
@@ -420,13 +462,41 @@ def quantification_statistics(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
     return statistics, overall
 
 
-def _quantification_layout(values: np.ndarray) -> tuple[float, np.ndarray, float, float, float]:
-    finite = np.abs(np.asarray(values, dtype=float))
+def _quantification_layout(
+    values: np.ndarray,
+) -> tuple[float, float, np.ndarray, float, float, float]:
+    finite = np.asarray(values, dtype=float)
     finite = finite[np.isfinite(finite)]
-    maximum = float(finite.max()) if finite.size else 1.0
-    scale = max(maximum, 1.0)
-    limit, ticks = _nice_symmetric_limit(np.array([-1.37 * scale, 1.37 * scale]), 1.0)
-    return limit, ticks, 1.13 * scale, 1.17 * scale, 1.29 * scale
+    observed_max = float(np.max(finite)) if finite.size else 0.0
+    observed_min = float(np.min(finite)) if finite.size else 0.0
+    reference_max = max(observed_max, 2.0 * abs(min(observed_min, 0.0)) / 1.37, 1.0)
+    upper = 1.37 * reference_max
+    lower = -upper / 2.0
+
+    exponent = int(np.floor(np.log10(upper))) if upper > 0 else 0
+    choices: list[tuple[float, float, np.ndarray]] = []
+    for power in range(exponent - 2, exponent + 2):
+        scale = 10.0**power
+        for multiplier in (1.0, 2.0, 2.5, 5.0, 10.0):
+            step = multiplier * scale
+            start = math.ceil(lower / step) * step
+            stop = math.floor(upper / step) * step
+            ticks = np.arange(start, stop + step * 0.01, step)
+            if 3 <= ticks.size <= 6 and np.any(np.isclose(ticks, 0.0)):
+                choices.append((abs(ticks.size - 5), step, ticks))
+    ticks = (
+        min(choices, key=lambda item: (item[0], item[1]))[2]
+        if choices
+        else np.linspace(lower, upper, 5)
+    )
+    return (
+        lower,
+        upper,
+        ticks,
+        1.13 * reference_max,
+        1.18 * reference_max,
+        1.29 * reference_max,
+    )
 
 
 def _draw_quant_panel(
@@ -437,12 +507,12 @@ def _draw_quant_panel(
     product_label: str,
     panel_label: str,
     p_value: float | None,
-    layout: tuple[float, np.ndarray, float, float, float],
+    layout: tuple[float, float, np.ndarray, float, float, float],
     seed: int,
     *,
     show_ylabel: bool,
 ) -> None:
-    limit, ticks, line_y, text_y, set_y = layout
+    lower, upper, ticks, line_y, text_y, set_y = layout
     paired = np.isfinite(eye) & np.isfinite(control)
     eye, control = eye[paired], control[paired]
     x = np.array([-0.32, 0.32])
@@ -492,7 +562,7 @@ def _draw_quant_panel(
     else:
         axis.plot(
             [x[0], x[0], x[1], x[1]],
-            [line_y - 0.02 * limit, line_y, line_y, line_y - 0.02 * limit],
+            [line_y - 0.02 * (upper - lower), line_y, line_y, line_y - 0.02 * (upper - lower)],
             color="black",
             linewidth=2.2,
         )
@@ -507,16 +577,15 @@ def _draw_quant_panel(
         )
     axis.text(
         0,
-        set_y / limit,
+        set_y,
         panel_label,
-        transform=axis.get_xaxis_transform(),
         ha="center",
         va="center",
         fontsize=26,
         fontfamily="Arial",
     )
     axis.set_xlim(-0.9, 0.9)
-    axis.set_ylim(-limit, limit)
+    axis.set_ylim(lower, upper)
     axis.set_yticks(ticks)
     axis.set_xticks(x, ["Eye Drop", "Control"], fontsize=22)
     axis.text(
@@ -543,7 +612,7 @@ def plot_quantification(
 ) -> None:
     _, product_label, _, eye_color = no1.normalize_product(product)
     values = frame.loc[
-        frame["Set"] != "Sets 2-6", ["EyeDrop_PSDChange_pct", "Control_PSDChange_pct"]
+        frame["Set"] != "All Sets", ["EyeDrop_PSDChange_pct", "Control_PSDChange_pct"]
     ].to_numpy(float)
     layout = _quantification_layout(values)
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
@@ -577,7 +646,7 @@ def plot_overall_quantification(
     frame: pd.DataFrame, statistics: pd.DataFrame, product: str, path: Path
 ) -> None:
     _, product_label, _, eye_color = no1.normalize_product(product)
-    selected = frame.loc[frame["Set"] == "Sets 2-6"]
+    selected = frame.loc[frame["Set"] == "All Sets"]
     values = selected[["EyeDrop_PSDChange_pct", "Control_PSDChange_pct"]].to_numpy(float)
     layout = _quantification_layout(values)
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
@@ -588,7 +657,7 @@ def plot_overall_quantification(
         selected["Control_PSDChange_pct"].to_numpy(float),
         eye_color,
         product_label,
-        "Sets 2-6",
+        "All Sets",
         float(statistics["P_value_raw"].iloc[0]),
         layout,
         9101,
@@ -664,7 +733,7 @@ def plot_topography(values: np.ndarray, path: Path) -> float:
                 line.set_visible(False)
         colorbar = figure.colorbar(image, ax=axis, fraction=0.080, pad=0.10, aspect=12, shrink=0.94)
         colorbar.set_ticks([-limit, 0, limit])
-        colorbar.set_label(TOPOGRAPHY_LABEL, fontsize=28, rotation=270, labelpad=34)
+        colorbar.set_label(TOPOGRAPHY_LABEL, fontsize=18, rotation=270, labelpad=28)
         colorbar.ax.tick_params(labelsize=24, width=1.5, length=7)
     figure.subplots_adjust(left=0.018, right=0.99, top=0.86, bottom=0.08, wspace=0.62)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -779,20 +848,22 @@ def write_individual(item: dict[str, Any], output_root: Path) -> dict[str, str]:
 def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any]:
     products = sorted({item["product_dir"] for item in items})
     grand_by_product: dict[str, pd.DataFrame] = {}
-    all_grand_values: list[np.ndarray] = []
     for product in products:
         grand, _ = build_grand_average(items, product)
         grand_by_product[product] = grand
-        for prefix in ("EyeDrop", "Control"):
-            mean = grand[f"{prefix}_Mean_PSDChange_pct"].to_numpy(float)
-            sem = grand[f"{prefix}_SEM_PSDChange_pct"].fillna(0).to_numpy(float)
-            all_grand_values.extend([mean - sem, mean + sem])
-    common_limit, common_ticks = _nice_symmetric_limit(np.concatenate(all_grand_values), 0.75)
+    common_limit, common_ticks = grand_average_axis(list(grand_by_product.values()))
     outputs: dict[str, Any] = {}
     for product in products:
         paths = output_directories(output_root, product)
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)
+        for legacy_path in (
+            paths["quantification"]
+            / f"No1_sub_FmThetaChange_Sets2to6Quantification_{product}.png",
+            paths["quantification_tables"]
+            / f"No1_sub_FmThetaChange_Sets2to6Quantification_Statistics_{product}.csv",
+        ):
+            legacy_path.unlink(missing_ok=True)
         grand = grand_by_product[product]
         grand_png = paths["grand"] / f"No1_sub_FmThetaChange_GrandAverage_{product}.png"
         grand_csv = (
@@ -809,7 +880,7 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
             paths["quantification"] / f"No1_sub_FmThetaChange_SetQuantification_{product}.png"
         )
         overall_png = (
-            paths["quantification"] / f"No1_sub_FmThetaChange_Sets2to6Quantification_{product}.png"
+            paths["quantification"] / f"No1_sub_FmThetaChange_AllSetsQuantification_{product}.png"
         )
         plot_quantification(quant, set_stats, product, quant_png)
         plot_overall_quantification(quant, overall_stats, product, overall_png)
@@ -825,7 +896,7 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
         )
         overall_stats.to_csv(
             paths["quantification_tables"]
-            / f"No1_sub_FmThetaChange_Sets2to6Quantification_Statistics_{product}.csv",
+            / f"No1_sub_FmThetaChange_AllSetsQuantification_Statistics_{product}.csv",
             index=False,
         )
 
@@ -854,7 +925,7 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
         outputs[product] = {
             "grand_average": str(grand_png),
             "set_quantification": str(quant_png),
-            "sets_2_to_6_quantification": str(overall_png),
+            "all_sets_quantification": str(overall_png),
             "topography": str(topo_png),
         }
     return outputs

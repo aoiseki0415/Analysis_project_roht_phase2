@@ -42,7 +42,7 @@ PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
 - x軸：`Experimental Progress, %`、0–600
 - y軸：`PSD Change, %`
 - 0%の水平線を表示する
-- 個人figureは最大絶対値がy軸絶対上限の約70%、Grand-averageは平均±SEMの最大絶対値が約75%となる、0中心の左右対称軸を用いる
+- 個人figureは最大絶対値がy軸絶対上限の約70%、Grand-averageはSEMを軸決定に含めず、平均線の最大絶対値が約75%となる0中心の左右対称軸を用いる
 - 色、線幅、Arial、Set境界、Set名、凡例、文字サイズはNo1本体に合わせる
 
 ## 5. Grand-average
@@ -58,10 +58,12 @@ PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
 - Set別値：そのSet内の有限な全時間窓の算術平均
 - Set 1：定義上0%のBaselineとして表示し、t検定を行わない
 - Set 2–6：対応ありt検定でEye DropとControlを比較する
-- 全Set統合版：Set 1を含めず、Set 2–6の有限な全時間窓から条件ごとの1値を作る
+- 全Set統合版：Set 1を含むSet 1–6の有限な全時間窓を直接連結し、条件ごとの1値を作る。Set平均を等重みで再平均せず、有限時間窓を直接平均する
 - figureは未補正p値を表示する
 - CSVには未補正、Bonferroni、Holm、FDR-BHの結果を保存する。補正対象はSet 2–6の5比較とする
-- y軸：`PSD Change, %`、0中心の左右対称軸
+- Set別figureのSet 1はBaselineとして表示し、統計線を描かない。Set 2–6と全Set統合版は両側対応ありt検定を行う
+- y軸：`PSD Change, %`。0より上：下の表示範囲を約2：1とし、全有限値が入るようにする
+- 統計線、統計文字、Set名、上限は最大データ点を基準に順に配置し、Set名を統計表示より上に置く
 
 ## 7. Topography
 
@@ -75,6 +77,7 @@ Difference in PSD Change(ch, Set) = Eye Drop - Control
 - 6 Setを横一列に表示する
 - Set 1は定義上0%であるため平坦なBaseline mapとする
 - colorbar：`Difference in PSD Change, %`
+- colorbarラベル：Arial 18 pt
 - 各figure内の6 Setは共通、0中心・左右対称スケールとする
 - 上限は有限値の最大絶対値がカラースケールの約85%となる切りのよい値にする
 - 10-20 system、全32電極点、No1本体と同じ頭部輪郭・補間・文字サイズを用いる
@@ -138,7 +141,7 @@ No1_subにPSD再計算モードは設けません。figure調整時にもロー�
 
 ## 12. 実装状態
 
-2026-10-04に本番manifestの40ペアを事前検査し、Set 1 baselineを定義できない既知の109–209を規定どおり除外しました。残る39ペア（78セッション）を同一スクリプトで実行し、個人時間変化、個人topography、製品群別Grand-average、Set別・Sets 2–6統合定量化、統計、Grand-average topographyをOneDriveへ保存しました。
+2026-10-04に本番manifestの40ペアを事前検査し、Set 1 baselineを定義できない既知の109–209を規定どおり除外しました。残る39ペア（78セッション）を同一スクリプトで実行し、個人時間変化、個人topography、製品群別Grand-average、Set別・全Set統合定量化、統計、Grand-average topographyをOneDriveへ保存しました。
 
 検証結果は次のとおりです。
 

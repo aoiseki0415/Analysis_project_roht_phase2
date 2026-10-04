@@ -42,6 +42,32 @@ def test_symmetric_limit_contains_positive_and_negative_values() -> None:
     assert np.any(np.isclose(ticks, 0.0))
 
 
+def test_grand_average_axis_uses_mean_lines_not_sem() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "EyeDrop_Mean_PSDChange_pct": [-30.0, 60.0],
+            "Control_Mean_PSDChange_pct": [-20.0, 40.0],
+            "EyeDrop_SEM_PSDChange_pct": [500.0, 500.0],
+            "Control_SEM_PSDChange_pct": [500.0, 500.0],
+        }
+    )
+    limit, _ = module.grand_average_axis([frame])
+    assert limit >= 60.0 / 0.75
+    assert np.isclose(limit, 80.0)
+
+
+def test_quantification_layout_reserves_two_to_one_space_and_set_is_highest() -> None:
+    lower, upper, ticks, line_y, text_y, set_y = module._quantification_layout(
+        np.array([-50.0, 140.0])
+    )
+    assert np.isclose(abs(lower) * 2.0, upper)
+    assert lower < -50.0 < 140.0 < line_y < text_y < set_y < upper
+    assert 3 <= ticks.size <= 6
+    assert np.any(np.isclose(ticks, 0.0))
+
+
 def test_quantification_statistics_does_not_test_set1() -> None:
     rows = []
     for pair in ("101-201", "102-202", "103-203"):
@@ -57,7 +83,7 @@ def test_quantification_statistics_does_not_test_set1() -> None:
         rows.append(
             {
                 "PairID": pair,
-                "Set": "Sets 2-6",
+                "Set": "All Sets",
                 "EyeDrop_PSDChange_pct": 3.0,
                 "Control_PSDChange_pct": 2.0,
             }
@@ -68,7 +94,7 @@ def test_quantification_statistics_does_not_test_set1() -> None:
     baseline = set_statistics.loc[set_statistics["Set"] == 1].iloc[0]
     assert np.isnan(baseline["P_value_raw"])
     assert baseline["Note"] == "Baseline; no test"
-    assert overall.iloc[0]["Set"] == "Sets 2-6"
+    assert overall.iloc[0]["Set"] == "All Sets"
 
 
 def test_output_tree_is_separate_from_no1() -> None:
