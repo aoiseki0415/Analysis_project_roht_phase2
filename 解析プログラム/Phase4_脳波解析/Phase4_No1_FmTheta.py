@@ -38,7 +38,7 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.4"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.5"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.2"
 N_SETS = 6
 SFREQ = 256.0
@@ -51,7 +51,8 @@ INCLUDED_FREQUENCIES_HZ = np.array([4.0, 5.0, 6.0, 7.0])
 GROUP_PROGRESS_POINTS_PER_SET = 100
 PSD_WINDOW_BATCH_SIZE = 512
 PSD_MASK_OVERLAP_THRESHOLD = 0.01
-TIMECOURSE_SMOOTHING_SECONDS = 30
+TIMECOURSE_SMOOTHING_SECONDS = 60
+DEFAULT_GRAND_AVERAGE_TARGET_FRACTION = 0.75
 EXCLUDED_SESSION_IDS = {"130", "230"}
 PRODUCTION_PARTICIPANT_COUNT = 40
 PRODUCTION_PARTICIPANTS_PER_PRODUCT = 20
@@ -363,7 +364,9 @@ def analysis_configuration() -> dict[str, Any]:
     }
 
 
-def downstream_configuration() -> dict[str, Any]:
+def downstream_configuration(
+    grand_average_target_fraction: float = DEFAULT_GRAND_AVERAGE_TARGET_FRACTION,
+) -> dict[str, Any]:
     return {
         "interval_mask_policy": "set_psd_nan_when_phase1_mask_overlap_fraction_gte_0.01",
         "interval_mask_overlap_threshold": PSD_MASK_OVERLAP_THRESHOLD,
@@ -377,6 +380,11 @@ def downstream_configuration() -> dict[str, Any]:
         },
         "quantification_smoothing": "none",
         "topography_smoothing": "none",
+        "grand_average_y_axis": {
+            "basis": "maximum_mean_plus_sem",
+            "target_fraction": grand_average_target_fraction,
+            "shared_between_products": True,
+        },
     }
 
 
@@ -1391,7 +1399,12 @@ def write_individual_outputs(item: dict[str, Any], output_root: Path) -> dict[st
     }
 
 
-def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any]:
+def write_group_outputs(
+    items: list[dict[str, Any]],
+    output_root: Path,
+    *,
+    grand_average_target_fraction: float = DEFAULT_GRAND_AVERAGE_TARGET_FRACTION,
+) -> dict[str, Any]:
     products = sorted({item["product_dir"] for item in items})
     grand_by_product: dict[str, pd.DataFrame] = {}
     proposed: dict[str, tuple[float, np.ndarray]] = {}
@@ -1406,9 +1419,12 @@ def write_group_outputs(items: list[dict[str, Any]], output_root: Path) -> dict[
                 grand["Control_Mean_PSD_uV2_per_Hz"] + control_sem,
             ]
         )
-        proposed[product] = _nice_upper(displayed, 0.75)
+        proposed[product] = _nice_upper(displayed, grand_average_target_fraction)
     common_upper = max(value[0] for value in proposed.values())
-    _, common_ticks = _nice_upper(np.array([common_upper * 0.75]), 0.75)
+    _, common_ticks = _nice_upper(
+        np.array([common_upper * grand_average_target_fraction]),
+        grand_average_target_fraction,
+    )
     if common_ticks[-1] != common_upper:
         step = common_ticks[1] - common_ticks[0]
         common_ticks = np.arange(0.0, common_upper + step * 0.01, step)
@@ -1487,6 +1503,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-root", type=Path, default=DEFAULT_CACHE_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--production-batch", action="store_true")
+    parser.add_argument(
+        "--grand-y-target-fraction",
+        type=float,
+        default=DEFAULT_GRAND_AVERAGE_TARGET_FRACTION,
+        help=(
+            "Display-only Grand-average y-axis target fraction. "
+            "The standard is 0.75; use another value only for an explicitly approved rerender."
+        ),
+    )
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--preflight-only", action="store_true")
     modes.add_argument("--compute-psd", action="store_true")
@@ -1510,6 +1535,8 @@ def main() -> int:
         raise SystemExit("Provide --participant or --manifest")
     if args.force_recompute and not (args.compute_psd or args.all):
         raise SystemExit("--force-recompute requires --compute-psd or --all")
+    if not 0.0 < args.grand_y_target_fraction <= 1.0:
+        raise SystemExit("--grand-y-target-fraction must be in (0, 1]")
     validate_participant_specs(specs, production_batch=args.production_batch)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -1572,7 +1599,11 @@ def main() -> int:
             logging.info("Individual outputs completed")
             return 0
 
-    group_outputs = write_group_outputs(items, args.output_root)
+    group_outputs = write_group_outputs(
+        items,
+        args.output_root,
+        grand_average_target_fraction=args.grand_y_target_fraction,
+    )
     log_root = _output_directories(args.output_root, "CCube")["logs"]
     summary_path = log_root / "No1_FmTheta_RunSummary.json"
     _write_log(
@@ -1582,7 +1613,9 @@ def main() -> int:
             "completed_at": datetime.now().astimezone().isoformat(),
             "mode": "all" if args.all else "group-outputs-only",
             "cache_configuration": analysis_configuration(),
-            "downstream_configuration": downstream_configuration(),
+            "downstream_configuration": downstream_configuration(
+                args.grand_y_target_fraction
+            ),
             "participants": [asdict(spec) | {"pair_id": spec.pair_id} for spec in specs],
             "preflight": preflight,
             "cache_records": cache_records,

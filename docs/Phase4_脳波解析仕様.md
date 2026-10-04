@@ -124,7 +124,7 @@ psd, freqs = mne.time_frequency.psd_array_welch(
 | PSD単位 | µV²/Hz |
 | 対数変換 | なし |
 | dB変換 | なし |
-| 時間平滑化 | cacheはなし。時間変化figureはSet内30秒中心化単純移動平均 |
+| 時間平滑化 | cacheはなし。時間変化figureはSet内60秒中心化単純移動平均 |
 | 区間maskによるNaN化 | 窓内重複率1%以上で全32chのPSDをNaN |
 | ch除外 | 現時点ではなし |
 
@@ -154,8 +154,8 @@ Set実時間の違いはprogress軸だけで線形伸縮します。PSDの1秒�
 
 ### 6.1 時間平滑化
 
-- ID101–201で15、30、60秒の中心化単純移動平均を比較し、時間変化を滑らかに示しつつ局所変化を過度にならさない設定として30秒を採用しました。
-- 1秒刻みPSDに対し30点の中心化単純移動平均を、Setごとに独立して適用します。Set境界をまたぎません。
+- ID101–201で15、30、60秒の中心化単純移動平均を比較し、その後の全対象結果も確認したうえで、時間変化をより滑らかに示す設定として60秒を採用しました。
+- 1秒刻みPSDに対し60秒の中心化単純移動平均を、Setごとに独立して適用します。Set境界をまたぎません。
 - NaNを無視して有限値の算術平均を求め、移動窓内の全値がNaNの場合だけ結果をNaNとします。NaN区間の前詰めや補完はしません。
 - 平滑化は実時間で行い、その後にprogress軸へ表示します。Grand-averageは各条件・各Setの平滑化後系列を100点のprogress格子へ対応付けた後、被験者間平均します。
 - ローカルHDF5は未平滑PSDを正本とし、平滑化値で上書きしません。定量化とtopographyも未平滑PSDから計算します。
@@ -236,6 +236,7 @@ qc/
 - `--group-outputs-only`：既存cacheからGrand-average、定量化、統計、topographyを作成
 - `--all`：preflight、必要なcache計算、全figure・表・ログ作成
 - `--force-recompute`：利用者が明示した場合だけ既存cacheを再計算
+- `--grand-y-target-fraction`：Grand-averageの表示専用オーバーライド。標準値は`0.75`で、明示された再描画時だけ変更
 
 通常は既存cacheの設定hashと完全性が一致すれば再利用します。figureデザイン変更では`--individual-only`または`--group-outputs-only`を使います。
 
@@ -294,7 +295,7 @@ qc/
 - margins：left 0.08、right 0.99、top 0.78、bottom 0.20
 - 横グリッドなし、180 dpi、`bbox_inches="tight"`
 - 標準版は `Individual/` 直下へ保存します。
-- `Individual/` 直下の標準版は30秒平滑化後のFz PSDを描画します。y上限の `M` も平滑化後の2条件・全Setから求めます。
+- `Individual/` 直下の標準版は60秒平滑化後のFz PSDを描画します。y上限の `M` も平滑化後の2条件・全Setから求めます。
 - 確認用の未平滑PSD時間変化は `Individual/Unsmoothed/` に保存し、その未平滑値から同じ割合ルールで自動y軸を決めます。
 - y軸固定版は作らず、探索時の `SmoothingComparison/` も本番成果に残しません。
 
@@ -302,7 +303,7 @@ qc/
 
 ### 11.1 progress格子と集計
 
-- 各Setの未平滑PSDに30秒中心化単純移動平均を適用した後、`np.linspace(0, 100, 100, endpoint=False)` の100点へ線形対応付けします。
+- 各Setの未平滑PSDに60秒中心化単純移動平均を適用した後、`np.linspace(0, 100, 100, endpoint=False)` の100点へ線形対応付けします。
 - 補間は各被験者・各条件・各Set内だけで行い、Set間をまたぎません。
 - 欠測Setは100点すべてNaNです。既知欠測ペアでは対応条件側も同じSetをNaNにします。
 - 各progress点で有限値だけから平均、標本SD（`ddof=1`）、N、`SEM = SD / sqrt(N)`を計算します。
@@ -310,10 +311,11 @@ qc/
 
 ### 11.2 figure
 
-- 製品群ごとに1 PNG、figure size `24 × 8 inch`。平均線とSEM帯は30秒平滑化後の個人系列から計算します。
+- 製品群ごとに1 PNG、figure size `24 × 8 inch`。平均線とSEM帯は60秒平滑化後の個人系列から計算します。
 - x軸、Set境界、Set名、文字、線、凡例、余白は個人figureと同じです。
 - 平均線3.0 pt、SEM帯は条件色・alpha 0.18・境界線なしです。
 - y下限は0です。両条件の `mean + SEM` の有限最大値を `M` とし、y上限は `M / 0.75` 以上となる切りのよい値にします。
+- 上記の約75%が今後の標準規則です。全対象の今回成果だけは、一部の大きな値によって通常域が図下部へ圧縮されたため、再描画時に`--grand-y-target-fraction 0.96`を明示して最大`mean + SEM`を約96%に置きます。これは今回の成果物に限る表示上の例外であり、次回以降の一般規則にはしません。
 - y目盛は0を含む3〜6個です。
 - Cキューブ群とVロートプレミアム群のy軸は、両群の候補上限の大きい方に統一します。
 - 凡例へNやSEMの説明文は追加しません。
@@ -467,9 +469,9 @@ qc/
         logs/
 ```
 
-- `Individual/`：被験者ペアごとの30秒平滑化後Fz時間変化・自動y軸PNGだけ
+- `Individual/`：被験者ペアごとの60秒平滑化後Fz時間変化・自動y軸PNGだけ
 - `Individual/Unsmoothed/`：同じ個人ペアの未平滑Fz時間変化・自動y軸PNGだけ
-- `GrandAverage/`：30秒平滑化後の製品群別Fz平均±SEM PNGだけ
+- `GrandAverage/`：60秒平滑化後の製品群別Fz平均±SEM PNGだけ
 - `SetQuantification/`：Set別PNG、全Set統合PNG、統計CSV
 - `Topography/Individual/`：被験者ペアごとの6 Set topography PNG
 - `Topography/GrandAverage/`：製品群別6 Set topography PNG

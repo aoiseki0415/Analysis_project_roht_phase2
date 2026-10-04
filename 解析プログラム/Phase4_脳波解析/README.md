@@ -14,13 +14,14 @@
 
 根拠と解釈上の注意は [`docs/Phase4_解析対象チャンネル文献調査.md`](../../docs/Phase4_解析対象チャンネル文献調査.md) を参照します。FCzとPOzは現行32chに含まれません。
 
-No1は、全32chを1秒Hann窓・1秒移動・256点FFTのWelch法で解析し、4–7 Hz平均の未平滑PSDをHDF5へ一度だけ保存します。そのデータからFzの30秒平滑化時間変化、製品群別Grand-average、未平滑PSDの定量化・統計、全32chの条件差topographyを作ります。現行の確定仕様、figure様式、欠測Set、フォルダ構造は [`docs/Phase4_脳波解析仕様.md`](../../docs/Phase4_脳波解析仕様.md) を唯一の実装正本とします。
+No1は、全32chを1秒Hann窓・1秒移動・256点FFTのWelch法で解析し、4–7 Hz平均の未平滑PSDをHDF5へ一度だけ保存します。そのデータからFzの60秒平滑化時間変化、製品群別Grand-average、未平滑PSDの定量化・統計、全32chの条件差topographyを作ります。現行の確定仕様、figure様式、欠測Set、フォルダ構造は [`docs/Phase4_脳波解析仕様.md`](../../docs/Phase4_脳波解析仕様.md) を唯一の実装正本とします。
 
 ## No1の実行モード
 
 - `--preflight-only`、`--compute-psd`、`--individual-only`、`--group-outputs-only`、`--all` から1つを選択します。
 - `--force-recompute` は `--compute-psd` または `--all` と併用し、明示的な再計算決定がある場合だけ使用します。
 - `--force-recompute` がない限り、設定hashと入力情報が一致して検証済みのPSD cacheを再利用します。
+- `--grand-y-target-fraction` はGrand-averageの表示だけを変える明示的オプションです。標準は`0.75`であり、全対象の今回成果だけは通常域の視認性を上げるため`0.96`を指定します。この値を今後の一般規則にはしません。
 - 全対象へ同じコード・同じ定数を適用し、既知欠測Set以外のID固有分岐を作りません。
 
 本番manifestはリポジトリ外の非公開CSVを `--manifest` で渡します。実行例は次のとおりです。
@@ -33,7 +34,7 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
   --preflight-only
 ```
 
-preflight完了後の本計算では、同じmanifestに `--all` を指定します。入力、cache、OneDriveのデフォルトパスは確定仕様に固定しています。このREADME更新時点で `--all` はまだ実行していません。
+preflight完了後の本計算では、同じmanifestに `--all` を指定します。入力、cache、OneDriveのデフォルトパスは確定仕様に固定しています。全対象の本番PSD cacheは作成・検証済みで、表示変更時はcacheを再利用します。
 
 ## No1実装時の固定事項
 
@@ -42,10 +43,10 @@ preflight完了後の本計算では、同じmanifestに `--all` を指定しま
 - Set端：前後128 samplesの反射padding、Set開始・終了を窓中心として評価
 - 区間mask：Phase 1のICA学習除外区間と1%以上重なるPSD窓を全32chでNaN化し、時刻・progressは保持
 - ch mask：ICA学習用ch除外maskはPSDへ適用せず、32chを保持
-- 時間変化：各Set内で30秒中心化単純移動平均。NaNは無視し、窓内全てがNaNの場合のみNaN
+- 時間変化：各Set内で60秒中心化単純移動平均。NaNは無視し、窓内全てがNaNの場合のみNaN
 - 現行非適用：平均参照、ラプラシアン
 - cache：全32chの帯域平均PSD時間変化、中心時刻、progress、mask監査情報をHDF5保存
-- figure：30秒平滑化した個人Fzと製品群別Fz Grand-average、未平滑PSDの定量化、全32ch差topography
+- figure：60秒平滑化した個人Fzと製品群別Fz Grand-average、未平滑PSDの定量化、全32ch差topography
 - 個人Fz：平滑化後の自動y軸版を `Individual/` 直下、未平滑の自動y軸版を `Individual/Unsmoothed/` に保存。固定y軸版と比較フォルダは作成しない
 - 欠測：個人時間変化は欠測側だけ空白、集団集計・定量化・topographyは対応条件も対称除外
 
