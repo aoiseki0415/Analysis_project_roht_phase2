@@ -95,13 +95,15 @@ def test_timecourse_uses_sixty_seconds_and_grand_axis_override_is_explicit():
     assert MODULE.TIMECOURSE_SMOOTHING_SECONDS == 60
     assert MODULE.DEFAULT_GRAND_AVERAGE_TARGET_FRACTION == 0.75
     standard = MODULE.downstream_configuration()
-    current_rerender = MODULE.downstream_configuration(0.96)
+    current_rerender = MODULE.downstream_configuration(0.95, "mean")
     assert standard["timecourse_smoothing"]["seconds"] == 60
     assert standard["quantification_smoothing"] == "none"
     assert standard["topography_smoothing"] == "none"
     assert standard["grand_average_y_axis"]["target_fraction"] == 0.75
-    assert current_rerender["grand_average_y_axis"]["target_fraction"] == 0.96
-    upper, ticks = MODULE._nice_upper(np.array([46.78]), 0.96)
+    assert standard["grand_average_y_axis"]["basis"] == "maximum_mean_plus_sem"
+    assert current_rerender["grand_average_y_axis"]["target_fraction"] == 0.95
+    assert current_rerender["grand_average_y_axis"]["basis"] == "maximum_mean"
+    upper, ticks = MODULE._nice_upper(np.array([46.78]), 0.95)
     assert upper == 50.0
     assert ticks[-1] == 50.0
 

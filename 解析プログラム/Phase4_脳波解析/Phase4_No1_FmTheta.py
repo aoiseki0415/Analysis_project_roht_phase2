@@ -38,7 +38,7 @@ from paired_statistics import (  # noqa: E402
     significance_label,
 )
 
-SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.5"
+SCRIPT_VERSION = "phase4-no1-fmtheta-2026-10-04.6"
 CACHE_CONFIGURATION_VERSION = "phase4-no1-fmtheta-2026-10-04.2"
 N_SETS = 6
 SFREQ = 256.0
@@ -366,6 +366,7 @@ def analysis_configuration() -> dict[str, Any]:
 
 def downstream_configuration(
     grand_average_target_fraction: float = DEFAULT_GRAND_AVERAGE_TARGET_FRACTION,
+    grand_average_y_basis: str = "mean_plus_sem",
 ) -> dict[str, Any]:
     return {
         "interval_mask_policy": "set_psd_nan_when_phase1_mask_overlap_fraction_gte_0.01",
@@ -381,7 +382,7 @@ def downstream_configuration(
         "quantification_smoothing": "none",
         "topography_smoothing": "none",
         "grand_average_y_axis": {
-            "basis": "maximum_mean_plus_sem",
+            "basis": f"maximum_{grand_average_y_basis}",
             "target_fraction": grand_average_target_fraction,
             "shared_between_products": True,
         },
@@ -1404,6 +1405,7 @@ def write_group_outputs(
     output_root: Path,
     *,
     grand_average_target_fraction: float = DEFAULT_GRAND_AVERAGE_TARGET_FRACTION,
+    grand_average_y_basis: str = "mean_plus_sem",
 ) -> dict[str, Any]:
     products = sorted({item["product_dir"] for item in items})
     grand_by_product: dict[str, pd.DataFrame] = {}
@@ -1411,14 +1413,18 @@ def write_group_outputs(
     for product in products:
         grand, _ = build_grand_average(items, product)
         grand_by_product[product] = grand
-        eye_sem = grand["EyeDrop_SEM_PSD_uV2_per_Hz"].fillna(0.0)
-        control_sem = grand["Control_SEM_PSD_uV2_per_Hz"].fillna(0.0)
-        displayed = np.concatenate(
-            [
-                grand["EyeDrop_Mean_PSD_uV2_per_Hz"] + eye_sem,
-                grand["Control_Mean_PSD_uV2_per_Hz"] + control_sem,
-            ]
-        )
+        eye_mean = grand["EyeDrop_Mean_PSD_uV2_per_Hz"]
+        control_mean = grand["Control_Mean_PSD_uV2_per_Hz"]
+        if grand_average_y_basis == "mean":
+            displayed = np.concatenate([eye_mean, control_mean])
+        elif grand_average_y_basis == "mean_plus_sem":
+            eye_sem = grand["EyeDrop_SEM_PSD_uV2_per_Hz"].fillna(0.0)
+            control_sem = grand["Control_SEM_PSD_uV2_per_Hz"].fillna(0.0)
+            displayed = np.concatenate(
+                [eye_mean + eye_sem, control_mean + control_sem]
+            )
+        else:
+            raise ValueError(f"Unknown Grand-average y-axis basis: {grand_average_y_basis}")
         proposed[product] = _nice_upper(displayed, grand_average_target_fraction)
     common_upper = max(value[0] for value in proposed.values())
     _, common_ticks = _nice_upper(
@@ -1512,6 +1518,15 @@ def parse_args() -> argparse.Namespace:
             "The standard is 0.75; use another value only for an explicitly approved rerender."
         ),
     )
+    parser.add_argument(
+        "--grand-y-basis",
+        choices=("mean_plus_sem", "mean"),
+        default="mean_plus_sem",
+        help=(
+            "Display-only Grand-average y-axis basis. The standard is mean_plus_sem; "
+            "use mean only for an explicitly approved rerender."
+        ),
+    )
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--preflight-only", action="store_true")
     modes.add_argument("--compute-psd", action="store_true")
@@ -1603,6 +1618,7 @@ def main() -> int:
         items,
         args.output_root,
         grand_average_target_fraction=args.grand_y_target_fraction,
+        grand_average_y_basis=args.grand_y_basis,
     )
     log_root = _output_directories(args.output_root, "CCube")["logs"]
     summary_path = log_root / "No1_FmTheta_RunSummary.json"
@@ -1614,7 +1630,8 @@ def main() -> int:
             "mode": "all" if args.all else "group-outputs-only",
             "cache_configuration": analysis_configuration(),
             "downstream_configuration": downstream_configuration(
-                args.grand_y_target_fraction
+                args.grand_y_target_fraction,
+                args.grand_y_basis,
             ),
             "participants": [asdict(spec) | {"pair_id": spec.pair_id} for spec in specs],
             "preflight": preflight,
