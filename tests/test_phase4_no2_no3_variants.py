@@ -30,6 +30,9 @@ payload = {{
     'difference_color_ticks': getattr(engine, 'DIFFERENCE_COLOR_TICKS', []).tolist()
         if hasattr(getattr(engine, 'DIFFERENCE_COLOR_TICKS', []), 'tolist') else [],
     'standard_significance_style': getattr(engine, 'USE_STANDARD_SIGNIFICANCE_STYLE', None),
+    'standard_significance_ns_factor': getattr(
+        engine, 'STANDARD_SIGNIFICANCE_NS_FACTOR', None
+    ),
     'ccube_color': engine.PRODUCTS['ccube'][2] if hasattr(engine, 'PRODUCTS')
         and len(engine.PRODUCTS['ccube']) == 4 else None,
     'vrohto_color': engine.PRODUCTS['vrohtopremium'][2] if hasattr(engine, 'PRODUCTS')
@@ -88,6 +91,7 @@ def test_no3_sub_and_add_configuration() -> None:
     assert sub["analysis_stem"] == "No3_sub_FrontalDeltaChange"
     assert sub["focus_channel"] == "Fz"
     assert sub["standard_significance_style"] is True
+    assert sub["standard_significance_ns_factor"] == 1.20
     assert add["analysis_stem"] == "No3_add_FzTimeFrequencyMap"
     assert add["focus_channel"] == "Fz"
     assert add["focus_index"] == 1

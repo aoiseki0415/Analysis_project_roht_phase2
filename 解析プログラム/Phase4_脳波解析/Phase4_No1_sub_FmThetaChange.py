@@ -45,6 +45,7 @@ SET1_MISSING_PAIR_ID = "109-209"
 Y_LABEL = "PSD Change, %"
 TOPOGRAPHY_LABEL = "Difference in PSD Change, %"
 USE_STANDARD_SIGNIFICANCE_STYLE = False
+STANDARD_SIGNIFICANCE_NS_FACTOR = 1.20
 
 DEFAULT_CACHE_ROOT = no1.DEFAULT_CACHE_ROOT
 DEFAULT_OUTPUT_ROOT = no1.DEFAULT_OUTPUT_ROOT
@@ -578,7 +579,8 @@ def _draw_quant_panel(
             significance_label(p_value),
             line_y=(1.13 * reference_max - lower) / y_span,
             text_y=(1.17 * reference_max - lower) / y_span,
-            nonsignificant_text_y=(1.18 * reference_max - lower) / y_span,
+            nonsignificant_text_y=(STANDARD_SIGNIFICANCE_NS_FACTOR * reference_max - lower)
+            / y_span,
             linewidth=2.2,
         )
     else:
