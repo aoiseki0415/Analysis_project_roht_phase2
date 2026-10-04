@@ -30,6 +30,9 @@ payload = {{
     'difference_color_ticks': getattr(engine, 'DIFFERENCE_COLOR_TICKS', []).tolist()
         if hasattr(getattr(engine, 'DIFFERENCE_COLOR_TICKS', []), 'tolist') else [],
     'standard_significance_style': getattr(engine, 'USE_STANDARD_SIGNIFICANCE_STYLE', None),
+    'standard_significance_star_factor': getattr(
+        engine, 'STANDARD_SIGNIFICANCE_STAR_FACTOR', None
+    ),
     'standard_significance_ns_factor': getattr(
         engine, 'STANDARD_SIGNIFICANCE_NS_FACTOR', None
     ),
@@ -91,7 +94,8 @@ def test_no3_sub_and_add_configuration() -> None:
     assert sub["analysis_stem"] == "No3_sub_FrontalDeltaChange"
     assert sub["focus_channel"] == "Fz"
     assert sub["standard_significance_style"] is True
-    assert sub["standard_significance_ns_factor"] == 1.20
+    assert sub["standard_significance_star_factor"] == 1.18
+    assert sub["standard_significance_ns_factor"] == 1.21
     assert add["analysis_stem"] == "No3_add_FzTimeFrequencyMap"
     assert add["focus_channel"] == "Fz"
     assert add["focus_index"] == 1

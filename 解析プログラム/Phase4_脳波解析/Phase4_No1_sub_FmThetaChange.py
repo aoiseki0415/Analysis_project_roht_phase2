@@ -45,7 +45,8 @@ SET1_MISSING_PAIR_ID = "109-209"
 Y_LABEL = "PSD Change, %"
 TOPOGRAPHY_LABEL = "Difference in PSD Change, %"
 USE_STANDARD_SIGNIFICANCE_STYLE = False
-STANDARD_SIGNIFICANCE_NS_FACTOR = 1.20
+STANDARD_SIGNIFICANCE_STAR_FACTOR = 1.18
+STANDARD_SIGNIFICANCE_NS_FACTOR = 1.21
 
 DEFAULT_CACHE_ROOT = no1.DEFAULT_CACHE_ROOT
 DEFAULT_OUTPUT_ROOT = no1.DEFAULT_OUTPUT_ROOT
@@ -578,7 +579,7 @@ def _draw_quant_panel(
             x[1],
             significance_label(p_value),
             line_y=(1.13 * reference_max - lower) / y_span,
-            text_y=(1.17 * reference_max - lower) / y_span,
+            text_y=(STANDARD_SIGNIFICANCE_STAR_FACTOR * reference_max - lower) / y_span,
             nonsignificant_text_y=(STANDARD_SIGNIFICANCE_NS_FACTOR * reference_max - lower)
             / y_span,
             linewidth=2.2,
@@ -945,6 +946,23 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
     return outputs
 
 
+def write_set_quantification_only(
+    items: list[dict[str, Any]], output_root: Path
+) -> dict[str, str]:
+    """Redraw only the six-panel Set quantification PNG for each product."""
+
+    outputs: dict[str, str] = {}
+    for product in sorted({item["product_dir"] for item in items}):
+        paths = output_directories(output_root, product)
+        paths["quantification"].mkdir(parents=True, exist_ok=True)
+        quant = build_quantification(items, product)
+        set_stats, _ = quantification_statistics(quant)
+        quant_png = paths["quantification"] / f"{ANALYSIS_STEM}_SetQuantification_{product}.png"
+        plot_quantification(quant, set_stats, product, quant_png)
+        outputs[product] = str(quant_png)
+    return outputs
+
+
 def git_revision() -> str:
     repository = Path(__file__).resolve().parents[2]
     result = subprocess.run(
@@ -969,6 +987,7 @@ def parse_args() -> argparse.Namespace:
     modes.add_argument("--preflight-only", action="store_true")
     modes.add_argument("--individual-only", action="store_true")
     modes.add_argument("--group-outputs-only", action="store_true")
+    modes.add_argument("--set-quantification-only", action="store_true")
     modes.add_argument("--all", action="store_true")
     return parser.parse_args()
 
@@ -986,6 +1005,26 @@ def main() -> int:
         "%s preflight passed: %s", ANALYSIS_STEM, json.dumps(preflight_summary, ensure_ascii=False)
     )
     if args.preflight_only:
+        return 0
+
+    if args.set_quantification_only:
+        outputs = write_set_quantification_only(items, args.output_root)
+        log = (
+            output_directories(args.output_root, "CCube")["logs"]
+            / f"{ANALYSIS_STEM}_SetQuantificationSummary.json"
+        )
+        write_log(
+            log,
+            {
+                "script_version": SCRIPT_VERSION,
+                "git_commit": git_revision(),
+                "completed_at": datetime.now().astimezone().isoformat(),
+                "mode": "set-quantification-only",
+                "preflight": preflight_summary,
+                "outputs": outputs,
+            },
+        )
+        logging.info("%s Set quantification outputs completed", ANALYSIS_STEM)
         return 0
 
     baseline_path = (
