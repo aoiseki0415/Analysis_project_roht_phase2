@@ -2,7 +2,7 @@
 
 脳波解析のPythonスクリプトを配置します。命名形式は `Phase4_No<番号>_<内容>.py` です。追加解析はNo1本体と混在させず、`No1_add`、`No1_sub` の独立スクリプトにします。
 
-成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。No1の現行スクリプトは `Phase4_No1_FmTheta.py` です。log10 PSD上側3SD除外は実装済みで、60秒平滑化は有限点数の追加基準を設けず、1点以上が有限なら算出する元仕様とします。2026-10-04に全40被験者ペア・80セッションのcacheを確定し、同じ全40ペアの再描画・再集計と成果物検証まで完了しました。No1_addは将来の `Phase4_No1_add_FzTimeFrequencyMap.py` としてNo1本体から分離して実装します。
+成果物と計算済みPSDは、同じNoを使って指定OneDriveと `解析に必要なデータたち/Phase4_脳波解析/` へ保存します。No1の現行スクリプトは `Phase4_No1_FmTheta.py` です。log10 PSD上側3SD除外は実装済みで、60秒平滑化は有限点数の追加基準を設けず、1点以上が有限なら算出する元仕様とします。2026-10-04に全40被験者ペア・80セッションのcacheを確定し、同じ全40ペアの再描画・再集計と成果物検証まで完了しました。No1_addは `Phase4_No1_add_FzTimeFrequencyMap.py` としてNo1本体から分離して実装済みです。
 
 ## 事前定義した解析対象
 
@@ -19,6 +19,26 @@ No1は、全32chを1秒Hann窓・1秒移動・256点FFTのWelch法で解析し�
 No1_addはFzの1–30 Hz線形PSDを用いる追加解析です。No1のシータmaskを流用せず、1–30 Hz平均からセッションID別・全Set一括の専用broadband log10上側3SD時間maskを作り、該当時間の全周波数binをNaNにします。その後、周波数bin別60秒平滑化、各Set100 progress点化、被験者間平均を行い、Eye Drop、Control、`ΔPSD` の3段Grand-average TFMだけを出力します。正本は [`docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md`](../../docs/Phase4_No1_add_FzTimeFrequencyMap仕様.md) です。
 
 No1_subは `Phase4_No1_sub_FmThetaChange.py` として独立実装します。ローカルのNo1 PSD cacheを読み、各セッションID・各chのSet 1平均を基準にPSD Change（%）へ変換します。Fzの個人時間変化・Grand-average、Set別および全Set統合定量化、全32chの条件差topographyを専用OneDriveルートへ出力します。全Set統合値はSet 1–6の全有限時間窓を直接平均します。Grand-averageは平均線の最大絶対値をy軸の約70%、定量化は0より上：下を約2：1とし、Set名を統計表示より十分上へ離して置きます。ローカル派生cacheは作成せず、ペア109–209はSet 1 baselineが定義できないため除外します。正本は [`docs/Phase4_No1_sub_FmThetaChange仕様.md`](../../docs/Phase4_No1_sub_FmThetaChange仕様.md) です。2026-10-04に本番40ペアを事前検査し、規定どおり109–209を除く39ペアの実行・成果物検証を完了しました。Set 2–6の統計は両側対応ありt検定、補正対象は5比較で固定し、独立再計算により未補正値とFDR-BH値が保存CSVへ完全一致することを確認済みです。No1とNo1_subは現行確定版として扱い、明示的な仕様変更または成果物不具合がない限り再計算しません。
+
+No1_addの実行スクリプトは `Phase4_No1_add_FzTimeFrequencyMap.py` です。3段TFMは絶対PSDに `viridis`、差分にゼロ中心の `RdBu_r` を使い、2製品で各カラースケールを共通化します。
+
+2026-10-04にNo1_addを全40ペア・80セッションへ実行し、80件のFz TFM cache、476件の利用可能Set、既知欠測4 Set、2製品のGrand-average TFM、値・有効N・mask監査表・実行ログを検証しました。figureだけの変更では検証済みcacheを再計算しません。
+
+## No1_addの実行モード
+
+- `--preflight-only`：入力、製品群、ID対応、既知欠測Setだけを検査する
+- `--compute-tfm`：セッション別TFM cacheだけを計算・検証する
+- `--group-outputs-only`：検証済みcacheから2製品のGrand-average成果物だけを再作成する
+- `--all`：cache計算からGrand-average成果物までを一括実行する
+- `--force-recompute`：`--compute-tfm` または `--all` と併用し、明示的にcacheを再計算する場合だけ使う
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python \
+  '解析プログラム/Phase4_脳波解析/Phase4_No1_add_FzTimeFrequencyMap.py' \
+  --manifest /secure/path/phase4_manifest.csv \
+  --production-batch \
+  --all
+```
 
 ## No1の実行モード
 
