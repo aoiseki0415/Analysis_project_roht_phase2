@@ -17,4 +17,6 @@
 - 出力は指定OneDriveの `Phase5_相関・その他/No1_DEQS_RT_EyeDropEffect/` に限定する
 - 本解析ではローカルデスクトップの `解析に必要なデータたち/` へ新規中間データを保存しない
 
-予定スクリプトは `Phase5_No1_DEQS_RT_EyeDropEffect.py` です。現段階では仕様書だけを確定し、スクリプト作成・解析実行は行いません。
+実装スクリプトは `Phase5_No1_DEQS_RT_EyeDropEffect.py` です。匿名被験者対応表から作成した非Git管理manifestと、Google Sheetsから確定保存したDEQS得点CSVを入力します。初回実行後はOneDriveの `Sub/tables/No1_DEQS_Scores.csv` が固定スナップショットとなるため、Figureや統計の再生成でGoogle Sheetsを再参照する必要はありません。
+
+実行時にはPhase 2の処理関数を直接再利用して全員分のSet平均RTを再計算し、Phase 2保存済み `AllTrials` 値と `atol=1e-9, rtol=0` で全行照合します。不一致が1件でもあれば相関解析と成果物出力を中止します。
