@@ -116,6 +116,10 @@ No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。20
 
 No1_subはNo1の検証済みPSD cacheをローカルデスクトップから読み、各セッションID・各chのSet 1有限値平均を基準に `PSD Change = (PSD / Set 1平均 − 1) × 100` を計算する独立解析です。変化率への変換後にFz時間変化だけをSet内60秒平滑化し、定量化とtopographyは未平滑変化率を使用します。全Set統合定量値はSet 1を含むSet 1–6の全有限時間窓から作ります。Grand-averageのy軸は平均線の最大絶対値を約70%の位置に置き、定量化は0より上：下を約2：1としてSet名を統計表示より十分上に離して配置します。No1_subの派生データはローカルへ保存せず、OneDrive成果物だけを専用ルートへ出力します。ID109はSet 1欠測のため、対応ID209を含むペア109–209をNo1_sub全体から除外します。2026-10-04に本番40ペアを事前検査し、規定どおり109–209を除く39ペアの全成果物を同一スクリプトで出力・検証済みです。Set 2–6は両側対応ありt検定で比較し、5比較に対するBonferroni・Holm・Benjamini–Hochberg FDRをCSVへ併記します。保存済み被験者値から独立再計算してt値・未補正p値・FDR補正値が完全一致することまで確認し、No1およびNo1_subを現行確定版とします。
 
+## Phase 5相関解析の確定方針
+
+Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解析です。DEQSは問1〜15の程度得点を0〜100点へ換算し、問16は使用しません。RTはPhase 2 No1の主解析 `AllTrials` のSet 1・Set 6平均値を使用し、Phase 2保存値とのID・条件・Set・有効試行数・数値一致を全件確認してから解析します。`Eye Drop Effect = (Control Set6 / Control Set1 - Eye Drop Set6 / Eye Drop Set1) × 100` とし、正値を点眼によってRT増加が抑えられた方向と定義します。Cキューブ群とVロートプレミアム群を分け、製品別にDEQSとのPearson相関を算出します。ID109–209はSet 1、ID120–220はSet 6欠測のため本指標を算出しません。Figure、表、照合記録、出力構造、完了条件は[Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)を正本とします。現段階では運用仕様のみを確定し、スクリプト作成と解析実行は行いません。
+
 ## 文書構成
 
 - [運用ルール](docs/運用ルール.md)：ツール、フォルダ、機密情報、Git、解析記録に関する恒常ルール
@@ -133,6 +137,7 @@ No1_subはNo1の検証済みPSD cacheをローカルデスクトップから読�
 - [Phase 4 No2共有用解析仕様](docs/Phase4_No2_共有用解析仕様.md)：No2本体、No2_sub、No2_addを統合した確定版
 - [Phase 4 No3共有用解析仕様](docs/Phase4_No3_共有用解析仕様.md)：No3本体、No3_sub、No3_addを統合した確定版
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
+- [Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)：DEQS得点化、Phase 2 RT照合、Eye Drop Effect、製品別相関、Figure、OneDrive構造、検証条件をまとめた現行仕様
 - [Phase 1 区間・チャンネル除去パラメータ比較報告書](docs/Phase1_区間・チャンネル除去パラメータ比較報告書.md)：確定前のID101比較を残す歴史資料。現行仕様の判断には使用しない
 - [MacBook AirへのVS Code導入引き継ぎ](docs/引き継ぎ_VSCode導入_MacBookAir.md)：別デバイスでVS Codeだけを導入するための限定手順
 - 個別解析の仕様書：解析方針が確定した段階で `docs/` 配下へ追加し、このREADMEからリンクする
