@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import math
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +19,6 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-SCRIPT_DIR = Path(__file__).resolve().parent
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PHASE2_SCRIPT = (
     REPOSITORY_ROOT
@@ -29,8 +27,8 @@ PHASE2_SCRIPT = (
     / "Phase2_No1_ReactionTime.py"
 )
 PRODUCTS = {
-    "CCube": ("C Cube", "#C84A4A"),
-    "VRohtoPremium": ("V Rohto Premium", "#E58A2B"),
+    "CCube": ("C Cube", "#625A70"),
+    "VRohtoPremium": ("V Rohto Premium", "#8A8195"),
 }
 
 
@@ -95,6 +93,11 @@ def load_deqs_scores(path: Path, specs: list) -> pd.DataFrame:
         supplied = pd.to_numeric(source["DEQS_score_source"], errors="raise")
         if not np.allclose(supplied, source["DEQS_score"], atol=0.01, rtol=0.0):
             raise ValueError("Supplied DEQS score differs from DegreeScoreSum/ValidItemCount*25")
+    # A saved canonical snapshot also contains mapping columns.  Rebuild those
+    # from the current private manifest so the snapshot remains safely reusable.
+    source = source[
+        ["Participant_ID", "Degree_score_sum", "Valid_item_count", "DEQS_score"]
+    ].copy()
 
     manifest_rows = []
     for item in specs:
@@ -211,15 +214,15 @@ def build_analysis_dataset(deqs: pd.DataFrame, values: pd.DataFrame) -> pd.DataF
     wide.columns = [f"{name}_Set{set_number}" for name, set_number in wide.columns]
     wide = wide.reset_index()
     data = deqs.merge(wide, on=["Product", "Pair_ID"], how="left", validate="one_to_one")
-    data["EyeDrop_Set6_to_Set1_ratio"] = (
-        data["EyeDrop_set_mean_RT_ms_Set6"] / data["EyeDrop_set_mean_RT_ms_Set1"]
+    data["EyeDrop_RT_change_ms"] = (
+        data["EyeDrop_set_mean_RT_ms_Set6"] - data["EyeDrop_set_mean_RT_ms_Set1"]
     )
-    data["Control_Set6_to_Set1_ratio"] = (
-        data["Control_set_mean_RT_ms_Set6"] / data["Control_set_mean_RT_ms_Set1"]
+    data["Control_RT_change_ms"] = (
+        data["Control_set_mean_RT_ms_Set6"] - data["Control_set_mean_RT_ms_Set1"]
     )
-    data["Eye_Drop_Effect_pp"] = (
-        data["Control_Set6_to_Set1_ratio"] - data["EyeDrop_Set6_to_Set1_ratio"]
-    ) * 100.0
+    data["Eye_Drop_Effect_ms"] = (
+        data["Control_RT_change_ms"] - data["EyeDrop_RT_change_ms"]
+    )
     required = [
         "EyeDrop_set_mean_RT_ms_Set1",
         "EyeDrop_set_mean_RT_ms_Set6",
@@ -241,7 +244,7 @@ def correlation_statistics(data: pd.DataFrame) -> pd.DataFrame:
             (data["Product"] == product) & data["Included_in_correlation"]
         ]
         x = subset["DEQS_score"].to_numpy(float)
-        y = subset["Eye_Drop_Effect_pp"].to_numpy(float)
+        y = subset["Eye_Drop_Effect_ms"].to_numpy(float)
         result = stats.pearsonr(x, y)
         ci = result.confidence_interval(confidence_level=0.95)
         slope, intercept, _, _, _ = stats.linregress(x, y)
@@ -253,62 +256,49 @@ def correlation_statistics(data: pd.DataFrame) -> pd.DataFrame:
                 "Raw_two_sided_p": float(result.pvalue),
                 "Pearson_r_CI95_lower": float(ci.low),
                 "Pearson_r_CI95_upper": float(ci.high),
-                "OLS_slope_pp_per_DEQS_point": float(slope),
-                "OLS_intercept_pp": float(intercept),
+                "OLS_slope_ms_per_DEQS_point": float(slope),
+                "OLS_intercept_ms": float(intercept),
                 "Multiple_comparison_correction": "なし（探索的解析）",
             }
         )
     return pd.DataFrame(rows)
 
 
-def _regression_mean_ci(x: np.ndarray, y: np.ndarray, x_grid: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    slope, intercept, _, _, _ = stats.linregress(x, y)
-    fitted = intercept + slope * x_grid
-    predicted = intercept + slope * x
-    dof = len(x) - 2
-    residual_se = math.sqrt(float(np.sum((y - predicted) ** 2)) / dof)
-    x_mean = float(np.mean(x))
-    sxx = float(np.sum((x - x_mean) ** 2))
-    critical = float(stats.t.ppf(0.975, dof))
-    se_mean = residual_se * np.sqrt(1.0 / len(x) + (x_grid - x_mean) ** 2 / sxx)
-    return fitted, fitted - critical * se_mean, fitted + critical * se_mean
-
-
 def plot_correlations(data: pd.DataFrame, statistics: pd.DataFrame, output_root: Path) -> list[Path]:
     included = data.loc[data["Included_in_correlation"]]
-    max_abs = float(np.nanmax(np.abs(included["Eye_Drop_Effect_pp"].to_numpy(float))))
-    y_limit = max(10.0, math.ceil((max_abs * 1.10) / 5.0) * 5.0)
+    max_abs = float(np.nanmax(np.abs(included["Eye_Drop_Effect_ms"].to_numpy(float))))
+    y_limit = max(100.0, float(np.ceil((max_abs * 1.10) / 100.0) * 100.0))
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
     paths = []
     for product, (label, color) in PRODUCTS.items():
         subset = included.loc[included["Product"] == product]
         x = subset["DEQS_score"].to_numpy(float)
-        y = subset["Eye_Drop_Effect_pp"].to_numpy(float)
+        y = subset["Eye_Drop_Effect_ms"].to_numpy(float)
         stat = statistics.loc[statistics["Product"] == product].iloc[0]
-        x_grid = np.linspace(0.0, 100.0, 300)
-        fitted, lower, upper = _regression_mean_ci(x, y, x_grid)
         figure, axis = plt.subplots(figsize=(8, 7))
-        axis.fill_between(x_grid, lower, upper, color=color, alpha=0.18, linewidth=0)
-        axis.plot(x_grid, fitted, color=color, linewidth=2.5)
-        axis.scatter(x, y, s=90, color=color, edgecolor="white", linewidth=1.2, zorder=3)
+        axis.scatter(x, y, s=180, color=color, edgecolor="white", linewidth=1.4, zorder=3)
+        if float(stat["Raw_two_sided_p"]) < 0.05:
+            slope, intercept, _, _, _ = stats.linregress(x, y)
+            x_grid = np.linspace(0.0, 100.0, 300)
+            axis.plot(x_grid, intercept + slope * x_grid, color=color, linewidth=2.5)
         axis.axhline(0.0, color="#B0B0B0", linewidth=1.2, zorder=0)
         axis.set_xlim(0.0, 100.0)
         axis.set_xticks(np.arange(0.0, 101.0, 20.0))
         axis.set_ylim(-y_limit, y_limit)
         axis.yaxis.set_major_locator(MaxNLocator(nbins=6))
         axis.set_xlabel("DEQS Score", fontsize=28, labelpad=14)
-        axis.set_ylabel("Eye Drop Effect (percentage points)", fontsize=28, labelpad=14)
-        axis.set_title(label, fontsize=22, pad=16)
+        axis.set_ylabel("Eye Drop Effect (ms)", fontsize=28, labelpad=14)
+        axis.set_title(label, fontsize=22, pad=48)
         axis.tick_params(axis="both", labelsize=20, width=1.5, length=6)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         axis.text(
-            0.04,
-            0.96,
-            f"N = {int(stat['N'])}\nr = {stat['Pearson_r']:.3f}\np = {stat['Raw_two_sided_p']:.3f}",
+            0.5,
+            1.015,
+            f"r = {stat['Pearson_r']:.3f}; p = {stat['Raw_two_sided_p']:.3f}",
             transform=axis.transAxes,
-            ha="left",
-            va="top",
+            ha="center",
+            va="bottom",
             fontsize=18,
         )
         figure.tight_layout()
@@ -362,8 +352,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "phase2_comparison_tolerance": {"atol": 1e-9, "rtol": 0.0},
         "rt_definition": "KeyPress(ms) - TiltOnset(ms), non-Sys",
         "rt_trial_rule": "RT < 200 ms is NaN; no upper exclusion",
-        "eye_drop_effect": "(Control Set6/Set1 - EyeDrop Set6/Set1) * 100",
-        "correlation": "Pearson, two-sided raw p, 95% CI",
+        "eye_drop_effect": "(Control Set6 - Set1) - (EyeDrop Set6 - Set1), ms",
+        "correlation": "Pearson, two-sided raw p; regression line only when raw p < 0.05",
         "local_processed_data_created": False,
         "outputs": {
             **{key: str(value) for key, value in files.items()},
@@ -382,13 +372,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         raise RuntimeError("Analysis dataset read-back validation failed")
     expected_effect = (
         round_trip["Control_set_mean_RT_ms_Set6"]
-        / round_trip["Control_set_mean_RT_ms_Set1"]
+        - round_trip["Control_set_mean_RT_ms_Set1"]
         - round_trip["EyeDrop_set_mean_RT_ms_Set6"]
-        / round_trip["EyeDrop_set_mean_RT_ms_Set1"]
-    ) * 100.0
+        + round_trip["EyeDrop_set_mean_RT_ms_Set1"]
+    )
     if not np.allclose(
         expected_effect,
-        round_trip["Eye_Drop_Effect_pp"],
+        round_trip["Eye_Drop_Effect_ms"],
         atol=1e-12,
         rtol=0.0,
         equal_nan=True,

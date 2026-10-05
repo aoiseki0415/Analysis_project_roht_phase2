@@ -36,7 +36,27 @@ def test_deqs_formula_uses_valid_count(tmp_path):
     assert result.loc[0, "DEQS_score"] == 50.0
 
 
-def test_eye_drop_effect_is_control_ratio_minus_drops_ratio():
+def test_canonical_deqs_snapshot_can_be_reused(tmp_path):
+    path = tmp_path / "deqs_snapshot.csv"
+    pd.DataFrame(
+        [{
+            "Product": "VRohtoPremium", "Pair_ID": "101-201",
+            "Participant_ID": "101", "First_session_ID": "101",
+            "Second_session_ID": "201", "EyeDrop_session_ID": "101",
+            "Control_session_ID": "201", "Degree_score_sum": 30,
+            "Valid_item_count": 15, "DEQS_score": 50.0,
+        }]
+    ).to_csv(path, index=False)
+    spec = SimpleNamespace(
+        first_session_id="101", second_session_id="201", drops_session_id="101",
+        control_session_id="201", pair_id="101-201", product="VRohtoPremium",
+    )
+    result = MODULE.load_deqs_scores(path, [spec])
+    assert result.loc[0, "Pair_ID"] == "101-201"
+    assert result.loc[0, "DEQS_score"] == 50.0
+
+
+def test_eye_drop_effect_is_difference_in_rt_change_ms():
     deqs = pd.DataFrame(
         [{
             "Product": "CCube", "Pair_ID": "102-202", "Participant_ID": "102",
@@ -54,7 +74,7 @@ def test_eye_drop_effect_is_control_ratio_minus_drops_ratio():
          "EyeDrop_valid_trial_count": 320, "Control_valid_trial_count": 320},
     ])
     result = MODULE.build_analysis_dataset(deqs, values)
-    assert np.isclose(result.loc[0, "Eye_Drop_Effect_pp"], 20.0)
+    assert np.isclose(result.loc[0, "Eye_Drop_Effect_ms"], 20.0)
     assert bool(result.loc[0, "Included_in_correlation"])
 
 

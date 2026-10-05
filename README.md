@@ -118,7 +118,7 @@ No1_subはNo1の検証済みPSD cacheをローカルデスクトップから読�
 
 ## Phase 5相関解析の確定方針
 
-Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解析です。DEQSは問1〜15の程度得点を0〜100点へ換算し、問16は使用しません。RTはPhase 2 No1の主解析 `AllTrials` のSet 1・Set 6平均値を使用し、Phase 2保存値とのID・条件・Set・有効試行数・数値一致を全件確認してから解析します。`Eye Drop Effect = (Control Set6 / Control Set1 - Eye Drop Set6 / Eye Drop Set1) × 100` とし、正値を点眼によってRT増加が抑えられた方向と定義します。Cキューブ群とVロートプレミアム群を分け、製品別にDEQSとのPearson相関を算出します。ID109–209はSet 1、ID120–220はSet 6欠測のため本指標を算出しません。Figure、表、照合記録、出力構造、完了条件は[Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)を正本とします。2026年10月5日に40被験者ペアを同一スクリプトで実行し、Phase 2保存済み240行との完全一致、製品別有効人数19名、指定OneDrive成果物の読戻しを確認済みです。
+Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解析です。DEQSは問1〜15の程度得点を0〜100点へ換算し、問16は使用しません。RTはPhase 2 No1の主解析 `AllTrials` のSet 1・Set 6平均値を使用し、Phase 2保存値とのID・条件・Set・有効試行数・数値一致を全件確認してから解析します。`Eye Drop Effect (ms) = (Control Set6 − Control Set1) − (Eye Drop Set6 − Eye Drop Set1)` とし、正値を点眼によってRT増加が抑えられた方向と定義します。Cキューブ群とVロートプレミアム群を分け、製品別にDEQSとのPearson相関を算出します。ID109–209はSet 1、ID120–220はSet 6欠測のため本指標を算出しません。Figureは点と `r; p` の注記を基本とし、信頼帯は表示せず、回帰線は未補正両側 `p < 0.05` の場合だけ表示します。Figure、表、照合記録、出力構造、完了条件は[Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)を正本とします。2026年10月5日に40被験者ペアを同一スクリプトで実行し、Phase 2保存済み240行との完全一致、製品別有効人数19名、指定OneDrive成果物の読戻しを確認済みです。
 
 ## 文書構成
 
