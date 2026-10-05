@@ -69,17 +69,17 @@ Eye Drop Effectを計算する前に、Phase 5で使用するEye Drop／Control�
 各被験者について次式を用います。
 
 ```text
-Control RT Change  = Control Set 6 mean RT - Control Set 1 mean RT
-Eye Drop RT Change = Eye Drop Set 6 mean RT - Eye Drop Set 1 mean RT
+Control RT Ratio  = Control Set 6 mean RT / Control Set 1 mean RT
+Eye Drop RT Ratio = Eye Drop Set 6 mean RT / Eye Drop Set 1 mean RT
 
-Eye Drop Effect (ms) = Control RT Change - Eye Drop RT Change
+Eye Drop Effect = Control RT Ratio - Eye Drop RT Ratio
 ```
 
-- 単位はmsです。
-- 正の値：ControlのRT増加のほうが大きく、点眼によってRT増加が抑えられた方向です。
-- 0付近：Set 1からSet 6までのRT変化量が両条件で同程度です。
-- 負の値：Eye Drop条件のRT増加のほうが大きい方向です。
-- 4つの元平均RT、2つのRT変化量、最終効果値を被験者別解析表へ保存します。
+- 比率同士の差であり単位はありません。Figureでは `[a.u.]` と表示します。
+- 正の値：ControlのRT増加率のほうが大きく、点眼によってRT増加率が抑えられた方向です。
+- 0付近：Set 1からSet 6までのRT変化率が両条件で同程度です。
+- 負の値：Eye Drop条件のRT増加率のほうが大きい方向です。
+- 4つの元平均RT、2つのSet 6／Set 1比、最終効果値を被験者別解析表へ保存します。
 
 ### 5.1 既知の欠測
 
@@ -93,7 +93,7 @@ ID135–235のSet 2欠測とID125–225のSet 4欠測は、本指標がSet 1とS
 ## 6. 相関解析
 
 - Cキューブ群とVロートプレミアム群を分けて解析します。
-- 横軸を `DEQS Score`、縦軸を `Eye Drop Effect (ms)` とします。
+- 横軸を `DEQS Score [a.u.]`、縦軸を `Eye Drop Effect [a.u.]` とします。
 - 主解析はPearsonの積率相関係数とし、製品群ごとに `r`、両側p値、95%信頼区間、有効人数Nを保存します。
 - 自動的な外れ値除外は行いません。非有限なDEQSまたはEye Drop Effectだけを欠測として除外し、対象外理由を保存します。
 - 2製品の相関を直接同一母集団として統合しません。
@@ -105,15 +105,15 @@ ID135–235のSet 2欠測とID125–225のSet 4欠測は、本指標がSet 1とS
 
 - Figure：8 × 7 inch、180 dpi、白背景
 - フォント：Arial
-- 横軸：`DEQS Score`、0〜100、20点刻み
-- 縦軸：`Eye Drop Effect (ms)`
-- 縦軸は2製品で共通とし、両群全データの最大絶対値に10%程度の余白を加え、0を中心とする左右対称範囲へ切り上げます。
-- 0を示す薄いグレーの水平線を表示します。
+- 横軸：`DEQS Score [a.u.]`、0〜85。主目盛は0、20、40、60、80
+- 縦軸：`Eye Drop Effect [a.u.]`
+- 縦軸は2製品で共通とし、両群全データの最大絶対値に10%程度の余白を加え、0を中心とする左右対称範囲へ0.2刻みで切り上げます。
+- 0を示す水平線は表示しません。
 - 各点は1被験者を表します。Figure上へIDは表示しません。
 - 彩度を抑えたグレーパープル系とし、Cキューブ `#625A70`、Vロートプレミアム `#8A8195` とします。
 - 95%信頼帯は表示しません。
 - 最小二乗回帰線は、Pearson相関の未補正両側 `p < 0.05` の場合だけ表示します。有意でなければ点だけを表示します。
-- 製品名の直下に `r = ...; p = ...` の形式でPearsonの `r` と両側p値を表示し、NはFigureへ表示しません。
+- 製品名の直下に `r = ...; p = ...` の形式でPearsonの `r` と両側p値を表示し、NはFigureへ表示しません。製品名と統計注記の上下間隔は従来版より狭くします。
 - 軸名28 pt、目盛20 pt、製品名22 pt、統計注記18 ptを基準とします。
 - 上・右の枠線を非表示とし、軸線1.5 pt、点180 pt、回帰線2.5 ptを基準とします。
 
@@ -141,7 +141,7 @@ Figureは関連の可視化であり、回帰線を因果効果として解釈�
 
 - `No1_DEQS_Scores.csv`：ID、製品群、有効回答数、程度得点合計、DEQS Score
 - `No1_Phase2_RT_ConsistencyCheck.csv`：Phase 5使用値とPhase 2値の照合結果
-- `No1_DEQS_RT_EyeDropEffect_AnalysisDataset.csv`：ID対応、4平均RT、2変化量、Eye Drop Effect、DEQS Score、採否理由
+- `No1_DEQS_RT_EyeDropEffect_AnalysisDataset.csv`：ID対応、4平均RT、2つのSet 6／Set 1比、Eye Drop Effect、DEQS Score、採否理由
 - `No1_CorrelationStatistics.csv`：製品別のN、r、p値、95%信頼区間
 - ログ：入力、対象数、除外理由、照合結果、出力先、警告、完了状態
 

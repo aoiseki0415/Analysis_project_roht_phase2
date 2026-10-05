@@ -14,9 +14,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import MaxNLocator
 from scipy import stats
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -214,14 +214,15 @@ def build_analysis_dataset(deqs: pd.DataFrame, values: pd.DataFrame) -> pd.DataF
     wide.columns = [f"{name}_Set{set_number}" for name, set_number in wide.columns]
     wide = wide.reset_index()
     data = deqs.merge(wide, on=["Product", "Pair_ID"], how="left", validate="one_to_one")
-    data["EyeDrop_RT_change_ms"] = (
-        data["EyeDrop_set_mean_RT_ms_Set6"] - data["EyeDrop_set_mean_RT_ms_Set1"]
+    data["EyeDrop_RT_ratio_Set6_over_Set1"] = (
+        data["EyeDrop_set_mean_RT_ms_Set6"] / data["EyeDrop_set_mean_RT_ms_Set1"]
     )
-    data["Control_RT_change_ms"] = (
-        data["Control_set_mean_RT_ms_Set6"] - data["Control_set_mean_RT_ms_Set1"]
+    data["Control_RT_ratio_Set6_over_Set1"] = (
+        data["Control_set_mean_RT_ms_Set6"] / data["Control_set_mean_RT_ms_Set1"]
     )
-    data["Eye_Drop_Effect_ms"] = (
-        data["Control_RT_change_ms"] - data["EyeDrop_RT_change_ms"]
+    data["Eye_Drop_Effect_au"] = (
+        data["Control_RT_ratio_Set6_over_Set1"]
+        - data["EyeDrop_RT_ratio_Set6_over_Set1"]
     )
     required = [
         "EyeDrop_set_mean_RT_ms_Set1",
@@ -232,8 +233,14 @@ def build_analysis_dataset(deqs: pd.DataFrame, values: pd.DataFrame) -> pd.DataF
     data["Included_in_correlation"] = np.isfinite(data[required]).all(axis=1)
     data["Exclusion_reason"] = ""
     for index, row in data.loc[~data["Included_in_correlation"]].iterrows():
-        missing = [column.replace("_set_mean_RT_ms", "") for column in required if not np.isfinite(row[column])]
-        data.at[index, "Exclusion_reason"] = "Required Phase 2 mean RT missing: " + ", ".join(missing)
+        missing = [
+            column.replace("_set_mean_RT_ms", "")
+            for column in required
+            if not np.isfinite(row[column])
+        ]
+        data.at[index, "Exclusion_reason"] = (
+            "Required Phase 2 mean RT missing: " + ", ".join(missing)
+        )
     return data.sort_values(["Product", "Pair_ID"]).reset_index(drop=True)
 
 
@@ -244,7 +251,7 @@ def correlation_statistics(data: pd.DataFrame) -> pd.DataFrame:
             (data["Product"] == product) & data["Included_in_correlation"]
         ]
         x = subset["DEQS_score"].to_numpy(float)
-        y = subset["Eye_Drop_Effect_ms"].to_numpy(float)
+        y = subset["Eye_Drop_Effect_au"].to_numpy(float)
         result = stats.pearsonr(x, y)
         ci = result.confidence_interval(confidence_level=0.95)
         slope, intercept, _, _, _ = stats.linregress(x, y)
@@ -256,45 +263,54 @@ def correlation_statistics(data: pd.DataFrame) -> pd.DataFrame:
                 "Raw_two_sided_p": float(result.pvalue),
                 "Pearson_r_CI95_lower": float(ci.low),
                 "Pearson_r_CI95_upper": float(ci.high),
-                "OLS_slope_ms_per_DEQS_point": float(slope),
-                "OLS_intercept_ms": float(intercept),
+                "OLS_slope_au_per_DEQS_point": float(slope),
+                "OLS_intercept_au": float(intercept),
                 "Multiple_comparison_correction": "なし（探索的解析）",
             }
         )
     return pd.DataFrame(rows)
 
 
-def plot_correlations(data: pd.DataFrame, statistics: pd.DataFrame, output_root: Path) -> list[Path]:
+def plot_correlations(
+    data: pd.DataFrame, statistics: pd.DataFrame, output_root: Path
+) -> list[Path]:
     included = data.loc[data["Included_in_correlation"]]
-    max_abs = float(np.nanmax(np.abs(included["Eye_Drop_Effect_ms"].to_numpy(float))))
-    y_limit = max(100.0, float(np.ceil((max_abs * 1.10) / 100.0) * 100.0))
+    max_abs = float(np.nanmax(np.abs(included["Eye_Drop_Effect_au"].to_numpy(float))))
+    y_limit = max(0.2, float(np.ceil((max_abs * 1.10) / 0.2) * 0.2))
     plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
     paths = []
     for product, (label, color) in PRODUCTS.items():
         subset = included.loc[included["Product"] == product]
         x = subset["DEQS_score"].to_numpy(float)
-        y = subset["Eye_Drop_Effect_ms"].to_numpy(float)
+        y = subset["Eye_Drop_Effect_au"].to_numpy(float)
         stat = statistics.loc[statistics["Product"] == product].iloc[0]
         figure, axis = plt.subplots(figsize=(8, 7))
         axis.scatter(x, y, s=180, color=color, edgecolor="white", linewidth=1.4, zorder=3)
         if float(stat["Raw_two_sided_p"]) < 0.05:
             slope, intercept, _, _, _ = stats.linregress(x, y)
-            x_grid = np.linspace(0.0, 100.0, 300)
+            x_grid = np.linspace(0.0, 85.0, 300)
             axis.plot(x_grid, intercept + slope * x_grid, color=color, linewidth=2.5)
-        axis.axhline(0.0, color="#B0B0B0", linewidth=1.2, zorder=0)
-        axis.set_xlim(0.0, 100.0)
-        axis.set_xticks(np.arange(0.0, 101.0, 20.0))
+        axis.set_xlim(0.0, 85.0)
+        axis.set_xticks(np.arange(0.0, 81.0, 20.0))
         axis.set_ylim(-y_limit, y_limit)
         axis.yaxis.set_major_locator(MaxNLocator(nbins=6))
-        axis.set_xlabel("DEQS Score", fontsize=28, labelpad=14)
-        axis.set_ylabel("Eye Drop Effect (ms)", fontsize=28, labelpad=14)
-        axis.set_title(label, fontsize=22, pad=48)
+        axis.set_xlabel("DEQS Score [a.u.]", fontsize=28, labelpad=14)
+        axis.set_ylabel("Eye Drop Effect [a.u.]", fontsize=28, labelpad=14)
         axis.tick_params(axis="both", labelsize=20, width=1.5, length=6)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         axis.text(
             0.5,
-            1.015,
+            1.055,
+            label,
+            transform=axis.transAxes,
+            ha="center",
+            va="bottom",
+            fontsize=22,
+        )
+        axis.text(
+            0.5,
+            0.98,
             f"r = {stat['Pearson_r']:.3f}; p = {stat['Raw_two_sided_p']:.3f}",
             transform=axis.transAxes,
             ha="center",
@@ -321,7 +337,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     stats_table = correlation_statistics(dataset)
     expected_n = stats_table.set_index("Product")["N"].to_dict()
     if expected_n != {"CCube": 19, "VRohtoPremium": 19}:
-        raise ValueError(f"Expected N=19 per product after required-set exclusion, found {expected_n}")
+        raise ValueError(
+            f"Expected N=19 per product after required-set exclusion, found {expected_n}"
+        )
 
     no1_root = args.output_root / "Phase5_相関・その他" / "No1_DEQS_RT_EyeDropEffect"
     table_dir = no1_root / "Sub" / "tables"
@@ -352,7 +370,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "phase2_comparison_tolerance": {"atol": 1e-9, "rtol": 0.0},
         "rt_definition": "KeyPress(ms) - TiltOnset(ms), non-Sys",
         "rt_trial_rule": "RT < 200 ms is NaN; no upper exclusion",
-        "eye_drop_effect": "(Control Set6 - Set1) - (EyeDrop Set6 - Set1), ms",
+        "eye_drop_effect": "(Control Set6 / Set1) - (EyeDrop Set6 / Set1), a.u.",
         "correlation": "Pearson, two-sided raw p; regression line only when raw p < 0.05",
         "local_processed_data_created": False,
         "outputs": {
@@ -372,13 +390,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         raise RuntimeError("Analysis dataset read-back validation failed")
     expected_effect = (
         round_trip["Control_set_mean_RT_ms_Set6"]
-        - round_trip["Control_set_mean_RT_ms_Set1"]
+        / round_trip["Control_set_mean_RT_ms_Set1"]
         - round_trip["EyeDrop_set_mean_RT_ms_Set6"]
-        + round_trip["EyeDrop_set_mean_RT_ms_Set1"]
+        / round_trip["EyeDrop_set_mean_RT_ms_Set1"]
     )
     if not np.allclose(
         expected_effect,
-        round_trip["Eye_Drop_Effect_ms"],
+        round_trip["Eye_Drop_Effect_au"],
         atol=1e-12,
         rtol=0.0,
         equal_nan=True,

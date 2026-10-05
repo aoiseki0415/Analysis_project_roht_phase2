@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-
 SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "解析プログラム"
@@ -56,7 +55,7 @@ def test_canonical_deqs_snapshot_can_be_reused(tmp_path):
     assert result.loc[0, "DEQS_score"] == 50.0
 
 
-def test_eye_drop_effect_is_difference_in_rt_change_ms():
+def test_eye_drop_effect_is_difference_in_set6_over_set1_ratios():
     deqs = pd.DataFrame(
         [{
             "Product": "CCube", "Pair_ID": "102-202", "Participant_ID": "102",
@@ -74,7 +73,7 @@ def test_eye_drop_effect_is_difference_in_rt_change_ms():
          "EyeDrop_valid_trial_count": 320, "Control_valid_trial_count": 320},
     ])
     result = MODULE.build_analysis_dataset(deqs, values)
-    assert np.isclose(result.loc[0, "Eye_Drop_Effect_ms"], 20.0)
+    assert np.isclose(result.loc[0, "Eye_Drop_Effect_au"], 0.2)
     assert bool(result.loc[0, "Included_in_correlation"])
 
 
