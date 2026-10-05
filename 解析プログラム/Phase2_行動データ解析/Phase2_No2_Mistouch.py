@@ -43,8 +43,8 @@ SPEC.loader.exec_module(no1)
 N_SETS = 6
 CONTROL_COLOR = "#402B5D"
 PRODUCTS = {
-    "CCube": ("C Cube", "#963838"),
-    "VRohtoPremium": ("V Rohto Premium", "#AC6820"),
+    "CCube": ("C Cube", "#5F7890"),
+    "VRohtoPremium": ("V Rohto Premium", "#708B6A"),
 }
 BAR_CENTERS = np.array([-0.32, 0.32])
 BAR_WIDTH = 0.42

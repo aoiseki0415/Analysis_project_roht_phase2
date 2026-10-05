@@ -82,7 +82,7 @@ def test_fixed_figure_style() -> None:
     assert phase2.BAR_WIDTH == 0.42
     assert phase2.DOT_SIZE == 150.0
     assert phase2.CONTROL_COLOR == "#402B5D"
-    assert phase2.PRODUCTS["CCube"][1] == "#963838"
+    assert phase2.PRODUCTS["CCube"][1] == "#5F7890"
 
 
 def test_ccube_sensitivity_masks_only_target_pair_and_set() -> None:

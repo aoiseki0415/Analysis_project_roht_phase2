@@ -37,7 +37,7 @@ N_TRIALS = 320
 INDIVIDUAL_WINDOW_TRIALS = 30
 GRAND_AVERAGE_WINDOW_TRIALS = (30, 50)
 RT_LOWER_BOUND_MS = 200.0
-CONTROL_COLOR = "#563A7C"
+CONTROL_COLOR = "#402B5D"
 GRAND_AVERAGE_Y_LIMIT_MS = 1_800.0
 GRAND_AVERAGE_FOCUSED_Y_MIN_MS = 400.0
 GRAND_AVERAGE_FOCUSED_Y_MAX_MS = 1_400.0
@@ -58,13 +58,13 @@ EEG_MISSING_SET_BY_SESSION = {
     "225": 4,
 }
 PRODUCTS = {
-    "ccube": ("CCube", "C Cube", "#C84A4A"),
-    "c_cube": ("CCube", "C Cube", "#C84A4A"),
-    "cキューブ": ("CCube", "C Cube", "#C84A4A"),
-    "vrohtopremium": ("VRohtoPremium", "V Rohto Premium", "#E58A2B"),
-    "v_rohto_premium": ("VRohtoPremium", "V Rohto Premium", "#E58A2B"),
-    "vロート": ("VRohtoPremium", "V Rohto Premium", "#E58A2B"),
-    "vロートプレミアム": ("VRohtoPremium", "V Rohto Premium", "#E58A2B"),
+    "ccube": ("CCube", "C Cube", "#356FA8"),
+    "c_cube": ("CCube", "C Cube", "#356FA8"),
+    "cキューブ": ("CCube", "C Cube", "#356FA8"),
+    "vrohtopremium": ("VRohtoPremium", "V Rohto Premium", "#5AAFC7"),
+    "v_rohto_premium": ("VRohtoPremium", "V Rohto Premium", "#5AAFC7"),
+    "vロート": ("VRohtoPremium", "V Rohto Premium", "#5AAFC7"),
+    "vロートプレミアム": ("VRohtoPremium", "V Rohto Premium", "#5AAFC7"),
 }
 DEFAULT_RAW_ROOT = Path("/Users/aoiseki/Desktop/SandBox_ロート案件（データ）/行動データ")
 DEFAULT_OUTPUT_ROOT = Path(
