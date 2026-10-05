@@ -1,16 +1,16 @@
-# Phase 4 脳波解析仕様
+# Phase 4 No1（Fmθ・PSD Change・Fz TFM）共有用解析仕様書
 
 ## 1. 文書の位置づけ
 
-本書は、Phase 4 No1本体の解析スクリプトを同じ入力から同じ計算・同じfigureとして再現するための現行正本です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。追加解析 `No1_add：Fz Time-Frequency Map` と `No1_sub：Fmθ PSD Change` は本書へ混在させず、[Phase 4 No1_add：Fz Time-Frequency Map仕様](Phase4_No1_add_FzTimeFrequencyMap仕様.md)および[Phase 4 No1_sub：Fmθ PSD Change仕様](Phase4_No1_sub_FmThetaChange仕様.md)を各解析の正本とします。
+本書は、Phase 4 No1の3解析（No1：Fmθ絶対PSD、No1_sub：Set 1基準PSD Change、No1_add：Fz Time-Frequency Map）を、同じ入力から同じ計算・同じfigureとして再現し、結果を正しく読めるようにまとめた唯一の現行仕様書です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。
 
 Phase 4は、使用した目薬で被験者をCキューブ群とVロートプレミアム群に分け、製品群ごとにEye DropとControlを被験者内比較します。
 
 | No | 指標 | 代表ch | 周波数帯 | 主な解釈 | 状態 |
 |---|---|---:|---:|---|---|
 | No1 | frontal-midline theta（Fmθ） | Fz | 4–7 Hz（両端を含む） | 認知負荷・認知的努力 | 本書で実装仕様を確定 |
-| No1_add | Fz Time-Frequency Map | Fz | 1–30 Hz（1 Hz刻み） | No1を補足する追加解析 | 別仕様書・独立スクリプトで本番40ペア完了 |
-| No1_sub | Fmθ PSD Change | Fz（topographyは全32ch） | 4–7 Hz | Set 1基準の相対変化 | 別仕様書・独立スクリプトで本番39ペア完了 |
+| No1_add | Fz Time-Frequency Map | Fz | 1–30 Hz（1 Hz刻み） | No1を補足する追加解析 | 本書・独立スクリプトで本番40ペア完了 |
+| No1_sub | Fmθ PSD Change | Fz（topographyは全32ch） | 4–7 Hz | Set 1基準の相対変化 | 本書・独立スクリプトで本番39ペア完了 |
 | No2／No2_sub／No2_add | occipital alpha／PSD Change／Oz TFM | Oz | 8–15 Hz／1–30 Hz | 不注意・マインドワンダリング | No1三解析と同構造で確定 |
 | No3／No3_sub／No3_add | frontal delta／PSD Change／Fz TFM | Fz | 1–3 Hz／1–30 Hz | 疲労・眠気 | No1三解析と同構造で確定 |
 
@@ -568,9 +568,353 @@ Phase 4の被験者別結果表と日次解析記録はNotionへ作成しませ�
 ## 20. 現時点の状態と未確定事項
 
 - No1専用log10 PSD上側3SD除外は実装済み。2026-10-04に全40被験者ペア・80セッションを白紙から同一スクリプトで再計算して80件のcacheを確定した。60秒平滑化は有限点数の追加基準を設けず、1点以上が有限なら算出する元仕様へ戻し、保存済みcacheを再利用して全40ペアを再描画・再集計した。既知欠測4 Set、個人figure各40組、製品群別Grand-average・定量化・topography、監査表、実行ログを検証済みであり、No1は現行確定版として固定する
-- No1_addは独立仕様書・独立スクリプトで本番40ペア・80セッションの解析と成果物検証を完了し、現行確定版として固定した
-- No2・No3はNo1三解析を派生元とする差分仕様を確定した。No2_addだけは表示範囲を絶対PSD `0–20 µV²/Hz`、差分 `−15–15 µV²/Hz` とする。No3_sub定量化は統計線1.15倍、n.s.文字下端1.20倍・26 pt、アスタリスク文字下端1.08倍・42 ptとする。いずれも保存数値・検定結果は変更しない
+- No1_addは独立スクリプトで本番40ペア・80セッションの解析と成果物検証を完了し、現行確定版として固定した
+- No2・No3はNo1三解析を派生元とする差分仕様を確定した。No2_addだけは表示範囲を絶対PSD `0–20 µV²/Hz`、差分 `−15–15 µV²/Hz` とする。No1_sub〜No3_subの定量化は共通して、統計線1.15倍、n.s.文字下端1.20倍・26 pt、アスタリスク文字下端1.08倍・42 ptとする。いずれも保存数値・検定結果は変更しない
 
 未確定事項を暗黙実装しません。変更時は本書、Notion、コード、テストを同時更新します。
 
-最終更新：2026年10月4日
++
+# Part B：No1_sub Fmθ PSD Change
+
+## 1. 位置づけ
+
+本書は、Phase 4 No1の追加解析として、Set 1を基準にしたFmθ PSD変化率を解析する確定仕様です。No1本体およびNo1_addとは、Pythonスクリプト、OneDrive成果物、Notion見出しを分離します。
+
+- 解析名：`No1_sub_FmThetaChange`
+- Python：`解析プログラム/Phase4_脳波解析/Phase4_No1_sub_FmThetaChange.py`
+- 入力：ローカルデスクトップに保存済みのNo1 PSD HDF5 cache
+- ローカルへの派生データ保存：行わない
+- OneDrive：`Phase4_脳波解析/No1_sub_FmThetaChange/`
+- 状態：2026-10-04に本番実行・検証を完了し、現行確定版として固定
+
+No1_subはWelch PSDを再計算しません。No1のPhase 1区間maskと、セッションID・ch別の全Set一括log10上側3SD maskを適用した未平滑PSDを読み込みます。
+
+## 2. 目的と比較
+
+Set 1の条件差が後続Setの絶対PSD比較へ与える影響を分離するため、各セッションID・各chのSet 1平均を100%とした変化率を求めます。Cキューブ群とVロートプレミアム群を分け、各製品群内でEye DropとControlを被験者内比較します。
+
+## 3. Set 1基準変化率
+
+セッションID、chごとに独立して、mask適用後・未平滑PSDのSet 1有限値から基準値を計算します。
+
+```text
+baseline(ID, ch) = mean(finite PSD values in Set 1)
+PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
+```
+
+- baselineは条件間、ID間、ch間で共有しない
+- baselineは有限かつ正であることを必須とし、0または極端に0へ近い値を任意にクリップしない
+- 変換は平滑化より前に行う
+- Set 1の時間平均は定義上0%になる
+- 単位：`%`
+
+## 4. 時間変化
+
+- 代表ch：Fz
+- 変化率へ変換後、各Set内だけで60秒中心化単純移動平均する
+- NaNを無視し、窓内に1点以上の有限値があれば算出する。窓全体がNaNの場合だけNaNとする
+- Set間をまたいで平滑化しない
+- 平滑化後に各Setを100 progress点へ対応付ける
+- x軸：`Experimental Progress, %`、0–600
+- y軸：`PSD Change, %`
+- 0%の水平線を表示する
+- 個人figureは最大絶対値がy軸絶対上限の約70%、Grand-averageはSEMを軸決定に含めず、平均線の最大絶対値が約70%となる0中心の左右対称軸を用いる
+- 色、線幅、Arial、Set境界、Set名、凡例、文字サイズはNo1本体に合わせる
+
+## 5. Grand-average
+
+- 製品群別にEye DropとControlの平均±SEMを表示する
+- 個人の60秒平滑化後系列をSet別100点へ対応付けてから被験者間平均する
+- Set・条件・progress点ごとの有限値だけを用い、有効Nを保存する
+- y軸は両製品群で共通にする
+
+## 6. 定量化と統計
+
+- 定量化は平滑化前のPSD Changeを用いる
+- Set別値：そのSet内の有限な全時間窓の算術平均
+- Set 1：定義上0%のBaselineとして表示し、t検定を行わない
+- Set 2–6：対応ありt検定でEye DropとControlを比較する
+- 全Set統合版：Set 1を含むSet 1–6の有限な全時間窓を直接連結し、条件ごとの1値を作る。Set平均を等重みで再平均せず、有限時間窓を直接平均する
+- figureは未補正p値を表示する
+- CSVには未補正、Bonferroni、Holm、FDR-BHの結果を保存する。補正対象はSet 2–6の5比較とする
+- Set別figureのSet 1はBaselineとして表示し、統計線を描かない。Set 2–6と全Set統合版は両側対応ありt検定を行う
+- y軸：`PSD Change, %`。0より上：下の表示範囲を約2：1とし、全有限値が入るようにする
+- 統計線は最大データ点 `M` に対して `1.15M`、n.s.は下端 `1.20M`・26 pt、アスタリスクは下端 `1.08M`・42 ptに置く。Set名は `1.42M`、y上限は `1.54M` とし、Set名を統計表示より明確に上へ離す。すべてArialを用いる
+
+## 7. Topography
+
+全32chについて、平滑化前のSet別PSD Change平均を計算し、被験者内条件差を作ります。
+
+```text
+Difference in PSD Change(ch, Set) = Eye Drop - Control
+```
+
+- 個人topographyと製品群別Grand-average topographyを作る
+- 6 Setを横一列に表示する
+- Set 1は定義上0%であるため平坦なBaseline mapとする
+- colorbar：`Difference in PSD Change, %`
+- colorbarラベル：Arial 20 pt
+- 各figure内の6 Setは共通、0中心・左右対称スケールとする
+- 上限は有限値の最大絶対値がカラースケールの約85%となる切りのよい値にする
+- 10-20 system、全32電極点、No1本体と同じ頭部輪郭・補間・文字サイズを用いる
+
+## 8. 欠測SetとSet 1欠測
+
+- 個人時間変化：通常は欠測側だけを非表示にし、対応条件側は表示する
+- Grand-average、定量化、topography：欠測Setでは対応条件側も同じSetから除外する
+- 既知欠測：ID120 Set 6（対応ID220）、ID135 Set 2（対応ID235）、ID225 Set 4（対応ID125）
+- ID109はSet 1が欠測しbaselineを定義できないため、ペア109–209をNo1_sub全体から除外する。対応ID209だけを残さない
+- 欠測を0、補間値、前後Setの値で置換しない
+
+## 9. Preflight
+
+実行前に次を全件検証し、違反時は成果物を書かず停止します。
+
+- manifestのID、Eye Drop条件、製品群、重複、対象人数
+- No1 cacheが全対象セッションに存在し、No1の設定hash・チャンネル順・6 Set構造と整合すること
+- 各セッションID×chのSet 1 baselineが有限かつ正であること
+- 既知のペア109–209だけがSet 1欠測による除外であること
+- 変換後Set 1平均が数値誤差の範囲で0%となること
+
+## 10. OneDrive成果物
+
+```text
+Phase4_脳波解析/
+  No1_sub_FmThetaChange/
+    CCube/
+      Individual/
+      GrandAverage/
+      SetQuantification/
+      Topography/
+        Individual/
+        GrandAverage/
+    VRohtoPremium/
+      Individual/
+      GrandAverage/
+      SetQuantification/
+      Topography/
+        Individual/
+        GrandAverage/
+    Sub/
+      tables/
+        Set1Baseline/
+        GrandAverage/
+        SetQuantification/
+        Topography/
+      logs/
+```
+
+`Individual/`、`GrandAverage/`、`Topography/`にはPNGだけを置きます。`SetQuantification/`にはSet別PNG、全Set統合PNG、およびSet別統計CSVを置きます。基準値、Grand-average数値、有効N、被験者別定量値、全Set統合統計、topography数値、除外ペア、成果物一覧は`Sub/tables/`と`Sub/logs/`へ保存します。
+
+## 11. 実行モード
+
+- `--preflight-only`：cacheとSet 1 baselineを検証するだけ
+- `--individual-only`：個人時間変化と個人topography
+- `--group-outputs-only`：Grand-average、定量化、統計、群topography
+- `--all`：preflight後に個人・群成果物を順に作る
+
+No1_subにPSD再計算モードは設けません。figure調整時にもローカルのNo1 cacheを読み直し、Welch PSDは再計算しません。
+
+## 12. 実装状態
+
+2026-10-04に本番manifestの40ペアを事前検査し、Set 1 baselineを定義できない既知の109–209を規定どおり除外しました。残る39ペア（78セッション）を同一スクリプトで実行し、個人時間変化、個人topography、製品群別Grand-average、Set別・全Set統合定量化、統計、Grand-average topographyをOneDriveへ保存しました。
+
+検証結果は次のとおりです。
+
+- Set 1 baseline：39ペア×2セッション×32ch＝2,496件がすべて有限かつ正
+- Set 1定量値とSet 1 topography差：浮動小数点誤差の範囲で0%
+- 既知欠測Set：対応条件側も同じSetから除外され、有効Nの減少を確認
+- 成果物：PNG 86件、CSV 11件、実行要約JSON 1件
+- No1_sub用のローカル派生cache：作成なし
+- 統計の確定検証：保存済み被験者別定量値からSet 2–6の両側対応ありt検定を独立再計算し、t値と未補正p値が統計CSVに一致することを確認した。Benjamini–Hochberg FDRも独立再計算し、保存値との差が0であることを確認した。今回の未補正p値の順位関係では、単調性を保つ調整によって5 SetのFDR補正p値が同値になるが、これは実装不具合ではない
+- 確定状態：No1本体とNo1_subは現行コード、現行パラメータ、現行出力構造を確定版とし、以後は明示された仕様変更または成果物不具合がない限り再計算・個別調整を行わない
+
+# Part C：No1_add Fz Time-Frequency Map
+
+## 1. 位置づけ
+
+本書は、Phase 4 No1の追加解析として実施するFz Time-Frequency Map（TFM）の確定方針を定めます。No1本体のFz 4–7 Hz時間変化、定量化、統計、全32ch topographyとは、スクリプト、ローカルcache、OneDrive成果物、Notion見出しを分離します。
+
+- 解析名：`No1_add_FzTimeFrequencyMap`
+- Python：`解析プログラム/Phase4_脳波解析/Phase4_No1_add_FzTimeFrequencyMap.py`
+- 状態：確定仕様
+- 成果物：製品群別Grand-average TFMだけを作成し、個人TFM figureは作成しない
+
+No1本体のシータ平均値やシータ用外れ値maskをNo1_addへ流用しません。
+
+## 2. 目的と比較
+
+Fzの1–30 Hzパワーが実験進行に伴ってどのように変化するかを、Cキューブ群とVロートプレミアム群に分け、各製品群内でEye DropとControlを被験者内比較します。No1本体で観察する4–7 Hz変化が周辺周波数と比べてどの程度周波数特異的かを補助的に確認します。
+
+- 対象：No1本体と同じ40被験者ペア、80セッション
+- 条件対応：非公開manifestの `drops_session_id` と `product`
+- 入力：Phase 1のSet別脳活動解析用HDF5
+- 対象ch：Fzだけ
+- 周波数：1–30 Hz、1 Hz刻み
+- 0 Hz：DC成分のため解析対象に含めない
+- 比較差：`Difference in PSD = Eye Drop − Control`
+
+## 3. TFM計算
+
+FzをVからµVへ変換し、No1本体と同じ実時間窓で線形PSDを計算します。
+
+| 項目 | 設定 |
+|---|---|
+| 使用関数 | `mne.time_frequency.psd_array_welch()` |
+| サンプリング周波数 | 256 Hz |
+| 外側窓 | 1秒、256 samples |
+| 外側窓移動 | 1秒、256 samples |
+| 窓関数 | Hann |
+| `n_fft` / `n_per_seg` | 256 / 256 |
+| 関数内overlap | 0 |
+| `remove_dc` | `True` |
+| 周波数 | 1–30 Hz、1 Hz刻み |
+| 出力 | 線形power |
+| 単位 | µV²/Hz |
+| 対数・dB変換 | 出力値には行わない |
+
+Set端はNo1本体と同じく前後128 samplesの反射paddingを使い、Set開始とSet終了を窓中心として評価します。PSDは実時間で計算し、progress変換後にPSDを計算しません。
+
+## 4. ノイズmask
+
+### 4.1 Phase 1区間mask
+
+Phase 1の `ica_training_excluded_mask` と1秒PSD窓が1%以上重なる場合、その時刻の1–30 Hz全binをNaNとして扱います。時刻とprogressは詰めず、補間しません。
+
+### 4.2 No1_add専用Broadband 3SD mask
+
+No1本体の4–7 Hz平均から作るch別maskは使用しません。No1_addでは、各IDのFzについて次の順序で独立した時間maskを作ります。
+
+1. Phase 1区間mask適用後の各1秒窓について、1–30 Hzの線形PSDを周波数方向に算術平均し、Broadband PSDを作る
+2. 欠測Setを除く全Setの有限かつ正のBroadband PSDを1本に連結する
+3. `x = log10(Broadband PSD)` を求める
+4. ID単位で全Set共通の `threshold_log = mean(x) + 3 × SD(x, ddof=1)` を求める
+5. `x > threshold_log` の時間窓を追加除外する
+6. 該当時刻の1–30 Hz全binをNaNにする
+
+閾値はSet別、条件ペア共通、製品群共通、被験者間共通では計算しません。各セッションIDで1個です。下側外れ値は除外しません。Broadband平均は30個の等間隔binを用いるため、周波数和を用いてもlog空間の判定は定数差となりますが、実装と記録は算術平均に固定します。
+
+## 5. 平滑化、progress、Grand-average
+
+1. 区間maskとBroadband 3SD maskを適用した未平滑TFMを用意する
+2. 各周波数binを個別に、各Set内だけで60秒中心化単純移動平均する
+3. NaNを無視し、移動窓の全値がNaNのときだけ平滑化結果もNaNとする
+4. 平滑化後に、被験者・条件・Setごとに100点のprogress格子へ対応付ける
+5. Set間をまたいで平滑化・補間しない
+6. 対応するEye DropとControlを被験者内で揃える
+7. 各製品群で、条件別TFMを被験者間平均する
+8. `Difference in PSD` は被験者ごとに `Eye Drop − Control` を計算してから被験者間平均する
+
+Grand-averageより前に個人系列をprogressへ対応付けます。Setの実時間長が異なっても、PSD計算、mask、60秒平滑化までは実時間上で行います。
+
+## 6. 欠測Set
+
+No1本体と同じ既知欠測Setを使用します。
+
+- ID109 Set 1（対応ID209）
+- ID120 Set 6（対応ID220）
+- ID135 Set 2（対応ID235）
+- ID225 Set 4（対応ID125）
+
+No1_addはGrand-averageだけを作るため、該当Setでは欠測セッションと対応セッションの両条件を除外します。欠測を補間せず、Set・条件・周波数・progress点ごとの有効Nを保存します。
+
+## 7. Cache
+
+未平滑の線形TFMを再計算しないため、セッションIDごとのHDF5を保存します。
+
+```text
+解析に必要なデータたち/
+  Phase4_脳波解析/
+    No1_add_FzTimeFrequencyMap/
+      TimeFrequencySeries/
+        Pair101-201_01_ID101_FzTFM.h5
+        Pair101-201_02_ID201_FzTFM.h5
+```
+
+最低限、次を保存します。
+
+- Set別の未平滑Fz PSD `[n_windows, 30 frequencies]`
+- 周波数 `[1, 2, ..., 30] Hz`
+- 相対秒、OriginalTimestamp、Set内progress、全体progress、窓中心sample
+- Phase 1区間mask重複率
+- Broadband PSD、log平均、log標本SD、log閾値、線形閾値
+- Broadband 3SD時間mask、Set別・全体の除外数と除外率
+- PSD・padding・mask・平滑化・progressの全設定
+- 入力fingerprintと設定hash
+
+元の未平滑TFMを上書きせず、maskは別datasetとして保存します。保存後にshape、周波数、単位、時刻、progress、mask、設定hashを読み戻して検証します。
+
+## 8. Grand-average figure
+
+製品群ごとに1枚のPNGを作り、次の3パネルを縦に並べます。
+
+1. Eye Drop Grand-average
+2. Control Grand-average
+3. `Difference in PSD = Eye Drop − Control` Grand-average
+
+- x軸：`Experimental Progress, %`、0–600
+- y軸：`Frequency (Hz)`、1–30
+- Set境界：100、200、300、400、500
+- Set名：各Set中央
+- 条件mapのcolorbar：`PSD (µV²/Hz)`
+- 差分mapのcolorbar：`Difference in PSD (µV²/Hz)`
+- Eye DropとControlは共通カラースケール
+- 差分は0中心の左右対称カラースケール
+- 対数・dB・ベースライン補正は行わない
+- Arial、英語表記、単位、panel名、colorbarの意味を明記する
+
+絶対PSDでは低周波が色を支配し得ますが、本解析ではそれを許容し、線形PSDの絶対値を表示します。
+
+### 8.1 確定デザイン
+
+- 1製品につき1枚のPNGとし、上から `Eye Drop`、`Control`、`Eye Drop − Control` の3段を縦に並べる
+- 絶対PSDの上2段は、添付された論文用TFM例に合わせて、低値が濃紫、続いて青・青緑・緑、高値が黄となる `viridis` を使う
+- 差分の下段は正負を区別するため `RdBu_r` を使い、0を中央とする左右対称スケールにする
+- Eye DropとControlは同じカラースケールを使う。さらにC CubeとV Rohto Premiumでも絶対PSDのスケールを共通化する
+- 差分スケールも2製品で共通化する
+- 絶対PSDの上2段は `0–30 µV²/Hz` に固定し、colorbar目盛は0、10、20、30とする
+- 差分の下段は `−20–20 µV²/Hz` に固定し、colorbar目盛は−20、−10、0、10、20とする
+- 固定範囲外の値は色表示だけを端色へ飽和させる。保存するGrand-average数値はクリップしない
+- 補間表示、信頼区間shade、帯域shadeは追加せず、計算済みの1 Hz × progress格子をそのまま描画する
+- x軸は `Experimental Progress, %`、範囲0–600、50刻み。100ごとにSet境界の薄い灰色破線を置き、各Set名を上部に表示する
+- y軸は `Frequency (Hz)`、範囲1–30 Hz、目盛は1、5、10、15、20、25、30 Hz
+- colorbarは各段の右側へ十分な間隔をあけて配置し、上2段は `PSD (µV²/Hz)`、下段は `Difference in PSD (µV²/Hz)` とする。条件差の表記に `Δ` は使用しない
+- フォントはArial。軸名30 pt、目盛22 pt、各段タイトル28 pt、Set名20 pt、colorbarラベル26 pt、colorbar目盛20 ptとする
+- figureは横長3段の `24 × 18 inch`、180 dpi、白背景とする
+
+## 9. OneDrive出力
+
+```text
+実験本番_本解析/
+  Phase4_脳波解析/
+    No1_add_FzTimeFrequencyMap/
+      CCube/
+        GrandAverage/
+      VRohtoPremium/
+        GrandAverage/
+      Sub/
+        tables/
+        logs/
+```
+
+主成果物フォルダにはPNGだけを置きます。条件別・差分のGrand-average値、有効N、カラースケール、閾値、除外数、検証結果、成果物一覧は `Sub/tables/` と `Sub/logs/` に保存します。Notionへ被験者別結果表や日次実行記録は作成しません。
+
+## 10. No1本体との分離
+
+- No1本体：全32chの4–7 Hz平均PSD、Fz時間変化・定量化、全32ch topography
+- No1_add：Fzだけの1–30 Hz TFM、Grand-averageだけ
+- スクリプト、cache root、OneDrive root、Notion見出し、詳細ページを分ける
+- No1本体のシータ用3SD maskをNo1_addへ流用しない
+- No1_addのBroadband 3SD maskをNo1本体へ流用しない
+- No1_addのfigure調整だけでは検証済みTFM cacheを再計算しない
+
+## 11. 完了条件
+
+- No1本体とは別の単体テストとpreflightが通る
+- 同一スクリプト・同一設定を全対象へ適用する
+- 80セッションcacheを保存後に読み戻し検証する
+- 2製品のGrand-average TFM、値・有効N・mask監査表、実行ログを検証する
+
+2026-10-04に全40ペア・80セッションへ同一スクリプトを実行し、80件のcache、476件の利用可能Set、既知欠測4 Set、2製品の3段TFM、各18,000行の値・有効N表、mask監査表、共通カラースケール表、実行ログを読み戻して上記条件を満たすことを確認しました。
+
+最終更新：2026年10月5日

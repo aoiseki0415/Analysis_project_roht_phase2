@@ -65,6 +65,8 @@ def test_no2_sub_and_add_configuration() -> None:
     add = _inspect("Phase4_No2_add_OzTimeFrequencyMap")
     assert sub["analysis_stem"] == "No2_sub_OccipitalAlphaChange"
     assert sub["focus_channel"] == "Oz"
+    assert sub["star_factor_override"] == 1.08
+    assert sub["star_fontsize_override"] == 42.0
     assert add["analysis_stem"] == "No2_add_OzTimeFrequencyMap"
     assert add["focus_channel"] == "Oz"
     assert add["focus_index"] == 17

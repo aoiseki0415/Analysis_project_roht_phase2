@@ -12,7 +12,7 @@ configure_change_engine(
     parent_engine,
     analysis_stem="No2_sub_OccipitalAlphaChange",
     focus_channel="Oz",
-    script_version="phase4-no2-sub-occipital-alpha-change-2026-10-04.1",
+    script_version="phase4-no2-sub-occipital-alpha-change-2026-10-05.2",
 )
 
 

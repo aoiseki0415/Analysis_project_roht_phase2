@@ -19,6 +19,11 @@ module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(module)
 
 
+def test_significant_asterisk_style_is_shared_by_all_change_analyses() -> None:
+    assert module.SIGNIFICANCE_STAR_FACTOR_OVERRIDE == 1.08
+    assert module.SIGNIFICANCE_STAR_FONTSIZE_OVERRIDE == 42.0
+
+
 def test_percent_change_uses_ratio_to_set1_baseline() -> None:
     values = np.array([5.0, 10.0, 15.0])
     result = module.to_percent_change(values, 10.0)
