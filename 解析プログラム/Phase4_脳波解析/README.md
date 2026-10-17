@@ -80,6 +80,6 @@ preflight完了後の本計算では、同じmanifestに `--all` を指定しま
 
 Figureの寸法、フォント、軸名、目盛、Set位置、線幅、色、y上限、統計マーク位置、topographyのmontage・カラースケールはPhase 4仕様書の数値をコード定数としてそのまま実装します。定量化はPhase 3と同様に条件名22 ptと製品名18 ptを分離します。Topographyは6 Set横一列、太い円形頭部輪郭・鼻、8 ptの電極点、等高線なしの滑らかな色面、十分な間隔を空けた太いSet別colorbarで描画し、全Set共通の左右対称かつ切りのよい上限を使います。Phase 2・3を再解釈して別の値を採用しません。
 
-`Phase4_PSDChange500OutlierExcludedTopography.py` は、No1～No3の保存済みPSD cacheだけを読み、各条件のセッションID×ch×Set平均PSD Changeが500%以上のセルを対応ペアから除外した追加Grand-average topographyを描画します。同じセッションID×chが2 Set以上で該当した場合は、そのペア×chのSet 2～6を除外します。集団平均はSet×chごとの有限ペアで計算し、元図を上書きしません。判定一覧と解釈は [`docs/Phase4_PSDChange_Topography外れ値除外感度解析.md`](../../docs/Phase4_PSDChange_Topography外れ値除外感度解析.md) を正本とします。
+`Phase4_PSDChange500OutlierExcludedTopography.py` は、No1～No3の保存済みPSD cacheだけを読みます。まず各条件のセッションID×ch×Set平均PSD Changeが500%以上のセルを対応ペアから除外し、同じセッションID×chが2 Set以上で該当した場合はそのペア×chのSet 2～6を除外します。続いて、被験者ペア×Setの `Eye Drop − Control` 条件差について、各chと近傍4電極中央値の空間残差をMADでrobust標準化し、`|z|>5` の被験者ペア×ch×Setだけを追加除外します。集団平均は二段階除外後のSet×chごとの有限ペアで計算します。元の主要図は上書きせず、既存の `PSDChange500pctOutlierExcluded` 追加PNGを同名で更新し、両段階の監査CSVと実行要約JSONを `Sub/tables/PSDChange500pctAndSpatialMAD5OutlierExclusion/` に保存します。完全規則と解釈は [`docs/Phase4_PSDChange_Topography外れ値除外感度解析.md`](../../docs/Phase4_PSDChange_Topography外れ値除外感度解析.md) を正本とします。
 
 Phase 4の被験者別結果表や日次実行記録はNotionへ作成しません。preflight、本計算、cache検証、出力確認、警告、失敗理由、成果物一覧はOneDriveの `No1_FmTheta/Sub/logs/` と `Sub/tables/` へ保存し、コード・文書の版はGit履歴で追跡します。NotionはPhase 4の概要・確定仕様・文献調査の管理に限定します。

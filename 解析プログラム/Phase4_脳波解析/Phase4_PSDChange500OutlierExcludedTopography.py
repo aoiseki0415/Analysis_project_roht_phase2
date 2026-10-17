@@ -9,9 +9,11 @@ No1_sub/No2_sub/No3_sub figures.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from collections import defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +22,13 @@ import numpy as np
 import Phase4_No1_FmTheta as phase4
 import Phase4_No1_sub_FmThetaChange as change
 
-SCRIPT_VERSION = "phase4-psd-change-500pct-outlier-excluded-topography-2026-10-17.1"
+SCRIPT_VERSION = "phase4-psd-change-500pct-spatial-outlier-excluded-topography-2026-10-17.2"
 PSD_CHANGE_THRESHOLD_PCT = 500.0
 PERSISTENT_MIN_SETS = 2
+SPATIAL_NEIGHBOR_COUNT = 4
+SPATIAL_MIN_FINITE_NEIGHBORS = 3
+SPATIAL_ROBUST_Z_THRESHOLD = 5.0
+MAD_NORMAL_CONSISTENCY = 1.4826
 SET1_MISSING_PAIR_ID = "109-209"
 
 DEFAULT_PHASE4_CACHE_ROOT = Path(
@@ -74,6 +80,36 @@ class OutlierRecord:
             "set": self.set_number,
             "channel": self.channel,
             "psd_change_pct": self.psd_change_pct,
+        }
+
+
+@dataclass(frozen=True)
+class SpatialOutlierRecord:
+    analysis: str
+    pair_id: str
+    product: str
+    set_number: int
+    channel: str
+    pair_difference_pct: float
+    neighbor_median_pct: float
+    spatial_residual_pct: float
+    residual_center_pct: float
+    residual_mad_pct: float
+    robust_z: float
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "analysis": self.analysis,
+            "pair_id": self.pair_id,
+            "product": self.product,
+            "set": self.set_number,
+            "channel": self.channel,
+            "pair_difference_pct": self.pair_difference_pct,
+            "neighbor_median_pct": self.neighbor_median_pct,
+            "spatial_residual_pct": self.spatial_residual_pct,
+            "residual_center_pct": self.residual_center_pct,
+            "residual_mad_pct": self.residual_mad_pct,
+            "robust_z": self.robust_z,
         }
 
 
@@ -218,11 +254,98 @@ def masked_pair_topography(
     return values, persistent
 
 
+@lru_cache(maxsize=1)
+def spatial_neighbor_indices() -> tuple[tuple[int, ...], ...]:
+    """Return the four nearest montage electrodes for every channel."""
+    info = phase4._topomap_info()
+    positions = np.asarray([channel["loc"][:3] for channel in info["chs"]], dtype=float)
+    if positions.shape != (len(phase4.EXPECTED_CHANNEL_NAMES), 3):
+        raise ValueError("Unexpected montage coordinate shape")
+    if not np.isfinite(positions).all():
+        raise ValueError("Montage contains non-finite channel coordinates")
+    distance = np.linalg.norm(positions[:, None, :] - positions[None, :, :], axis=2)
+    return tuple(
+        tuple(
+            int(index)
+            for index in np.argsort(distance[row])[1 : SPATIAL_NEIGHBOR_COUNT + 1]
+        )
+        for row in range(distance.shape[0])
+    )
+
+
+def apply_spatial_outlier_mask(
+    values: np.ndarray,
+    item: dict[str, Any],
+    config: AnalysisConfig,
+) -> tuple[np.ndarray, list[SpatialOutlierRecord]]:
+    """Mask isolated paired-condition channel values within each participant Set.
+
+    The detector is applied after the fixed 500% rule.  For every post-baseline
+    Set and channel, it subtracts the median of the four nearest montage
+    electrodes.  Those 32 local residuals are then standardized with their
+    median and 1.4826 x MAD.  Only cells with |robust z| > 5 are removed.
+    """
+    output = values.copy()
+    neighbors = spatial_neighbor_indices()
+    records: list[SpatialOutlierRecord] = []
+    for set_index in range(1, phase4.N_SETS):
+        row = output[set_index].copy()
+        residuals = np.full(row.shape, np.nan, dtype=float)
+        neighbor_medians = np.full(row.shape, np.nan, dtype=float)
+        for channel_index, nearest in enumerate(neighbors):
+            if not np.isfinite(row[channel_index]):
+                continue
+            nearest_values = row[np.asarray(nearest, dtype=int)]
+            finite = nearest_values[np.isfinite(nearest_values)]
+            if finite.size < SPATIAL_MIN_FINITE_NEIGHBORS:
+                continue
+            neighbor_medians[channel_index] = float(np.median(finite))
+            residuals[channel_index] = row[channel_index] - neighbor_medians[channel_index]
+
+        finite_residuals = residuals[np.isfinite(residuals)]
+        if finite_residuals.size < 8:
+            continue
+        center = float(np.median(finite_residuals))
+        mad = float(np.median(np.abs(finite_residuals - center)))
+        robust_scale = MAD_NORMAL_CONSISTENCY * mad
+        if not np.isfinite(robust_scale) or robust_scale <= np.finfo(float).eps:
+            continue
+        robust_z = (residuals - center) / robust_scale
+        flagged = np.flatnonzero(np.abs(robust_z) > SPATIAL_ROBUST_Z_THRESHOLD)
+        for channel_index in flagged:
+            records.append(
+                SpatialOutlierRecord(
+                    analysis=config.key,
+                    pair_id=item["spec"].pair_id,
+                    product=item["product_dir"],
+                    set_number=set_index + 1,
+                    channel=phase4.EXPECTED_CHANNEL_NAMES[channel_index],
+                    pair_difference_pct=float(row[channel_index]),
+                    neighbor_median_pct=float(neighbor_medians[channel_index]),
+                    spatial_residual_pct=float(residuals[channel_index]),
+                    residual_center_pct=center,
+                    residual_mad_pct=mad,
+                    robust_z=float(robust_z[channel_index]),
+                )
+            )
+            output[set_index, channel_index] = np.nan
+    return output, records
+
+
 def group_topography(
-    items: list[dict[str, Any]], records: list[OutlierRecord], product: str
-) -> tuple[np.ndarray, np.ndarray, set[tuple[str, str]]]:
+    items: list[dict[str, Any]],
+    records: list[OutlierRecord],
+    product: str,
+    config: AnalysisConfig,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    set[tuple[str, str]],
+    list[SpatialOutlierRecord],
+]:
     pair_values: list[np.ndarray] = []
     persistent: set[tuple[str, str]] = set()
+    spatial_records: list[SpatialOutlierRecord] = []
     by_pair: dict[str, list[OutlierRecord]] = defaultdict(list)
     for record in records:
         by_pair[record.pair_id].append(record)
@@ -232,8 +355,10 @@ def group_topography(
         values, pair_persistent = masked_pair_topography(
             item, by_pair.get(item["spec"].pair_id, [])
         )
+        values, pair_spatial_records = apply_spatial_outlier_mask(values, item, config)
         pair_values.append(values)
         persistent.update(pair_persistent)
+        spatial_records.extend(pair_spatial_records)
     stacked = np.stack(pair_values)
     valid_n = np.isfinite(stacked).sum(axis=0)
     sums = np.nansum(stacked, axis=0)
@@ -245,7 +370,7 @@ def group_topography(
     )
     if not np.isfinite(group).all():
         raise ValueError(f"{product}: outlier exclusion left a non-finite group cell")
-    return group, valid_n, persistent
+    return group, valid_n, persistent, spatial_records
 
 
 def output_path(output_root: Path, config: AnalysisConfig, product: str) -> Path:
@@ -263,6 +388,83 @@ def output_path(output_root: Path, config: AnalysisConfig, product: str) -> Path
     )
 
 
+def write_audit_tables(
+    output_root: Path,
+    config: AnalysisConfig,
+    absolute_records: list[OutlierRecord],
+    spatial_records: list[SpatialOutlierRecord],
+    valid_n_ranges: dict[str, dict[str, int]],
+) -> dict[str, str]:
+    directory = (
+        output_root
+        / "Phase4_脳波解析"
+        / config.output_analysis_stem
+        / "Sub"
+        / "tables"
+        / "PSDChange500pctAndSpatialMAD5OutlierExclusion"
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    absolute_path = directory / f"{config.output_analysis_stem}_Absolute500pctOutliers.csv"
+    spatial_path = directory / f"{config.output_analysis_stem}_SpatialMAD5Outliers.csv"
+    summary_path = directory / f"{config.output_analysis_stem}_RunSummary.json"
+
+    absolute_fields = [
+        "analysis",
+        "pair_id",
+        "session_id",
+        "condition",
+        "product",
+        "set",
+        "channel",
+        "psd_change_pct",
+    ]
+    with absolute_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=absolute_fields)
+        writer.writeheader()
+        writer.writerows(record.as_dict() for record in absolute_records)
+
+    spatial_fields = [
+        "analysis",
+        "pair_id",
+        "product",
+        "set",
+        "channel",
+        "pair_difference_pct",
+        "neighbor_median_pct",
+        "spatial_residual_pct",
+        "residual_center_pct",
+        "residual_mad_pct",
+        "robust_z",
+    ]
+    with spatial_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=spatial_fields)
+        writer.writeheader()
+        writer.writerows(record.as_dict() for record in spatial_records)
+
+    summary = {
+        "script_version": SCRIPT_VERSION,
+        "analysis": config.key,
+        "absolute_threshold_pct": PSD_CHANGE_THRESHOLD_PCT,
+        "persistent_min_sets": PERSISTENT_MIN_SETS,
+        "spatial_neighbor_count": SPATIAL_NEIGHBOR_COUNT,
+        "spatial_min_finite_neighbors": SPATIAL_MIN_FINITE_NEIGHBORS,
+        "spatial_robust_z_threshold": SPATIAL_ROBUST_Z_THRESHOLD,
+        "mad_normal_consistency": MAD_NORMAL_CONSISTENCY,
+        "absolute_outlier_count": len(absolute_records),
+        "spatial_outlier_count": len(spatial_records),
+        "valid_n_ranges": valid_n_ranges,
+        "psd_recomputed": False,
+    }
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return {
+        "absolute_outliers_csv": str(absolute_path),
+        "spatial_outliers_csv": str(spatial_path),
+        "run_summary_json": str(summary_path),
+    }
+
+
 def run_analysis(
     config: AnalysisConfig, cache_base: Path, output_root: Path
 ) -> dict[str, Any]:
@@ -272,8 +474,11 @@ def run_analysis(
     outputs: dict[str, str] = {}
     valid_n_ranges: dict[str, dict[str, int]] = {}
     persistent_all: set[tuple[str, str]] = set()
+    spatial_all: list[SpatialOutlierRecord] = []
     for product in ("CCube", "VRohtoPremium"):
-        group, valid_n, persistent = group_topography(items, records, product)
+        group, valid_n, persistent, spatial_records = group_topography(
+            items, records, product, config
+        )
         path = output_path(output_root, config, product)
         change.plot_topography(group, path)
         outputs[product] = str(path)
@@ -282,10 +487,15 @@ def run_analysis(
             "maximum": int(valid_n.max()),
         }
         persistent_all.update(persistent)
+        spatial_all.extend(spatial_records)
+    audit_paths = write_audit_tables(
+        output_root, config, records, spatial_all, valid_n_ranges
+    )
     return {
         "analysis": config.key,
         "label": config.label,
         "outlier_count": len(records),
+        "spatial_outlier_count": len(spatial_all),
         "persistent_session_channels": [
             {"session_id": session_id, "channel": channel}
             for session_id, channel in sorted(
@@ -294,6 +504,7 @@ def run_analysis(
         ],
         "valid_n_ranges": valid_n_ranges,
         "outputs": outputs,
+        "audit_paths": audit_paths,
         "outliers": [record.as_dict() for record in records],
     }
 
@@ -320,6 +531,10 @@ def main() -> int:
         "script_version": SCRIPT_VERSION,
         "threshold_pct": PSD_CHANGE_THRESHOLD_PCT,
         "persistent_min_sets": PERSISTENT_MIN_SETS,
+        "spatial_neighbor_count": SPATIAL_NEIGHBOR_COUNT,
+        "spatial_min_finite_neighbors": SPATIAL_MIN_FINITE_NEIGHBORS,
+        "spatial_robust_z_threshold": SPATIAL_ROBUST_Z_THRESHOLD,
+        "mad_normal_consistency": MAD_NORMAL_CONSISTENCY,
         "psd_recomputed": False,
         "analyses": [
             run_analysis(ANALYSES[key], args.cache_base, args.output_root) for key in keys
