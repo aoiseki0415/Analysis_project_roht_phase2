@@ -137,6 +137,7 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 No2共有用解析仕様](docs/Phase4_No2_共有用解析仕様.md)：No2本体、No2_sub、No2_addを統合した確定版
 - [Phase 4 No3共有用解析仕様](docs/Phase4_No3_共有用解析仕様.md)：No3本体、No3_sub、No3_addを統合した確定版
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
+- [Phase 4 PSD Change topography 500%外れ値除外感度解析](docs/Phase4_PSDChange_Topography外れ値除外感度解析.md)：No1_sub～No3_subを横断した外れ値問題、固定除外規則、全該当セル、追加Grand-average topographyの読み方
 - [Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)：DEQS得点化、Phase 2 RT照合、Eye Drop Effect、製品別相関、Figure、OneDrive構造、検証条件をまとめた現行仕様
 - [Phase 1 区間・チャンネル除去パラメータ比較報告書](docs/Phase1_区間・チャンネル除去パラメータ比較報告書.md)：確定前のID101比較を残す歴史資料。現行仕様の判断には使用しない
 - [MacBook AirへのVS Code導入引き継ぎ](docs/引き継ぎ_VSCode導入_MacBookAir.md)：別デバイスでVS Codeだけを導入するための限定手順
