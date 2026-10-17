@@ -25,7 +25,7 @@ import Phase4_No1_FmTheta as phase4
 import Phase4_No1_sub_FmThetaChange as change
 import Phase4_PSDChange500OutlierExcludedTopography as common
 
-SCRIPT_VERSION = "phase4-psd-change-conditionwise-bidirectional-qc-2026-10-17.2"
+SCRIPT_VERSION = "phase4-psd-change-conditionwise-bidirectional-qc-2026-10-17.3"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SUPPLEMENTAL_ANALYSIS_DIR = "補足分析（被験者除外あり）"
 BLOCK_SECONDS = 60.0
@@ -482,10 +482,24 @@ def output_paths(output_root: Path, config: common.AnalysisConfig, product: str)
     )
 
 
-def supplemental_output_path(
+def unexcluded_output_path(
     output_root: Path, config: common.AnalysisConfig, product: str
 ) -> Path:
-    """Return the secondary, browsable copy of the finalized sensitivity figure."""
+    """Return the original Grand-average topography generated before this exclusion."""
+    return output_paths(output_root, config, product).with_name(
+        f"{config.output_analysis_stem}_Topography_GrandAverage_{product}.png"
+    )
+
+
+def supplemental_output_path(
+    output_root: Path,
+    config: common.AnalysisConfig,
+    product: str,
+    stage: str,
+) -> Path:
+    """Return a clearly named before/after copy in the supplemental result tree."""
+    if stage not in {"Before", "After"}:
+        raise ValueError(f"Unexpected supplemental stage: {stage}")
     return (
         output_root
         / "Phase4_脳波解析"
@@ -493,7 +507,10 @@ def supplemental_output_path(
         / config.output_analysis_stem
         / product
         / "GrandAverage"
-        / output_paths(output_root, config, product).name
+        / (
+            f"{config.output_analysis_stem}_Topography_GrandAverage_{product}_"
+            f"{stage}OutlierExclusion.png"
+        )
     )
 
 
@@ -510,16 +527,30 @@ def run_analysis(
         config, items, causes
     )
     outputs: dict[str, str] = {}
-    supplemental_outputs: dict[str, str] = {}
+    supplemental_outputs: dict[str, dict[str, str]] = {}
     valid_ranges: dict[str, dict[str, int]] = {}
     for product, data in products.items():
         path = output_paths(output_root, config, product)
         change.plot_topography(data["group"], path)
-        supplemental_path = supplemental_output_path(output_root, config, product)
-        supplemental_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, supplemental_path)
+        before_path = unexcluded_output_path(output_root, config, product)
+        if not before_path.is_file():
+            raise FileNotFoundError(
+                f"Original topography required for comparison is missing: {before_path}"
+            )
+        supplemental_before = supplemental_output_path(
+            output_root, config, product, "Before"
+        )
+        supplemental_after = supplemental_output_path(
+            output_root, config, product, "After"
+        )
+        supplemental_before.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(before_path, supplemental_before)
+        shutil.copy2(path, supplemental_after)
         outputs[product] = str(path)
-        supplemental_outputs[product] = str(supplemental_path)
+        supplemental_outputs[product] = {
+            "before_outlier_exclusion": str(supplemental_before),
+            "after_outlier_exclusion": str(supplemental_after),
+        }
         postbaseline_n = data["valid_n"][1:]
         valid_ranges[product] = {
             "minimum": int(np.nanmin(postbaseline_n)),

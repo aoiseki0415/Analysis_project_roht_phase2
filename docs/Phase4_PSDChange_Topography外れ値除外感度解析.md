@@ -80,7 +80,7 @@ Topographyは被験者ペア間の算術平均である。そのため、一部�
 
 - 実装：`解析プログラム/Phase4_脳波解析/Phase4_PSDChangeConditionwiseBidirectionalOutlierTopography.py`
 - 各No_subの `Topography/GrandAverage/`：無印の初期解析PNGと `..._ExploratorySet1AbsolutePSD_SustainedChangeExcluded.png` の最新版だけを保存する
-- 補足分析用の複製：Phase 4直下の `補足分析（被験者除外あり）/<No_sub>/<製品群>/GrandAverage/` に最新版PNGを同一ファイル名で保存する
+- 補足分析用の比較セット：Phase 4直下の `補足分析（被験者除外あり）/<No_sub>/<製品群>/GrandAverage/` に、初期解析を `..._BeforeOutlierExclusion.png`、最新版を `..._AfterOutlierExclusion.png` として保存する
 - 旧中間版の `..._PSDChange500pctOutlierExcluded.png` は確定成果物に残さない
 - 条件別フラグ：`Sub/tables/ExploratorySet1AbsolutePSD_SustainedChange_SessionFlags.csv`
 - paired OR後の除外セル：`..._ExcludedCells.csv`
