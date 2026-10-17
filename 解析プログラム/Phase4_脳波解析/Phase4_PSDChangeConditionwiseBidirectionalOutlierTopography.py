@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
 import subprocess
 import warnings
 from collections import defaultdict
@@ -24,8 +25,9 @@ import Phase4_No1_FmTheta as phase4
 import Phase4_No1_sub_FmThetaChange as change
 import Phase4_PSDChange500OutlierExcludedTopography as common
 
-SCRIPT_VERSION = "phase4-psd-change-conditionwise-bidirectional-qc-2026-10-17.1"
+SCRIPT_VERSION = "phase4-psd-change-conditionwise-bidirectional-qc-2026-10-17.2"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+SUPPLEMENTAL_ANALYSIS_DIR = "補足分析（被験者除外あり）"
 BLOCK_SECONDS = 60.0
 EPS = np.finfo(float).tiny
 MAD_NORMAL_CONSISTENCY = 1.4826
@@ -480,6 +482,21 @@ def output_paths(output_root: Path, config: common.AnalysisConfig, product: str)
     )
 
 
+def supplemental_output_path(
+    output_root: Path, config: common.AnalysisConfig, product: str
+) -> Path:
+    """Return the secondary, browsable copy of the finalized sensitivity figure."""
+    return (
+        output_root
+        / "Phase4_脳波解析"
+        / SUPPLEMENTAL_ANALYSIS_DIR
+        / config.output_analysis_stem
+        / product
+        / "GrandAverage"
+        / output_paths(output_root, config, product).name
+    )
+
+
 def table_directory(output_root: Path, config: common.AnalysisConfig) -> Path:
     return output_root / "Phase4_脳波解析" / config.output_analysis_stem / "Sub" / "tables"
 
@@ -493,11 +510,16 @@ def run_analysis(
         config, items, causes
     )
     outputs: dict[str, str] = {}
+    supplemental_outputs: dict[str, str] = {}
     valid_ranges: dict[str, dict[str, int]] = {}
     for product, data in products.items():
         path = output_paths(output_root, config, product)
         change.plot_topography(data["group"], path)
+        supplemental_path = supplemental_output_path(output_root, config, product)
+        supplemental_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, supplemental_path)
         outputs[product] = str(path)
+        supplemental_outputs[product] = str(supplemental_path)
         postbaseline_n = data["valid_n"][1:]
         valid_ranges[product] = {
             "minimum": int(np.nanmin(postbaseline_n)),
@@ -564,6 +586,7 @@ def run_analysis(
         ),
         "psd_recomputed": False,
         "outputs": outputs,
+        "supplemental_outputs": supplemental_outputs,
         "audit_files": {
             "session_flags": str(flags_path),
             "excluded_cells": str(excluded_path),
