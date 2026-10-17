@@ -655,7 +655,7 @@ Difference in PSD Change(ch, Set) = Eye Drop - Control
 - 各figure内の6 Setは共通、0中心・左右対称スケールとする
 - 上限は有限値の最大絶対値がカラースケールの約85%となる切りのよい値にする
 - 10-20 system、全32電極点、No3本体と同じ頭部輪郭・補間・文字サイズを用いる
-- Grand-averageの追加感度解析では、保存済みcacheに条件別500%基準を適用後、被験者ペア×Set内の条件差を近傍4電極中央値との差へ変換し、空間残差群の中央値と `1.4826×MAD` による `|robust z|>5` のch×Setだけを追加除外する。完全規則は `docs/Phase4_PSDChange_Topography外れ値除外感度解析.md` を正本とする
+- Grand-averageの追加感度解析では、保存済みcacheを用い、Eye Drop／Controlを別々にSet 1絶対PSD高値、60秒blockの持続的上昇、絶対PSD低値を伴う持続的低下の3経路で判定する。片条件の該当はpaired ORで同一ペア×ch×Setの両条件へ適用し、条件差作成後の空間MADや固定500%基準は使用しない。実適用除外率、N、監査CSV・JSONに加え、6図の単一ch孤立色・隣接ch急反転・全頭偏りを定性的に確認する。完全規則は `docs/Phase4_PSDChange_Topography外れ値除外感度解析.md` を正本とする
 
 ## 8. 欠測SetとSet 1欠測
 
