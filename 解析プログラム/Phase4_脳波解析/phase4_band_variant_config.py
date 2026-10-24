@@ -74,6 +74,9 @@ def configure_change_engine(
     analysis_stem: str,
     focus_channel: str,
     script_version: str,
+    include_topography: bool = True,
+    alternate_group_exclusions: dict[str, set[str]] | None = None,
+    alternate_group_suffix: str | None = None,
 ) -> ModuleType:
     """Bind the Set-1 change engine to one configured parent PSD engine."""
     engine.no1 = parent_engine
@@ -85,6 +88,12 @@ def configure_change_engine(
     engine.SMOOTHING_SECONDS = parent_engine.TIMECOURSE_SMOOTHING_SECONDS
     engine.DEFAULT_CACHE_ROOT = parent_engine.DEFAULT_CACHE_ROOT
     engine.DEFAULT_OUTPUT_ROOT = parent_engine.DEFAULT_OUTPUT_ROOT
+    engine.INCLUDE_TOPOGRAPHY = include_topography
+    engine.ALTERNATE_GROUP_EXCLUSIONS = {
+        product: set(pair_ids)
+        for product, pair_ids in (alternate_group_exclusions or {}).items()
+    }
+    engine.ALTERNATE_GROUP_SUFFIX = alternate_group_suffix
     return engine
 
 

@@ -106,7 +106,7 @@ Phase 4は、No1 Fmθ（Fz、4–7 Hz）、No2後頭alpha（Oz、8–15 Hz）、
 
 No1の代表figureはFzを用い、個人時間変化、製品群別Grand-average（平均±SEM）、Set別・全Set統合定量化、全32chの `Eye Drop − Control` 差topographyを作ります。Phase 1のICA学習除外区間と1%以上重なる1秒PSD窓を全32chでNaNにした後、セッションID・chごとに利用可能な全Setの未平滑4–7 Hz平均PSDをまとめ、`log10(PSD)`の平均＋3標準偏差を超える上側値だけを、そのch・その時刻でNaNにします。閾値はSet別・条件横断では作らず、下側除外もしません。元PSD、閾値、mask、除外数・率をcacheへ残します。ICA学習用ch除外maskはPSDへ適用せず、32chを保持します。時間変化figureは両mask適用後に各Set内で60秒中心化単純移動平均をかけ、NaNを無視して1点以上が有限なら算出し、窓全体がNaNの場合だけNaNとします。Grand-averageは平滑化後にprogress 100点へ対応付けます。定量化とtopographyは両mask適用後の未平滑PSDを使用します。既知の欠測Setは個人時間変化では欠測側だけ非表示とし、Grand-average・定量化・topographyでは対応条件側も同じSetから除外します。計算関数と全引数、Set端padding、progress変換、PSDキャッシュ構造、実行モード、各figureの寸法・軸・目盛・文字・線・色・上限、統計位置、topography設定、命名、検証条件は[Phase 4 No1共有用解析仕様](docs/Phase4_No1_共有用解析仕様.md)を唯一の実装正本とします。
 
-No2とNo3はNo1の計算順序、mask、平滑化、progress、欠測、定量化、統計、topography、figure比率、出力構造を継承します。No2は代表chをOz、対象binを8–15 Hz、既定配色をalpha用へ変更し、No2_addの表示範囲だけを絶対PSD `0–20 µV²/Hz`、差分 `−15–15 µV²/Hz` とします。No3は代表chをFz、対象binを1–3 Hz、既定配色をdelta用へ変更します。No1_sub〜No3_subのSet別定量化は統計線1.15M、n.s.下端1.20M・26 pt、アスタリスク下端1.08M・42 pt、Set名1.42M、y上限1.54M、Arialに統一します。派生解析は、No2_sub／No3_subが各主解析cacheからSet 1基準変化率を作り、No2_addはOz、No3_addはFzの1–30 Hz TFMを独立cacheへ保存します。
+No2とNo3はNo1の計算順序、mask、平滑化、progress、欠測、定量化、統計、topography、figure比率、出力構造を継承します。No2は代表chをOz、対象binを8–15 Hz、既定配色をalpha用へ変更し、No2_addの表示範囲だけを絶対PSD `0–20 µV²/Hz`、差分 `−15–15 µV²/Hz` とします。No2_subの補助代表ch解析 `No2-2_sub_OccipitalAlphaChange_Pz` は同じNo2 cacheと同じSet 1基準変化率を用い、OzをPzへ置き換えた個人時間変化・Grand-average・定量化だけを別ルートへ出力し、全32chで同一となるtopographyは重複生成しません。Oz版・Pz版とも、Vロートプレミアム群では主要全員結果を保持したまま、125–225を群集計だけから除いたGrand-averageとSet別定量化を追加します。No3は代表chをFz、対象binを1–3 Hz、既定配色をdelta用へ変更します。No1_sub〜No3_subのSet別定量化は統計線1.15M、n.s.下端1.20M・26 pt、アスタリスク下端1.08M・42 pt、Set名1.42M、y上限1.54M、Arialに統一します。派生解析は、No2_sub／No3_subが各主解析cacheからSet 1基準変化率を作り、No2_addはOz、No3_addはFzの1–30 Hz TFMを独立cacheへ保存します。
 
 個人時間変化は、3SD mask適用後・60秒平滑化後の主figureを `Individual/` 直下、未平滑の閾値除外前後を `Individual/Unsmoothed/BeforeThresholdExclusion/` と `AfterThresholdExclusion/` に保存します。固定y軸版と平滑化比較フォルダは保存しません。定量化figureはPhase 3と同じ文字階層を使い、`Eye Drop`を22 pt、括弧付き製品名を18 ptで分離表示します。Topographyは両mask適用後の各Set・各chの有限な未平滑PSD窓を時間平均してから `Eye Drop − Control` を計算します。同一図の全6 Set・全32chの最大絶対差を `M` とし、`M / 0.85` 以上の切りのよい値 `V` を用いて `−V〜+V` の左右対称カラースケールにします。
 
@@ -134,7 +134,7 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 3 瞬き解析仕様](docs/Phase3_瞬き解析仕様.md)：瞬き信号、ピーク検出、Blink Rate、定量化、QC、結果・Figureの読み方、確認済み結果、OneDrive構造をまとめたPhase 3唯一の現行仕様書
 - [Phase 3 MAD係数比較](docs/Phase3_MAD係数比較.md)：瞬き検出のMAD係数を確定するまでの比較記録。現行仕様はPhase 3仕様書を正本とする
 - [Phase 4 No1共有用解析仕様](docs/Phase4_No1_共有用解析仕様.md)：No1本体、No1_sub、No1_addの目的、計算、全パラメータ、figure、成果物構造、結果の読み方を統合した確定版
-- [Phase 4 No2共有用解析仕様](docs/Phase4_No2_共有用解析仕様.md)：No2本体、No2_sub、No2_addを統合した確定版
+- [Phase 4 No2共有用解析仕様](docs/Phase4_No2_共有用解析仕様.md)：No2本体、Oz版No2_sub、Pz補助版No2-2_sub、No2_addを統合した確定版
 - [Phase 4 No3共有用解析仕様](docs/Phase4_No3_共有用解析仕様.md)：No3本体、No3_sub、No3_addを統合した確定版
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
 - [Phase 4 PSD Change topography 条件別・双方向外れ値除外感度解析](docs/Phase4_PSDChange_Topography外れ値除外感度解析.md)：No1_sub～No3_subを横断し、条件別のSet 1絶対PSD高値、持続的上昇、絶対PSD低値を伴う持続的低下、paired OR、除外率・N、6図の定性評価、監査記録を定義

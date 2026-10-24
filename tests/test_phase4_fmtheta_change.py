@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -112,3 +113,29 @@ def test_output_tree_is_separate_from_no1() -> None:
     assert "No1_sub_FmThetaChange" in str(paths["root"])
     assert str(paths["individual"]).endswith("CCube/Individual")
     assert str(paths["baseline_tables"]).endswith("Sub/tables/Set1Baseline")
+
+
+def test_alternate_group_exclusion_is_pair_specific_and_group_only() -> None:
+    original = module.ALTERNATE_GROUP_EXCLUSIONS
+    try:
+        module.ALTERNATE_GROUP_EXCLUSIONS = {"VRohtoPremium": {"125-225"}}
+        items = [
+            {
+                "product_dir": "VRohtoPremium",
+                "spec": SimpleNamespace(pair_id="123-223"),
+            },
+            {
+                "product_dir": "VRohtoPremium",
+                "spec": SimpleNamespace(pair_id="125-225"),
+            },
+            {
+                "product_dir": "CCube",
+                "spec": SimpleNamespace(pair_id="124-224"),
+            },
+        ]
+        selected, excluded = module._alternate_items(items, "VRohtoPremium")
+        assert excluded == {"125-225"}
+        assert [item["spec"].pair_id for item in selected] == ["123-223"]
+        assert len(items) == 3
+    finally:
+        module.ALTERNATE_GROUP_EXCLUSIONS = original

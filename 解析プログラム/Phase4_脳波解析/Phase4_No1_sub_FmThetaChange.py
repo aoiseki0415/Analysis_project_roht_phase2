@@ -45,6 +45,9 @@ Y_LABEL = "PSD Change, %"
 TOPOGRAPHY_LABEL = "Difference in PSD Change, %"
 SIGNIFICANCE_STAR_FACTOR_OVERRIDE: float | None = 1.08
 SIGNIFICANCE_STAR_FONTSIZE_OVERRIDE: float | None = 42.0
+INCLUDE_TOPOGRAPHY = True
+ALTERNATE_GROUP_EXCLUSIONS: dict[str, set[str]] = {}
+ALTERNATE_GROUP_SUFFIX: str | None = None
 
 DEFAULT_CACHE_ROOT = no1.DEFAULT_CACHE_ROOT
 DEFAULT_OUTPUT_ROOT = no1.DEFAULT_OUTPUT_ROOT
@@ -852,10 +855,117 @@ def write_individual(item: dict[str, Any], output_root: Path) -> dict[str, str]:
     spec = item["spec"]
     paths = output_directories(output_root, item["product_dir"])
     individual = paths["individual"] / f"ID{spec.pair_id}_{ANALYSIS_STEM}_Individual.png"
-    topography = paths["topography_individual"] / f"ID{spec.pair_id}_{ANALYSIS_STEM}_Topography.png"
     plot_individual(item, individual)
-    plot_topography(pair_topography_values(item), topography)
-    return {"individual": str(individual), "topography": str(topography)}
+    outputs = {"individual": str(individual)}
+    if INCLUDE_TOPOGRAPHY:
+        topography = (
+            paths["topography_individual"]
+            / f"ID{spec.pair_id}_{ANALYSIS_STEM}_Topography.png"
+        )
+        plot_topography(pair_topography_values(item), topography)
+        outputs["topography"] = str(topography)
+    return outputs
+
+
+def _alternate_items(
+    items: list[dict[str, Any]], product: str
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Return a product cohort after the configured group-only pair exclusions."""
+
+    excluded = set(ALTERNATE_GROUP_EXCLUSIONS.get(product, set()))
+    if not excluded:
+        return [], excluded
+    available = {
+        item["spec"].pair_id for item in items if item["product_dir"] == product
+    }
+    absent = excluded.difference(available)
+    if absent:
+        raise ValueError(
+            f"{ANALYSIS_STEM} {product}: alternate exclusion pair(s) absent: "
+            + ", ".join(sorted(absent))
+        )
+    return [
+        item
+        for item in items
+        if item["product_dir"] == product and item["spec"].pair_id not in excluded
+    ], excluded
+
+
+def _write_alternate_group_outputs(
+    items: list[dict[str, Any]],
+    product: str,
+    paths: dict[str, Path],
+    *,
+    common_limit: float,
+    common_ticks: np.ndarray,
+) -> dict[str, Any]:
+    """Write the requested pair-excluded Grand-average and Set quantification."""
+
+    selected, excluded = _alternate_items(items, product)
+    if not excluded:
+        return {}
+    if not ALTERNATE_GROUP_SUFFIX:
+        raise ValueError("alternate_group_suffix is required when exclusions are configured")
+
+    suffix = ALTERNATE_GROUP_SUFFIX
+    grand, _ = build_grand_average(selected, product)
+    grand_png = paths["grand"] / f"{ANALYSIS_STEM}_GrandAverage_{product}_{suffix}.png"
+    grand_csv = (
+        paths["grand_tables"]
+        / f"{ANALYSIS_STEM}_GrandAverage_Values_{product}_{suffix}.csv"
+    )
+    plot_grand_average(
+        grand,
+        product,
+        grand_png,
+        common_limit=common_limit,
+        common_ticks=common_ticks,
+    )
+    grand.to_csv(grand_csv, index=False)
+
+    quant = build_quantification(selected, product)
+    set_stats, overall_stats = quantification_statistics(quant)
+    quant_png = (
+        paths["quantification"]
+        / f"{ANALYSIS_STEM}_SetQuantification_{product}_{suffix}.png"
+    )
+    plot_quantification(quant, set_stats, product, quant_png)
+    quant.to_csv(
+        paths["quantification_tables"]
+        / f"{ANALYSIS_STEM}_Quantification_Values_{product}_{suffix}.csv",
+        index=False,
+    )
+    set_stats.to_csv(
+        paths["quantification_tables"]
+        / f"{ANALYSIS_STEM}_SetQuantification_Statistics_{product}_{suffix}.csv",
+        index=False,
+    )
+    overall_stats.to_csv(
+        paths["quantification_tables"]
+        / f"{ANALYSIS_STEM}_AllSetsQuantification_Statistics_{product}_{suffix}.csv",
+        index=False,
+    )
+    pd.DataFrame(
+        [
+            {
+                "Product": product,
+                "ExcludedPairID": pair_id,
+                "Scope": "Grand-average and Set quantification only",
+                "Reason": "Prespecified sensitivity analysis for Oz/Pz alpha change",
+            }
+            for pair_id in sorted(excluded)
+        ]
+    ).to_csv(
+        paths["quantification_tables"]
+        / f"{ANALYSIS_STEM}_AlternateGroupExclusions_{product}_{suffix}.csv",
+        index=False,
+    )
+    return {
+        "excluded_pair_ids": sorted(excluded),
+        "grand_average": str(grand_png),
+        "set_quantification": str(quant_png),
+        "valid_pairs": len(selected),
+    }
 
 
 def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any]:
@@ -868,7 +978,9 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
     outputs: dict[str, Any] = {}
     for product in products:
         paths = output_directories(output_root, product)
-        for path in paths.values():
+        for key, path in paths.items():
+            if not INCLUDE_TOPOGRAPHY and key.startswith("topography"):
+                continue
             path.mkdir(parents=True, exist_ok=True)
         for legacy_path in (
             paths["quantification"] / f"{ANALYSIS_STEM}_Sets2to6Quantification_{product}.png",
@@ -906,32 +1018,43 @@ def write_group(items: list[dict[str, Any]], output_root: Path) -> dict[str, Any
             index=False,
         )
 
-        selected = [item for item in items if item["product_dir"] == product]
-        pair_values = np.stack([pair_topography_values(item) for item in selected])
-        group = np.full(pair_values.shape[1:], np.nan)
-        valid_n = np.zeros(N_SETS, dtype=int)
-        for index in range(N_SETS):
-            valid = np.isfinite(pair_values[:, index, :]).all(axis=1)
-            valid_n[index] = int(valid.sum())
-            if valid.any():
-                group[index] = pair_values[valid, index].mean(axis=0)
-        topo_png = (
-            paths["topography_grand"] / f"{ANALYSIS_STEM}_Topography_GrandAverage_{product}.png"
-        )
-        plot_topography(group, topo_png)
-        topo_frame = pd.DataFrame(group, columns=no1.EXPECTED_CHANNEL_NAMES)
-        topo_frame.insert(0, "Set", np.arange(1, N_SETS + 1))
-        topo_frame.insert(1, "Valid_N", valid_n)
-        topo_frame.to_csv(
-            paths["topography_tables"]
-            / f"{ANALYSIS_STEM}_Topography_GrandAverage_Values_{product}.csv",
-            index=False,
+        topo_png: Path | None = None
+        if INCLUDE_TOPOGRAPHY:
+            selected = [item for item in items if item["product_dir"] == product]
+            pair_values = np.stack([pair_topography_values(item) for item in selected])
+            group = np.full(pair_values.shape[1:], np.nan)
+            valid_n = np.zeros(N_SETS, dtype=int)
+            for index in range(N_SETS):
+                valid = np.isfinite(pair_values[:, index, :]).all(axis=1)
+                valid_n[index] = int(valid.sum())
+                if valid.any():
+                    group[index] = pair_values[valid, index].mean(axis=0)
+            topo_png = (
+                paths["topography_grand"]
+                / f"{ANALYSIS_STEM}_Topography_GrandAverage_{product}.png"
+            )
+            plot_topography(group, topo_png)
+            topo_frame = pd.DataFrame(group, columns=no1.EXPECTED_CHANNEL_NAMES)
+            topo_frame.insert(0, "Set", np.arange(1, N_SETS + 1))
+            topo_frame.insert(1, "Valid_N", valid_n)
+            topo_frame.to_csv(
+                paths["topography_tables"]
+                / f"{ANALYSIS_STEM}_Topography_GrandAverage_Values_{product}.csv",
+                index=False,
+            )
+        alternate = _write_alternate_group_outputs(
+            items,
+            product,
+            paths,
+            common_limit=common_limit,
+            common_ticks=common_ticks,
         )
         outputs[product] = {
             "grand_average": str(grand_png),
             "set_quantification": str(quant_png),
             "all_sets_quantification": str(overall_png),
-            "topography": str(topo_png),
+            "topography": str(topo_png) if topo_png is not None else None,
+            "alternate_pair_exclusion": alternate or None,
         }
     return outputs
 

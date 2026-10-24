@@ -33,6 +33,12 @@ payload = {{
     'difference_color_limit': getattr(engine, 'DIFFERENCE_COLOR_LIMIT', None),
     'difference_color_ticks': getattr(engine, 'DIFFERENCE_COLOR_TICKS', []).tolist()
         if hasattr(getattr(engine, 'DIFFERENCE_COLOR_TICKS', []), 'tolist') else [],
+    'include_topography': getattr(engine, 'INCLUDE_TOPOGRAPHY', None),
+    'alternate_group_exclusions': {{
+        key: sorted(value)
+        for key, value in getattr(engine, 'ALTERNATE_GROUP_EXCLUSIONS', {{}}).items()
+    }},
+    'alternate_group_suffix': getattr(engine, 'ALTERNATE_GROUP_SUFFIX', None),
     'ccube_color': engine.PRODUCTS['ccube'][2] if hasattr(engine, 'PRODUCTS')
         and len(engine.PRODUCTS['ccube']) == 4 else None,
     'vrohto_color': engine.PRODUCTS['vrohtopremium'][2] if hasattr(engine, 'PRODUCTS')
@@ -62,11 +68,21 @@ def test_no2_main_configuration() -> None:
 
 def test_no2_sub_and_add_configuration() -> None:
     sub = _inspect("Phase4_No2_sub_OccipitalAlphaChange")
+    pz = _inspect("Phase4_No2_2_sub_OccipitalAlphaChange_Pz")
     add = _inspect("Phase4_No2_add_OzTimeFrequencyMap")
     assert sub["analysis_stem"] == "No2_sub_OccipitalAlphaChange"
     assert sub["focus_channel"] == "Oz"
     assert sub["star_factor_override"] == 1.08
     assert sub["star_fontsize_override"] == 42.0
+    assert sub["include_topography"] is True
+    assert sub["alternate_group_exclusions"] == {"VRohtoPremium": ["125-225"]}
+    assert sub["alternate_group_suffix"] == "ExcludePair125-225"
+    assert pz["analysis_stem"] == "No2-2_sub_OccipitalAlphaChange_Pz"
+    assert pz["focus_channel"] == "Pz"
+    assert pz["include_topography"] is False
+    assert pz["alternate_group_exclusions"] == {"VRohtoPremium": ["125-225"]}
+    assert pz["alternate_group_suffix"] == "ExcludePair125-225"
+    assert pz["cache_root"] == sub["cache_root"]
     assert add["analysis_stem"] == "No2_add_OzTimeFrequencyMap"
     assert add["focus_channel"] == "Oz"
     assert add["focus_index"] == 17

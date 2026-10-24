@@ -2,7 +2,7 @@
 
 ## 1. 文書の位置づけ
 
-本書は、Phase 4 No2の3解析（No2：後頭alpha絶対PSD、No2_sub：Set 1基準PSD Change、No2_add：Oz Time-Frequency Map）を、同じ入力から同じ計算・同じfigureとして再現し、結果を正しく読めるようにまとめた唯一の現行仕様書です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。
+本書は、Phase 4 No2の4解析（No2：後頭alpha絶対PSD、No2_sub：OzのSet 1基準PSD Change、No2-2_sub：PzのSet 1基準PSD Change、No2_add：Oz Time-Frequency Map）を、同じ入力から同じ計算・同じfigureとして再現し、結果を正しく読めるようにまとめた唯一の現行仕様書です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。
 
 Phase 4は、使用した目薬で被験者をCキューブ群とVロートプレミアム群に分け、製品群ごとにEye DropとControlを被験者内比較します。
 
@@ -11,6 +11,7 @@ Phase 4は、使用した目薬で被験者をCキューブ群とVロートプ�
 | No2 | occipital alpha | Oz | 8–15 Hz（両端を含む） | 不注意・マインドワンダリング | 本書で実装仕様を確定 |
 | No2_add | Oz Time-Frequency Map | Oz | 1–30 Hz（1 Hz刻み） | No2を補足する追加解析 | 本書・独立スクリプトで本番40ペア完了 |
 | No2_sub | 後頭alpha PSD Change | Oz（topographyは全32ch） | 8–15 Hz | Set 1基準の相対変化 | 本書・独立スクリプトで本番39ペア完了 |
+| No2-2_sub | 後頭alpha PSD Change | Pz | 8–15 Hz | Oz結果の代表ch依存性を確認する補助解析 | 本書・独立出力で本番39ペアを対象 |
 
 代表chの文献根拠は[Phase 4 解析対象チャンネル文献調査](Phase4_解析対象チャンネル文献調査.md)を参照します。
 
@@ -571,19 +572,21 @@ Phase 4の被験者別結果表と日次解析記録はNotionへ作成しませ�
 
 未確定事項を暗黙実装しません。変更時は本書、Notion、コード、テストを同時更新します。
 
-+
 # Part B：Set 1基準 PSD Change
 
 ## 1. 位置づけ
 
-本書は、Phase 4 No2の追加解析として、Set 1を基準にした後頭alpha PSD変化率を解析する確定仕様です。No2本体およびNo2_addとは、Pythonスクリプト、OneDrive成果物、Notion見出しを分離します。
+本書は、Phase 4 No2の追加解析として、Set 1を基準にした後頭alpha PSD変化率を解析する確定仕様です。主要代表chはOz、補助代表chはPzとします。No2本体およびNo2_addとは、Pythonスクリプト、OneDrive成果物、Notion見出しを分離します。
 
 - 解析名：`No2_sub_OccipitalAlphaChange`
 - Python：`解析プログラム/Phase4_脳波解析/Phase4_No2_sub_OccipitalAlphaChange.py`
 - 入力：ローカルデスクトップに保存済みのNo2 PSD HDF5 cache
 - ローカルへの派生データ保存：行わない
 - OneDrive：`Phase4_脳波解析/No2_sub_OccipitalAlphaChange/`
-- 状態：2026-10-04に本番実行・検証を完了し、現行確定版として固定
+- 補助解析名：`No2-2_sub_OccipitalAlphaChange_Pz`
+- 補助Python：`解析プログラム/Phase4_脳波解析/Phase4_No2_2_sub_OccipitalAlphaChange_Pz.py`
+- 補助OneDrive：`Phase4_脳波解析/No2-2_sub_OccipitalAlphaChange_Pz/`
+- 状態：Oz主要版とPz補助版を同じNo2 cache・同じ計算仕様で管理
 
 No2_subはWelch PSDを再計算しません。No2のPhase 1区間maskと、セッションID・ch別の全Set一括log10上側3SD maskを適用した未平滑PSDを読み込みます。
 
@@ -609,6 +612,7 @@ PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
 ## 4. 時間変化
 
 - 代表ch：Oz
+- Pz補助版では、この節のOzをPzへ置き換える。それ以外の平滑化、progress、軸、配色、欠測処理は変更しない
 - 変化率へ変換後、各Set内だけで60秒中心化単純移動平均する
 - NaNを無視し、窓内に1点以上の有限値があれば算出する。窓全体がNaNの場合だけNaNとする
 - Set間をまたいで平滑化しない
@@ -639,6 +643,15 @@ PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
 - y軸：`PSD Change, %`。0より上：下の表示範囲を約2：1とし、全有限値が入るようにする
 - 統計線は最大データ点 `M` に対して `1.15M`、n.s.は下端 `1.20M`・26 pt、アスタリスクは下端 `1.08M`・42 ptに置く。Set名は `1.42M`、y上限は `1.54M` とし、Set名を統計表示より明確に上へ離す。すべてArialを用いる
 
+### 6.1 Vロートプレミアム群の125–225除外追加版
+
+- Oz主要版とPz補助版の両方で、全員を用いる主要結果を必ず保持する
+- 追加感度結果では、Vロートプレミアム群のペア125–225を群集計だけから除外し、Grand-averageとSet別定量化を再計算する
+- 個人figure、全Set統合figure、Cキューブ群、topography、No2 PSD cacheは変更しない
+- 追加PNGの末尾は `ExcludePair125-225` とし、元PNGを上書きしない
+- 除外対象、対象範囲、再集計後の被験者数、Grand-average値、定量値、未補正・3種補正p値を `Sub/tables/` と実行要約へ保存する
+- ID225はSet 4欠測のため、元解析でも125–225はSet 4の群集計へ寄与しない。追加版ではSet 1–3・5–6から当該ペアを除く
+
 ## 7. Topography
 
 全32chについて、平滑化前のSet別PSD Change平均を計算し、被験者内条件差を作ります。
@@ -656,6 +669,7 @@ Difference in PSD Change(ch, Set) = Eye Drop - Control
 - 上限は有限値の最大絶対値がカラースケールの約85%となる切りのよい値にする
 - 10-20 system、全32電極点、No2本体と同じ頭部輪郭・補間・文字サイズを用いる
 - Grand-averageの追加感度解析では、保存済みcacheを用い、Eye Drop／Controlを別々にSet 1絶対PSD高値、60秒blockの持続的上昇、絶対PSD低値を伴う持続的低下の3経路で判定する。片条件の該当はpaired ORで同一ペア×ch×Setの両条件へ適用し、条件差作成後の空間MADや固定500%基準は使用しない。実適用除外率、N、監査CSV・JSONに加え、6図の単一ch孤立色・隣接ch急反転・全頭偏りを定性的に確認する。完全規則は `docs/Phase4_PSDChange_Topography外れ値除外感度解析.md` を正本とする
+- Pz補助版はNo2_subと同じ全32ch変化率を使うため、同一内容になるtopographyを重複生成しない。topographyの正本はOz主要版とする
 
 ## 8. 欠測SetとSet 1欠測
 
@@ -701,9 +715,24 @@ Phase4_脳波解析/
         SetQuantification/
         Topography/
       logs/
+  No2-2_sub_OccipitalAlphaChange_Pz/
+    CCube/
+      Individual/
+      GrandAverage/
+      SetQuantification/
+    VRohtoPremium/
+      Individual/
+      GrandAverage/
+      SetQuantification/
+    Sub/
+      tables/
+        Set1Baseline/
+        GrandAverage/
+        SetQuantification/
+      logs/
 ```
 
-`Individual/`、`GrandAverage/`、`Topography/`にはPNGだけを置きます。`SetQuantification/`にはSet別PNG、全Set統合PNG、およびSet別統計CSVを置きます。基準値、Grand-average数値、有効N、被験者別定量値、全Set統合統計、topography数値、除外ペア、成果物一覧は`Sub/tables/`と`Sub/logs/`へ保存します。
+`Individual/`、`GrandAverage/`、`Topography/`にはPNGだけを置きます。`SetQuantification/`にはSet別PNG、全Set統合PNG、およびSet別統計CSVを置きます。基準値、Grand-average数値、有効N、被験者別定量値、全Set統合統計、topography数値、除外ペア、成果物一覧は`Sub/tables/`と`Sub/logs/`へ保存します。Pz補助版には`Topography/`を作りません。Oz・PzともVロートプレミアムのGrand-averageとSet別定量化には、無印主要版と`ExcludePair125-225`追加版の2 PNGを並べます。
 
 ## 11. 実行モード
 
@@ -712,21 +741,22 @@ Phase4_脳波解析/
 - `--group-outputs-only`：Grand-average、定量化、統計、群topography
 - `--all`：preflight後に個人・群成果物を順に作る
 
-No2_subにPSD再計算モードは設けません。figure調整時にもローカルのNo2 cacheを読み直し、Welch PSDは再計算しません。
+No2_subとNo2-2_subにPSD再計算モードは設けません。figure調整時にもローカルのNo2 cacheを読み直し、Welch PSDは再計算しません。本番`--all`ではOz主要版を完了後、同じ40ペアmanifestでPz補助版を連続実行します。Pzスクリプトを単独実行して同じ結果を再現することもできます。
 
 ## 12. 実装状態
 
-2026-10-04に本番manifestの40ペアを事前検査し、Set 1 baselineを定義できない既知の109–209を規定どおり除外しました。残る39ペア（78セッション）を同一スクリプトで実行し、個人時間変化、個人topography、製品群別Grand-average、Set別・全Set統合定量化、統計、Grand-average topographyをOneDriveへ保存しました。
+2026-10-25に、2026-10-04に確定済みのNo2 cacheと本番manifest 40ペアを読み直し、Set 1 baselineを定義できない既知の109–209を規定どおり除外しました。残る39ペア（78セッション）に対し、Oz主要版とPz補助版を同一の計算仕様で実行しました。Oz版の既存成果物は保持し、Pz版は個人時間変化、製品群別Grand-average、Set別・全Set統合定量化、統計を独立ルートへ保存し、topographyは重複生成しませんでした。Vロートプレミアム群ではOz・Pzとも主要全員結果に加え、125–225を群集計だけから除いたGrand-averageとSet別定量化を追加しました。
 
 検証結果は次のとおりです。
 
 - Set 1 baseline：39ペア×2セッション×32ch＝2,496件がすべて有限かつ正
 - Set 1定量値とSet 1 topography差：浮動小数点誤差の範囲で0%
 - 既知欠測Set：対応条件側も同じSetから除外され、有効Nの減少を確認
-- 成果物：PNG 86件、CSV 11件、実行要約JSON 1件
+- Pz補助版：PNG 47件、CSV 14件、実行要約JSON 1件。個人figureは39ペア分、topographyは0件
+- Vロートプレミアムの125–225除外追加版：有効ペア数は18。除外版の被験者別定量値に125–225が含まれないことを確認
 - No2_sub用のローカル派生cache：作成なし
-- 統計の確定検証：保存済み被験者別定量値からSet 2–6の両側対応ありt検定を独立再計算し、t値と未補正p値が統計CSVに一致することを確認した。Benjamini–Hochberg FDRも独立再計算し、保存値との差が0であることを確認した。今回の未補正p値の順位関係では、単調性を保つ調整によって5 SetのFDR補正p値が同値になるが、これは実装不具合ではない
-- 確定状態：No2本体とNo2_subは現行コード、現行パラメータ、現行出力構造を確定版とし、以後は明示された仕様変更または成果物不具合がない限り再計算・個別調整を行わない
+- 統計の確定検証：Oz・Pzの125–225除外追加版について、保存済み被験者別定量値からSet 2–6の両側対応ありt検定を独立再計算し、Paired N、t値、未補正p値が統計CSVと浮動小数点誤差の範囲で一致することを確認
+- 確定状態：No2本体、Oz版No2_sub、Pz補助版No2-2_subは現行コード、現行パラメータ、現行出力構造を確定版とする
 
 # Part C：代表ch Time-Frequency Map
 
