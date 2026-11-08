@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
+import pytest
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "解析プログラム" / "Phase4_脳波解析"
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -142,3 +144,48 @@ def test_transition_missing_set_removes_both_conditions(monkeypatch) -> None:
     assert all(not row["PairedTransitionAvailable"] for row in rows)
     assert all(np.isnan(row["EyeDrop_Transition_pp"]) for row in rows)
     assert all(np.isnan(row["Control_Transition_pp"]) for row in rows)
+
+
+def test_sensitivity_removes_only_the_selected_complete_v_rohto_pair() -> None:
+    rows = [
+        {"PairID": f"C{i:02d}", "Product": "CCube", "Set": set_number, "Window": "FullSet"}
+        for i in range(20)
+        for set_number in range(1, 7)
+    ]
+    rows += [
+        {"PairID": f"V{i:02d}", "Product": "VRohtoPremium", "Set": set_number, "Window": "FullSet"}
+        for i in range(19)
+        for set_number in range(1, 7)
+    ]
+    source = pd.DataFrame(rows)
+    selected = module.sensitivity_rows(
+        source,
+        excluded_pair="V07",
+        expected_rows_per_pair=6,
+        identifying_columns=["PairID", "Product", "Set", "Window"],
+    )
+    assert selected["PairID"].nunique() == 18
+    assert len(selected) == 18 * 6
+    assert "V07" not in set(selected["PairID"])
+    assert source["PairID"].nunique() == 39
+
+
+def test_sensitivity_rejects_an_incomplete_excluded_pair() -> None:
+    rows = [
+        {"PairID": f"C{i:02d}", "Product": "CCube", "Set": set_number, "Window": "FullSet"}
+        for i in range(20)
+        for set_number in range(1, 7)
+    ]
+    rows += [
+        {"PairID": f"V{i:02d}", "Product": "VRohtoPremium", "Set": set_number, "Window": "FullSet"}
+        for i in range(19)
+        for set_number in range(1, 7)
+        if (i, set_number) != (7, 4)
+    ]
+    with pytest.raises(ValueError, match="incomplete"):
+        module.sensitivity_rows(
+            pd.DataFrame(rows),
+            excluded_pair="V07",
+            expected_rows_per_pair=6,
+            identifying_columns=["PairID", "Product", "Set", "Window"],
+        )

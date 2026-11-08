@@ -56,7 +56,8 @@ BANDS = {
 
 WINDOWS = {"FullSet": 100.0, "FirstHalf": 50.0, "FirstQuarter": 25.0}
 TRANSITION_WINDOWS = {"BoundaryHalf": 50.0, "BoundaryQuarter": 25.0}
-SCRIPT_VERSION = "phase4-no4-no5-fz-early-change-2026-11-08.2"
+SCRIPT_VERSION = "phase4-no4-no5-fz-early-change-2026-11-08.3"
+SENSITIVITY_EXCLUDED_PAIRS = {4: "135-235", 5: "101-201"}
 
 
 def configure(band: EarlyBand) -> None:
@@ -444,7 +445,14 @@ def _draw_quantification_panel(
     axis.spines["right"].set_visible(False)
 
 
-def plot_quantification(frame: pd.DataFrame, product: str, window: str, path: Path) -> None:
+def plot_quantification(
+    frame: pd.DataFrame,
+    product: str,
+    window: str,
+    path: Path,
+    *,
+    excluded_pair: str | None = None,
+) -> None:
     selected = frame.loc[(frame["Product"] == product) & (frame["Window"] == window)]
     values = selected[["EyeDrop_PSDChange_pct", "Control_PSDChange_pct"]].to_numpy(float)
     layout = change_engine._quantification_layout(values)  # noqa: SLF001
@@ -464,7 +472,10 @@ def plot_quantification(frame: pd.DataFrame, product: str, window: str, path: Pa
         "FirstHalf": "First 50% of Each Set",
         "FirstQuarter": "First 25% of Each Set",
     }
-    figure.suptitle(titles[window], fontsize=26, fontfamily="Arial", y=0.995)
+    title = titles[window]
+    if excluded_pair is not None:
+        title += f" | Excluding Pair {excluded_pair}"
+    figure.suptitle(title, fontsize=26, fontfamily="Arial", y=0.995)
     figure.subplots_adjust(left=0.06, right=0.995, top=0.90, bottom=0.25, wspace=0.24)
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
@@ -472,7 +483,12 @@ def plot_quantification(frame: pd.DataFrame, product: str, window: str, path: Pa
 
 
 def plot_transition_quantification(
-    frame: pd.DataFrame, product: str, window: str, path: Path
+    frame: pd.DataFrame,
+    product: str,
+    window: str,
+    path: Path,
+    *,
+    excluded_pair: str | None = None,
 ) -> None:
     selected = frame.loc[(frame["Product"] == product) & (frame["Window"] == window)]
     panel_frame = selected.rename(
@@ -497,12 +513,10 @@ def plot_transition_quantification(
             ylabel="Transition in PSD Change (pp)",
         )
     width = TRANSITION_WINDOWS[window]
-    figure.suptitle(
-        f"Previous Last {width:g}% to Next First {width:g}%",
-        fontsize=26,
-        fontfamily="Arial",
-        y=0.995,
-    )
+    title = f"Previous Last {width:g}% to Next First {width:g}%"
+    if excluded_pair is not None:
+        title += f" | Excluding Pair {excluded_pair}"
+    figure.suptitle(title, fontsize=26, fontfamily="Arial", y=0.995)
     figure.subplots_adjust(left=0.07, right=0.995, top=0.90, bottom=0.25, wspace=0.25)
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
@@ -574,7 +588,7 @@ def output_paths(output_root: Path, band: EarlyBand, product: str) -> dict[str, 
 
 def parse_args(band: EarlyBand) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=f"Phase 4 No{band.number} Fz early-Set PSD Change")
-    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path)
     parser.add_argument("--cache-root", type=Path, default=None)
     parser.add_argument("--output-root", type=Path, default=None)
     parser.add_argument("--production-batch", action="store_true", required=True)
@@ -582,7 +596,133 @@ def parse_args(band: EarlyBand) -> argparse.Namespace:
     mode.add_argument("--preflight-only", action="store_true")
     mode.add_argument("--all", action="store_true")
     mode.add_argument("--transition-only", action="store_true")
-    return parser.parse_args()
+    mode.add_argument("--excluded-pair-sensitivity-only", action="store_true")
+    args = parser.parse_args()
+    if not args.excluded_pair_sensitivity_only and args.manifest is None:
+        parser.error("--manifest is required outside excluded-pair sensitivity mode")
+    return args
+
+
+def sensitivity_rows(
+    frame: pd.DataFrame,
+    *,
+    excluded_pair: str,
+    expected_rows_per_pair: int,
+    identifying_columns: list[str],
+) -> pd.DataFrame:
+    """Remove one complete V Rohto pair, preserving paired conditions and other products."""
+    expected_pairs = {"CCube": 20, "VRohtoPremium": 19}
+    if frame.duplicated(identifying_columns).any():
+        raise ValueError("Saved sensitivity input has duplicate pair/Set/window rows")
+    for product, count in expected_pairs.items():
+        group = frame.loc[frame["Product"] == product]
+        if group["PairID"].nunique() != count:
+            raise ValueError(f"{product}: expected {count} input pairs")
+        if not group.groupby("PairID").size().eq(expected_rows_per_pair).all():
+            raise ValueError(f"{product}: incomplete saved pair/Set/window rows")
+    if set(frame["Product"]) != set(expected_pairs):
+        raise ValueError("Unexpected product in saved sensitivity input")
+    target = frame.loc[frame["PairID"] == excluded_pair]
+    if len(target) != expected_rows_per_pair or not target["Product"].eq("VRohtoPremium").all():
+        raise ValueError("Specified excluded pair is not a complete V Rohto pair")
+    return frame.loc[
+        (frame["Product"] == "VRohtoPremium") & (frame["PairID"] != excluded_pair)
+    ].copy()
+
+
+def write_excluded_pair_sensitivity(output_root: Path, band: EarlyBand) -> None:
+    """Add V Rohto figures from verified saved pair values without touching main outputs."""
+    excluded_pair = SENSITIVITY_EXCLUDED_PAIRS[band.number]
+    paths = output_paths(output_root, band, "VRohtoPremium")
+    quant_source = paths["quant_values"] / f"{band.stem}_PairSetWindowValues.csv"
+    transition_source = paths["transition_values"] / f"{band.stem}_PairSetTransitionValues.csv"
+    quant = pd.read_csv(quant_source, dtype={"PairID": str})
+    transition = pd.read_csv(transition_source, dtype={"PairID": str})
+    validate_fullset_reference(quant, output_root, band)
+    selected_quant = sensitivity_rows(
+        quant,
+        excluded_pair=excluded_pair,
+        expected_rows_per_pair=6 * len(WINDOWS),
+        identifying_columns=["PairID", "Product", "Set", "Window"],
+    )
+    selected_transition = sensitivity_rows(
+        transition,
+        excluded_pair=excluded_pair,
+        expected_rows_per_pair=5 * len(TRANSITION_WINDOWS),
+        identifying_columns=["PairID", "Product", "FromSet", "ToSet", "Window"],
+    )
+    suffix = f"ExcludePair{excluded_pair}"
+    quant_summary = summary_table(selected_quant)
+    transition_summary = transition_summary_table(selected_transition)
+    for window in WINDOWS:
+        plot_quantification(
+            selected_quant,
+            "VRohtoPremium",
+            window,
+            paths["quant"] / f"{band.stem}_SetQuantification_{window}_VRohtoPremium_{suffix}.png",
+            excluded_pair=excluded_pair,
+        )
+    for window in TRANSITION_WINDOWS:
+        plot_transition_quantification(
+            selected_transition,
+            "VRohtoPremium",
+            window,
+            paths["transitions"]
+            / f"{band.stem}_BetweenSetQuantification_{window}_VRohtoPremium_{suffix}.png",
+            excluded_pair=excluded_pair,
+        )
+    quant_summary_path = (
+        paths["quant_values"] / f"{band.stem}_GroupSetWindowSummary_{suffix}_VRohtoPremium.csv"
+    )
+    transition_summary_path = (
+        paths["transition_values"]
+        / f"{band.stem}_GroupSetTransitionSummary_{suffix}_VRohtoPremium.csv"
+    )
+    quant_summary.to_csv(quant_summary_path, index=False)
+    transition_summary.to_csv(transition_summary_path, index=False)
+    log = {
+        "analysis": band.stem,
+        "status": "completed",
+        "completed_at": datetime.now().astimezone().isoformat(),
+        "script_version": SCRIPT_VERSION,
+        "mode": "excluded-pair-sensitivity-only",
+        "product": "VRohtoPremium",
+        "excluded_pair": excluded_pair,
+        "selection": "post-hoc visual outlier sensitivity analysis; not a general exclusion rule",
+        "method": (
+            "Remove both conditions of the specified pair from saved unsmoothed "
+            "post-mask PSD Change values; recompute paired summaries and y axes. "
+            "No PSD recomputation or inferential statistics."
+        ),
+        "source_pair_values": [str(quant_source), str(transition_source)],
+        "source_sha256": {
+            quant_source.name: hashlib.sha256(quant_source.read_bytes()).hexdigest(),
+            transition_source.name: hashlib.sha256(transition_source.read_bytes()).hexdigest(),
+        },
+        "set_quantification_paired_n": quant_summary[
+            ["Window", "Set", "Paired_N"]
+        ].to_dict("records"),
+        "between_set_paired_n": transition_summary[
+            ["Window", "FromSet", "ToSet", "Paired_N"]
+        ].to_dict("records"),
+        "figures_added": {
+            "set_quantification": len(WINDOWS),
+            "between_set": len(TRANSITION_WINDOWS),
+        },
+        "summary_csv": [str(quant_summary_path), str(transition_summary_path)],
+        "unchanged": (
+            "All main figures, pair-value CSVs, CCube outputs, individual and "
+            "grand-average figures, and local PSD caches"
+        ),
+        "interpretation_caveat": (
+            "An exploratory exclusion does not establish artifact origin or a product effect; "
+            "Set boundaries are not necessarily eye-drop administration times"
+        ),
+    }
+    paths["logs"].mkdir(parents=True, exist_ok=True)
+    (paths["logs"] / f"{band.stem}_ExcludedPairSensitivityRunSummary.json").write_text(
+        json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def write_transition_outputs(
@@ -641,6 +781,10 @@ def run(number: int) -> int:
     cache_root = args.cache_root or parent.DEFAULT_CACHE_ROOT
     output_root = args.output_root or parent.DEFAULT_OUTPUT_ROOT
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if args.excluded_pair_sensitivity_only:
+        write_excluded_pair_sensitivity(output_root, band)
+        logging.info("No%s excluded-pair sensitivity figures completed", number)
+        return 0
     specs = parent.load_manifest(args.manifest)
     items, summary = preflight(specs, cache_root, band)
     logging.info("No%s preflight passed: %s pairs", number, len(items))
