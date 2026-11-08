@@ -12,6 +12,8 @@
 - No2 occipital alpha：Oz、8–15 Hz
 - No3 frontal delta：Fz、1–3 Hz
 
+No4（Fz・4–7 Hz）とNo5（Fz・1–3 Hz）は、既存のNo1_sub／No3_subを改変しない序盤PSD Changeの追加探索として計画中です。各Setの全時間・0–50%・0–25%を比較します。現時点ではスクリプト未作成・未実行で、仕様と未確定事項は [`docs/Phase4_No4_No5_Fz序盤PSDChange_実装前計画.md`](../../docs/Phase4_No4_No5_Fz序盤PSDChange_実装前計画.md) を参照します。
+
 根拠と解釈上の注意は [`docs/Phase4_解析対象チャンネル文献調査.md`](../../docs/Phase4_解析対象チャンネル文献調査.md) を参照します。FCzとPOzは現行32chに含まれません。
 
 No1は、全32chを1秒Hann窓・1秒移動・256点FFTのWelch法で解析し、4–7 Hz平均の未平滑PSDをHDF5へ一度だけ保存します。Phase 1区間mask後、セッションID・chごとの全Set一括 `log10(PSD)` 平均＋3SDを上側閾値とし、該当ch・時間窓だけをNaNにします。そのデータからFzの60秒平滑化時間変化、製品群別Grand-average、mask後未平滑PSDの定量化・統計、全32chの条件差topographyを作ります。現行の確定仕様は [`docs/Phase4_No1_共有用解析仕様.md`](../../docs/Phase4_No1_共有用解析仕様.md) を唯一の実装正本とします。

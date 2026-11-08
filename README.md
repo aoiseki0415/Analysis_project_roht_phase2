@@ -116,6 +116,10 @@ No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。20
 
 No1_subはNo1の検証済みPSD cacheをローカルデスクトップから読み、各セッションID・各chのSet 1有限値平均を基準に `PSD Change = (PSD / Set 1平均 − 1) × 100` を計算する独立解析です。変化率への変換後にFz時間変化だけをSet内60秒平滑化し、定量化とtopographyは未平滑変化率を使用します。全Set統合定量値はSet 1を含むSet 1–6の全有限時間窓から作ります。Grand-averageのy軸は平均線の最大絶対値を約70%の位置に置き、定量化は0より上：下を約2：1としてSet名を統計表示より十分上に離して配置します。No1_subの派生データはローカルへ保存せず、OneDrive成果物だけを専用ルートへ出力します。ID109はSet 1欠測のため、対応ID209を含むペア109–209をNo1_sub全体から除外します。2026-10-04に本番40ペアを事前検査し、規定どおり109–209を除く39ペアの全成果物を同一スクリプトで出力・検証済みです。Set 2–6は両側対応ありt検定で比較し、5比較に対するBonferroni・Holm・Benjamini–Hochberg FDRをCSVへ併記します。保存済み被験者値から独立再計算してt値・未補正p値・FDR補正値が完全一致することまで確認し、No1およびNo1_subを現行確定版とします。
 
+### Phase 4 No4・No5（実装前の探索計画）
+
+No4はFzの4–7 Hzシータ、No5はFzの1–3 Hzデルタについて、既存No1／No3の検証済み帯域PSD cacheからSet 1基準のPSD Changeを求め、各Setの全時間・前半0–50%・最初の4分の1 0–25%を比較する追加探索です。Cキューブ群とVロートプレミアム群で同じ方法を使い、個人とGrand-averageの全時間変化、Set別定量化、外れ値感度分析を既存No1_sub／No3_subとは別に管理します。現時点では方針とOneDriveの空フォルダだけを準備し、スクリプト作成・計算・結果出力は未実施です。詳細と未確定事項は[Phase 4 No4・No5実装前計画](docs/Phase4_No4_No5_Fz序盤PSDChange_実装前計画.md)を参照します。
+
 ## Phase 5相関解析の確定方針
 
 Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解析です。DEQSは問1〜15の程度得点を0〜100点へ換算し、問16は使用しません。RTはPhase 2 No1の主解析 `AllTrials` のSet 1・Set 6平均値を使用し、Phase 2保存値とのID・条件・Set・有効試行数・数値一致を全件確認してから解析します。`Eye Drop Effect = (Control Set6 / Control Set1) − (Eye Drop Set6 / Eye Drop Set1)` とし、正値を点眼によってRT増加率が抑えられた方向と定義します。比率同士の差であるため単位はなく、Figureでは `[a.u.]` と表示します。Cキューブ群とVロートプレミアム群を分け、製品別にPearsonの積率相関係数を算出します。検定は両側、p値は未補正です。ID109–209はSet 1、ID120–220はSet 6欠測のため本指標を算出しません。Figureは点と `r; p` の注記を基本とし、信頼帯と0の水平線は表示せず、回帰線は未補正両側 `p < 0.05` の場合だけ表示します。横軸は `DEQS Score [a.u.]` の0〜85、縦軸は `Eye Drop Effect [a.u.]` とします。Figure、表、照合記録、出力構造、完了条件は[Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)を正本とします。2026年10月5日に比率差の確定式で40被験者ペアを再実行し、Phase 2保存済み240行との完全一致、製品別有効人数19名、指定OneDrive成果物の読戻しを確認済みです。
@@ -136,6 +140,7 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 No1共有用解析仕様](docs/Phase4_No1_共有用解析仕様.md)：No1本体、No1_sub、No1_addの目的、計算、全パラメータ、figure、成果物構造、結果の読み方を統合した確定版
 - [Phase 4 No2共有用解析仕様](docs/Phase4_No2_共有用解析仕様.md)：No2本体、Oz版No2_sub、Pz補助版No2-2_sub、No2_addを統合した確定版
 - [Phase 4 No3共有用解析仕様](docs/Phase4_No3_共有用解析仕様.md)：No3本体、No3_sub、No3_addを統合した確定版
+- [Phase 4 No4・No5 Fz序盤PSD Change実装前計画](docs/Phase4_No4_No5_Fz序盤PSDChange_実装前計画.md)：Fzシータ・デルタの各Set序盤に着目する追加探索の計算方針、出力構造、未確定事項。実装・実行は未着手
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
 - [Phase 4 PSD Change topography 条件別・双方向外れ値除外感度解析](docs/Phase4_PSDChange_Topography外れ値除外感度解析.md)：No1_sub～No3_subを横断し、条件別のSet 1絶対PSD高値、持続的上昇、絶対PSD低値を伴う持続的低下、paired OR、除外率・N、6図の定性評価、監査記録を定義
 - [Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)：DEQS得点化、Phase 2 RT照合、Eye Drop Effect、製品別相関、Figure、OneDrive構造、検証条件をまとめた現行仕様
