@@ -55,7 +55,8 @@ BANDS = {
 }
 
 WINDOWS = {"FullSet": 100.0, "FirstHalf": 50.0, "FirstQuarter": 25.0}
-SCRIPT_VERSION = "phase4-no4-no5-fz-early-change-2026-11-08.1"
+TRANSITION_WINDOWS = {"BoundaryHalf": 50.0, "BoundaryQuarter": 25.0}
+SCRIPT_VERSION = "phase4-no4-no5-fz-early-change-2026-11-08.2"
 
 
 def configure(band: EarlyBand) -> None:
@@ -229,6 +230,99 @@ def summary_table(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def quantify_transitions(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compare the previous Set tail with the next Set head before smoothing."""
+    eye = item["eye_drop"]
+    control = item["control"]
+    common_sets = set(eye.source.sets) & set(control.source.sets)
+    rows: list[dict[str, Any]] = []
+    for to_set in range(2, 7):
+        from_set = to_set - 1
+        paired_available = {from_set, to_set}.issubset(common_sets)
+        for window_name, width in TRANSITION_WINDOWS.items():
+            row: dict[str, Any] = {
+                "PairID": item["spec"].pair_id,
+                "Product": item["product_dir"],
+                "FromSet": from_set,
+                "ToSet": to_set,
+                "Window": window_name,
+                "PreviousProgressStart_pct": 100.0 - width,
+                "PreviousProgressEnd_pct": 100.0,
+                "NextProgressStart_pct": 0.0,
+                "NextProgressEnd_pct": width,
+                "PairedTransitionAvailable": paired_available,
+            }
+            for condition, session in (("EyeDrop", eye), ("Control", control)):
+                for side in ("Previous", "Next"):
+                    row[f"{condition}_{side}TotalWindows"] = 0
+                    row[f"{condition}_{side}FiniteWindows"] = 0
+                    row[f"{condition}_{side}Mean_PSDChange_pct"] = np.nan
+                row[f"{condition}_Transition_pp"] = np.nan
+                if not paired_available:
+                    continue
+                channel = session.channel_names.index("Fz")
+                for side, set_number in (("Previous", from_set), ("Next", to_set)):
+                    progress = np.asarray(
+                        session.source.sets[set_number].set_progress_pct, dtype=float
+                    )
+                    selected = (
+                        (progress >= 100.0 - width) & (progress <= 100.0)
+                        if side == "Previous"
+                        else (progress >= 0.0) & (progress < width)
+                    )
+                    values = change_engine.set_change_values(session, set_number, channel)
+                    finite = np.isfinite(values[selected])
+                    row[f"{condition}_{side}TotalWindows"] = int(selected.sum())
+                    row[f"{condition}_{side}FiniteWindows"] = int(finite.sum())
+                    if finite.any():
+                        row[f"{condition}_{side}Mean_PSDChange_pct"] = float(
+                            values[selected][finite].mean()
+                        )
+                previous = row[f"{condition}_PreviousMean_PSDChange_pct"]
+                following = row[f"{condition}_NextMean_PSDChange_pct"]
+                if np.isfinite(previous) and np.isfinite(following):
+                    row[f"{condition}_Transition_pp"] = following - previous
+            eye_change = row["EyeDrop_Transition_pp"]
+            control_change = row["Control_Transition_pp"]
+            row["EyeDropMinusControl_Transition_pp"] = (
+                eye_change - control_change
+                if np.isfinite(eye_change) and np.isfinite(control_change)
+                else np.nan
+            )
+            rows.append(row)
+    return rows
+
+
+def transition_summary_table(frame: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for (product, window, from_set, to_set), group in frame.groupby(
+        ["Product", "Window", "FromSet", "ToSet"], sort=True
+    ):
+        eye = group["EyeDrop_Transition_pp"].to_numpy(float)
+        control = group["Control_Transition_pp"].to_numpy(float)
+        paired = np.isfinite(eye) & np.isfinite(control)
+        if not paired.any():
+            raise ValueError(
+                f"No paired transition values: {product} {window} {from_set}->{to_set}"
+            )
+        difference = eye[paired] - control[paired]
+        rows.append(
+            {
+                "Product": product,
+                "Window": window,
+                "FromSet": from_set,
+                "ToSet": to_set,
+                "Paired_N": int(paired.sum()),
+                "EyeDrop_Mean_Transition_pp": float(np.mean(eye[paired])),
+                "Control_Mean_Transition_pp": float(np.mean(control[paired])),
+                "EyeDropMinusControl_Mean_Transition_pp": float(np.mean(difference)),
+                "EyeDrop_SD_Transition_pp": float(np.std(eye[paired], ddof=1)),
+                "Control_SD_Transition_pp": float(np.std(control[paired], ddof=1)),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def validate_fullset_reference(frame: pd.DataFrame, output_root: Path, band: EarlyBand) -> None:
     """The new full-Set means must reproduce the completed No1_sub/No3_sub values."""
     reference_stem = "No1_sub_FmThetaChange" if band.number == 4 else "No3_sub_FrontalDeltaChange"
@@ -272,6 +366,8 @@ def _draw_quantification_panel(
     layout: tuple[float, float, np.ndarray, float, float, float],
     *,
     show_ylabel: bool,
+    panel_label: str | None = None,
+    ylabel: str = "PSD Change, %",
 ) -> None:
     _, product_label, _, eye_color = change_engine.no1.normalize_product(product)
     lower, upper, ticks, _, _, set_y = layout
@@ -322,7 +418,8 @@ def _draw_quantification_panel(
     )
     axis.axhline(0.0, color="#9E9E9E", linewidth=1.2, zorder=0)
     axis.text(
-        0, set_y, f"Set {set_number}", ha="center", va="center", fontsize=26, fontfamily="Arial"
+        0, set_y, panel_label or f"Set {set_number}", ha="center", va="center",
+        fontsize=26, fontfamily="Arial"
     )
     axis.set_xlim(-0.9, 0.9)
     axis.set_ylim(lower, upper)
@@ -342,7 +439,7 @@ def _draw_quantification_panel(
     axis.tick_params(axis="x", labelsize=22, width=1.5, length=6, pad=12)
     axis.tick_params(axis="y", labelsize=23, width=1.5, length=6, labelleft=True)
     if show_ylabel:
-        axis.set_ylabel("PSD Change, %", fontsize=30)
+        axis.set_ylabel(ylabel, fontsize=30)
     axis.spines["top"].set_visible(False)
     axis.spines["right"].set_visible(False)
 
@@ -369,6 +466,44 @@ def plot_quantification(frame: pd.DataFrame, product: str, window: str, path: Pa
     }
     figure.suptitle(titles[window], fontsize=26, fontfamily="Arial", y=0.995)
     figure.subplots_adjust(left=0.06, right=0.995, top=0.90, bottom=0.25, wspace=0.24)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+
+
+def plot_transition_quantification(
+    frame: pd.DataFrame, product: str, window: str, path: Path
+) -> None:
+    selected = frame.loc[(frame["Product"] == product) & (frame["Window"] == window)]
+    panel_frame = selected.rename(
+        columns={
+            "EyeDrop_Transition_pp": "EyeDrop_PSDChange_pct",
+            "Control_Transition_pp": "Control_PSDChange_pct",
+        }
+    )
+    values = panel_frame[["EyeDrop_PSDChange_pct", "Control_PSDChange_pct"]].to_numpy(float)
+    layout = change_engine._quantification_layout(values)  # noqa: SLF001
+    plt.rcParams.update({"font.family": "Arial", "axes.linewidth": 1.5})
+    figure, axes = plt.subplots(1, 5, figsize=(30, 9), sharey=True)
+    for to_set, axis in enumerate(axes, 2):
+        _draw_quantification_panel(
+            axis,
+            panel_frame.loc[panel_frame["ToSet"] == to_set],
+            product,
+            to_set,
+            layout,
+            show_ylabel=to_set == 2,
+            panel_label=f"Set {to_set - 1} → {to_set}",
+            ylabel="Transition in PSD Change (pp)",
+        )
+    width = TRANSITION_WINDOWS[window]
+    figure.suptitle(
+        f"Previous Last {width:g}% to Next First {width:g}%",
+        fontsize=26,
+        fontfamily="Arial",
+        y=0.995,
+    )
+    figure.subplots_adjust(left=0.07, right=0.995, top=0.90, bottom=0.25, wspace=0.25)
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
@@ -428,9 +563,11 @@ def output_paths(output_root: Path, band: EarlyBand, product: str) -> dict[str, 
         "individual": root / product / "Individual",
         "grand": root / product / "GrandAverage",
         "quant": root / product / "SetQuantification",
+        "transitions": root / product / "BetweenSetQuantification",
         "baselines": root / "Sub" / "tables" / "Set1Baseline",
         "grand_values": root / "Sub" / "tables" / "GrandAverage",
         "quant_values": root / "Sub" / "tables" / "SetQuantification",
+        "transition_values": root / "Sub" / "tables" / "BetweenSetQuantification",
         "logs": root / "Sub" / "logs",
     }
 
@@ -444,7 +581,56 @@ def parse_args(band: EarlyBand) -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--preflight-only", action="store_true")
     mode.add_argument("--all", action="store_true")
+    mode.add_argument("--transition-only", action="store_true")
     return parser.parse_args()
+
+
+def write_transition_outputs(
+    items: list[dict[str, Any]], output_root: Path, band: EarlyBand, summary: dict[str, Any]
+) -> dict[str, Any]:
+    transition = pd.DataFrame(row for item in items for row in quantify_transitions(item))
+    grouped = transition_summary_table(transition)
+    paths0 = output_paths(output_root, band, "CCube")
+    paths0["transition_values"].mkdir(parents=True, exist_ok=True)
+    paths0["logs"].mkdir(parents=True, exist_ok=True)
+    pair_path = paths0["transition_values"] / f"{band.stem}_PairSetTransitionValues.csv"
+    group_path = paths0["transition_values"] / f"{band.stem}_GroupSetTransitionSummary.csv"
+    transition.to_csv(pair_path, index=False)
+    grouped.to_csv(group_path, index=False)
+    for product in ("CCube", "VRohtoPremium"):
+        paths = output_paths(output_root, band, product)
+        for window in TRANSITION_WINDOWS:
+            plot_transition_quantification(
+                transition,
+                product,
+                window,
+                paths["transitions"]
+                / f"{band.stem}_BetweenSetQuantification_{window}_{product}.png",
+            )
+    log = {
+        "analysis": band.stem,
+        "status": "completed",
+        "completed_at": datetime.now().astimezone().isoformat(),
+        "script_version": SCRIPT_VERSION,
+        "mode": "transition-only" if summary.get("transition_only") else "all",
+        "method": (
+            "For each Set 1->2 through 5->6: mean unsmoothed post-mask PSD Change "
+            "in next Set first 50%/25% minus previous Set last 50%/25%; "
+            "then pair Eye Drop and Control within participant; no new participant exclusions"
+        ),
+        "preflight": summary,
+        "pair_values_csv": str(pair_path),
+        "group_summary_csv": str(group_path),
+        "figures": {product: 2 for product in ("CCube", "VRohtoPremium")},
+        "inferential_statistics": "not computed; exploratory",
+        "interpretation_caveat": (
+            "Set boundary is not assumed to be an eye-drop administration time"
+        ),
+    }
+    (paths0["logs"] / f"{band.stem}_TransitionRunSummary.json").write_text(
+        json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {"pair_values": pair_path, "group_summary": group_path, "grouped": grouped}
 
 
 def run(number: int) -> int:
@@ -465,6 +651,11 @@ def run(number: int) -> int:
     # reproduction of the completed full-Set analysis pass.
     quant = quantification_table(items)
     validate_fullset_reference(quant, output_root, band)
+    if args.transition_only:
+        summary["transition_only"] = True
+        write_transition_outputs(items, output_root, band, summary)
+        logging.info("No%s transition quantification completed", number)
+        return 0
     grouped = summary_table(quant)
     grand_frames = {
         product: change_engine.build_grand_average(items, product)[0]
@@ -564,5 +755,6 @@ def run(number: int) -> int:
     (paths0["logs"] / f"{band.stem}_RunSummary.json").write_text(
         json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    write_transition_outputs(items, output_root, band, summary)
     logging.info("No%s completed: %s", number, root)
     return 0

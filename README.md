@@ -118,7 +118,7 @@ No1_subはNo1の検証済みPSD cacheをローカルデスクトップから読�
 
 ### Phase 4 No4・No5（Fz序盤PSD Change・実行済み探索）
 
-No4はFzの4–7 Hzシータ、No5はFzの1–3 Hzデルタについて、既存No1／No3の検証済み帯域PSD cacheからSet 1基準のPSD Changeを求め、各Setの全時間・前半0–50%・最初の4分の1 0–25%を比較する追加探索です。Cキューブ群とVロートプレミアム群で同じ共通Pythonエンジンを使い、個人とGrand-averageの全時間変化、Set別定量化を既存No1_sub／No3_subとは別ルートへ出力します。2026-11-08にSet 1欠測の109–209を除く39ペアを両Noで実行し、各Noで個人39図・Grand-average2図・範囲別定量化6図を確認しました。今回の追加外れ値除外と推測統計は未実施です。詳細と結果の読み方は[Phase 4 No4・No5解析仕様](docs/Phase4_No4_No5_Fz序盤PSDChange_解析仕様.md)を参照します。
+No4はFzの4–7 Hzシータ、No5はFzの1–3 Hzデルタについて、既存No1／No3の検証済み帯域PSD cacheからSet 1基準のPSD Changeを求め、各Setの全時間・前半0–50%・最初の4分の1 0–25%を比較する追加探索です。Cキューブ群とVロートプレミアム群で同じ共通Pythonエンジンを使い、個人とGrand-averageの全時間変化、Set別定量化を既存No1_sub／No3_subとは別ルートへ出力します。さらに、隣接Setの「前Set終盤→次Set序盤」を50%・25%で比較するセット境界定量化を追加します。2026-11-08にSet 1欠測の109–209を除く39ペアを両Noで実行し、既存の各No・個人39図・Grand-average2図・範囲別定量化6図を維持したまま、製品×2窓幅の境界図4枚とペア別・群別CSVを追加しました。今回の追加外れ値除外と推測統計は未実施です。詳細と結果の読み方は[Phase 4 No4・No5解析仕様](docs/Phase4_No4_No5_Fz序盤PSDChange_解析仕様.md)を参照します。
 
 ## Phase 5相関解析の確定方針
 
