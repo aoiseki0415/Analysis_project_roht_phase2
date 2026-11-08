@@ -12,7 +12,7 @@
 - No2 occipital alpha：Oz、8–15 Hz
 - No3 frontal delta：Fz、1–3 Hz
 
-No4（Fz・4–7 Hz）とNo5（Fz・1–3 Hz）は、既存のNo1_sub／No3_subを改変しない序盤PSD Changeの追加探索として計画中です。各Setの全時間・0–50%・0–25%を比較します。現時点ではスクリプト未作成・未実行で、仕様と未確定事項は [`docs/Phase4_No4_No5_Fz序盤PSDChange_実装前計画.md`](../../docs/Phase4_No4_No5_Fz序盤PSDChange_実装前計画.md) を参照します。
+No4（Fz・4–7 Hz）とNo5（Fz・1–3 Hz）は、既存のNo1_sub／No3_subを改変しない序盤PSD Changeの追加探索です。`Phase4_No4_FzThetaEarlyChange.py` と `Phase4_No5_FzDeltaEarlyChange.py` は `phase4_early_fz_change.py` を共有し、各Setの全時間・0–50%・0–25%を比較します。2026-11-08に各Noで39ペアを実行し、OneDriveの各ルートへ47図・補助数値表・実行ログを保存・検証済みです。追加の外れ値被験者除外や推測統計は今回実施していません。確定した方法と未確定事項は [`docs/Phase4_No4_No5_Fz序盤PSDChange_解析仕様.md`](../../docs/Phase4_No4_No5_Fz序盤PSDChange_解析仕様.md) を参照します。
 
 根拠と解釈上の注意は [`docs/Phase4_解析対象チャンネル文献調査.md`](../../docs/Phase4_解析対象チャンネル文献調査.md) を参照します。FCzとPOzは現行32chに含まれません。
 
