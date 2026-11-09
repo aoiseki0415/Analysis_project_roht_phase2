@@ -82,6 +82,8 @@ def _saved_pair_values(*, boundary: bool) -> pd.DataFrame:
             pair_id = (
                 "101-201"
                 if product == "VRohtoPremium" and subject == 0
+                else "133-233"
+                if product == "VRohtoPremium" and subject == 1
                 else f"{300 if product == 'CCube' else 400 + subject}-{500 + subject}"
             )
             for window in (
@@ -116,6 +118,10 @@ def test_saved_pair_validation_rejects_incomplete_duplicate_and_wrong_product(
     wrong_product.loc[wrong_product["PairID"] == "101-201", "Product"] = "CCube"
     with pytest.raises(ValueError):
         module._validate_saved_pair_values(wrong_product, boundary=boundary)  # noqa: SLF001
+    wrong_second_product = frame.copy()
+    wrong_second_product.loc[wrong_second_product["PairID"] == "133-233", "Product"] = "CCube"
+    with pytest.raises(ValueError):
+        module._validate_saved_pair_values(wrong_second_product, boundary=boundary)  # noqa: SLF001
 
 
 def test_no7_sensitivity_writes_only_additional_outputs(
@@ -137,6 +143,26 @@ def test_no7_sensitivity_writes_only_additional_outputs(
             path = folder / f"{band.stem}_{stem}.csv"
             values.to_csv(path, index=False)
             source_bytes[path] = path.read_bytes()
+        superseded = folder / f"{band.stem}_{group_stem}_ExcludePair101-201_VRohtoPremium.csv"
+        superseded.write_text("old result", encoding="utf-8")
+    old_figures = []
+    for kind, windows in (
+        ("SetQuantification", module.SET_WINDOWS),
+        ("BetweenSetQuantification", module.BOUNDARY_WINDOWS),
+    ):
+        for window in windows:
+            old_figure = (
+                tmp_path
+                / "VRohtoPremium"
+                / kind
+                / f"{band.stem}_{kind}_{window}_VRohtoPremium_ExcludePair101-201.png"
+            )
+            old_figure.parent.mkdir(parents=True, exist_ok=True)
+            old_figure.write_bytes(b"old figure")
+            old_figures.append(old_figure)
+    old_log = tmp_path / "Sub" / "logs" / f"{band.stem}_ExcludePair101-201_RunSummary.json"
+    old_log.parent.mkdir(parents=True, exist_ok=True)
+    old_log.write_text("old log", encoding="utf-8")
 
     drawn = []
 
@@ -144,9 +170,9 @@ def test_no7_sensitivity_writes_only_additional_outputs(
         frame: pd.DataFrame, product: str, window: str, band: object, path: Path, **kwargs: object
     ) -> None:
         assert product == "VRohtoPremium"
-        assert frame["PairID"].nunique() == 19
-        assert "101-201" not in set(frame["PairID"])
-        assert "Excluding Pair 101-201" in str(kwargs["title_suffix"])
+        assert frame["PairID"].nunique() == 18
+        assert not {"101-201", "133-233"}.intersection(frame["PairID"])
+        assert "Excluding Pairs 101-201 and 133-233" in str(kwargs["title_suffix"])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"test-png")
         drawn.append(path)
@@ -154,8 +180,10 @@ def test_no7_sensitivity_writes_only_additional_outputs(
     monkeypatch.setattr(module, "plot_quantification", fake_plot)
     assert module.run_excluded_pair_sensitivity(tmp_path, band, SimpleNamespace()) == 0
     assert len(drawn) == 4
-    assert all("ExcludePair101-201" in path.name for path in drawn)
+    assert all("ExcludePairs101-201_133-233" in path.name for path in drawn)
     assert all(path.read_bytes() == data for path, data in source_bytes.items())
+    assert not any(path.exists() for path in old_figures)
+    assert not old_log.exists()
     for folder_name, group_stem in (
         ("SetQuantification", "GroupSetWindowSummary"),
         ("BetweenSetQuantification", "GroupSetTransitionSummary"),
@@ -165,6 +193,8 @@ def test_no7_sensitivity_writes_only_additional_outputs(
             / "Sub"
             / "tables"
             / folder_name
-            / f"{band.stem}_{group_stem}_ExcludePair101-201_VRohtoPremium.csv"
+            / f"{band.stem}_{group_stem}_ExcludePairs101-201_133-233_VRohtoPremium.csv"
         )
-        assert set(pd.read_csv(path)["Paired_N"]) == {19}
+        assert set(pd.read_csv(path)["Paired_N"]) == {18}
+        old_name = path.name.replace("ExcludePairs101-201_133-233", "ExcludePair101-201")
+        assert not (path.parent / old_name).exists()

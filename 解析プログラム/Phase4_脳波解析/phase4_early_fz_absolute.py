@@ -54,11 +54,12 @@ BANDS = {
 }
 SET_WINDOWS = {"FirstHalf": 50.0, "FirstQuarter": 25.0}
 BOUNDARY_WINDOWS = {"BoundaryHalf": 50.0, "BoundaryQuarter": 25.0}
-VERSION = "phase4-no6-no7-absolute-2026-11-09.2"
+VERSION = "phase4-no6-no7-absolute-2026-11-09.3"
 CONTROL_BAR_COLOR = "#66547D"
-SENSITIVITY_PAIR_ID = "101-201"
+SENSITIVITY_PAIR_IDS = ("101-201", "133-233")
 SENSITIVITY_PRODUCT = "VRohtoPremium"
-SENSITIVITY_SUFFIX = "ExcludePair101-201"
+SENSITIVITY_SUFFIX = "ExcludePairs101-201_133-233"
+SUPERSEDED_SENSITIVITY_SUFFIX = "ExcludePair101-201"
 
 
 def parent_for(band: Band) -> Any:
@@ -481,9 +482,10 @@ def _validate_saved_pair_values(frame: pd.DataFrame, *, boundary: bool) -> None:
                 raise ValueError(f"{product}: incomplete Set/window coordinates")
     if len(frame) != 40 * expected_per_pair:
         raise ValueError("Saved pair table contains an unexpected product or row")
-    target = frame.loc[frame["PairID"] == SENSITIVITY_PAIR_ID]
-    if len(target) != expected_per_pair or set(target["Product"]) != {SENSITIVITY_PRODUCT}:
-        raise ValueError("Sensitivity pair is absent or assigned to the wrong product")
+    for pair_id in SENSITIVITY_PAIR_IDS:
+        target = frame.loc[frame["PairID"] == pair_id]
+        if len(target) != expected_per_pair or set(target["Product"]) != {SENSITIVITY_PRODUCT}:
+            raise ValueError(f"Sensitivity pair {pair_id} is absent or assigned to another product")
 
 
 def _validate_saved_group_summary(
@@ -512,9 +514,9 @@ def _validate_saved_group_summary(
 
 
 def run_excluded_pair_sensitivity(root: Path, band: Band, parent: Any) -> int:
-    """Add No7 V-only figures from existing per-pair values; leave main files intact."""
+    """Replace No7 V sensitivity from saved pair values; leave main files intact."""
     if band.number != 7:
-        raise ValueError("Pair 101-201 sensitivity is defined for No7 only")
+        raise ValueError("Two-pair sensitivity is defined for No7 only")
     table_set = root / "Sub" / "tables" / "SetQuantification"
     table_boundary = root / "Sub" / "tables" / "BetweenSetQuantification"
     source_specs = [
@@ -528,17 +530,25 @@ def run_excluded_pair_sensitivity(root: Path, band: Band, parent: Any) -> int:
         frame = pd.read_csv(pair_path, dtype={"PairID": str})
         _validate_saved_pair_values(frame, boundary=boundary)
         _validate_saved_group_summary(frame, group_path, boundary=boundary)
-        filtered = frame.loc[
-            (frame["Product"] == SENSITIVITY_PRODUCT) & (frame["PairID"] != SENSITIVITY_PAIR_ID)
-        ].copy()
-        if filtered["PairID"].nunique() != 19:
-            raise ValueError("Sensitivity selection did not retain 19 V Rohto pairs")
+        v_rows = frame.loc[frame["Product"] == SENSITIVITY_PRODUCT]
+        removed = v_rows.loc[v_rows["PairID"].isin(SENSITIVITY_PAIR_IDS)]
+        filtered = v_rows.loc[~v_rows["PairID"].isin(SENSITIVITY_PAIR_IDS)].copy()
+        if filtered["PairID"].nunique() != 18:
+            raise ValueError("Sensitivity selection did not retain 18 V Rohto pairs")
         summary = summarize(filtered, boundary=boundary)
-        original_v = summarize(
-            frame.loc[frame["Product"] == SENSITIVITY_PRODUCT], boundary=boundary
+        original_v = summarize(v_rows, boundary=boundary)
+        suffix = "Transition_uV2_per_Hz" if boundary else "PSD_uV2_per_Hz"
+        coordinate = ["FromSet", "ToSet"] if boundary else ["Set"]
+        removed_paired = removed.assign(
+            PairedFinite=np.isfinite(removed[f"EyeDrop_{suffix}"].to_numpy(float))
+            & np.isfinite(removed[f"Control_{suffix}"].to_numpy(float))
         )
-        if not np.all((original_v["Paired_N"].to_numpy() - summary["Paired_N"].to_numpy()) == 1):
-            raise ValueError("Removing the pair did not reduce each paired N by one")
+        expected_reduction = removed_paired.groupby(["Window", *coordinate], sort=True)[
+            "PairedFinite"
+        ].sum()
+        actual_reduction = original_v["Paired_N"].to_numpy() - summary["Paired_N"].to_numpy()
+        if not np.array_equal(actual_reduction, expected_reduction.to_numpy()):
+            raise ValueError("Paired N reduction does not match the two removed pairs")
         validated.append((folder, group_stem, boundary, pair_path, filtered, summary, original_v))
     outputs = []
     paired_counts = {}
@@ -578,7 +588,7 @@ def run_excluded_pair_sensitivity(root: Path, band: Band, parent: Any) -> int:
                 png_path,
                 boundary=boundary,
                 parent=parent,
-                title_suffix=" | Excluding Pair 101-201",
+                title_suffix=" | Excluding Pairs 101-201 and 133-233",
             )
             outputs.append(str(png_path))
     log_path = root / "Sub" / "logs" / f"{band.stem}_{SENSITIVITY_SUFFIX}_RunSummary.json"
@@ -591,15 +601,16 @@ def run_excluded_pair_sensitivity(root: Path, band: Band, parent: Any) -> int:
         "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "scope": "No7 V Rohto Premium post-hoc sensitivity only",
         "method": (
-            "Original saved pair values; remove pair 101-201 from both paired "
+            "Original saved pair values; remove pairs 101-201 and 133-233 from both paired "
             "conditions before group summary and drawing"
         ),
+        "excluded_pair_ids": list(SENSITIVITY_PAIR_IDS),
         "source_pair_csv_sha256": {
             str(pair_path): hashlib.sha256(pair_path.read_bytes()).hexdigest()
             for _, _, _, pair_path, _, _, _ in validated
         },
         "pair_count_before": 20,
-        "pair_count_after": 19,
+        "pair_count_after": 18,
         "paired_n": paired_counts,
         "outputs": outputs,
         "main_results_modified": False,
@@ -609,6 +620,35 @@ def run_excluded_pair_sensitivity(root: Path, band: Band, parent: Any) -> int:
         ),
     }
     log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+    superseded_paths = [
+        root
+        / "Sub"
+        / "tables"
+        / folder_name
+        / f"{band.stem}_{group_stem}_{SUPERSEDED_SENSITIVITY_SUFFIX}_{SENSITIVITY_PRODUCT}.csv"
+        for folder_name, group_stem in (
+            ("SetQuantification", "GroupSetWindowSummary"),
+            ("BetweenSetQuantification", "GroupSetTransitionSummary"),
+        )
+    ]
+    superseded_paths.extend(
+        root
+        / SENSITIVITY_PRODUCT
+        / kind
+        / f"{band.stem}_{kind}_{window}_{SENSITIVITY_PRODUCT}_{SUPERSEDED_SENSITIVITY_SUFFIX}.png"
+        for kind, windows in (
+            ("SetQuantification", SET_WINDOWS),
+            ("BetweenSetQuantification", BOUNDARY_WINDOWS),
+        )
+        for window in windows
+    )
+    superseded_paths.append(
+        root / "Sub" / "logs" / f"{band.stem}_{SUPERSEDED_SENSITIVITY_SUFFIX}_RunSummary.json"
+    )
+    if not all(Path(path).is_file() and Path(path).stat().st_size > 0 for path in outputs):
+        raise ValueError("New sensitivity outputs were not all saved; superseded files retained")
+    for path in superseded_paths:
+        path.unlink(missing_ok=True)
     logging.info("No7 V sensitivity completed: %s", root)
     return 0
 
@@ -625,7 +665,12 @@ def run(number: int) -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--preflight-only", action="store_true")
     mode.add_argument("--all", action="store_true")
-    mode.add_argument("--excluded-pair-sensitivity-only", action="store_true")
+    mode.add_argument(
+        "--excluded-pairs-sensitivity-only",
+        "--excluded-pair-sensitivity-only",
+        dest="excluded_pair_sensitivity_only",
+        action="store_true",
+    )
     args = parser.parse_args()
     if args.excluded_pair_sensitivity_only:
         if args.manifest is not None:
