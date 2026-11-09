@@ -124,6 +124,10 @@ No4はFzの4–7 Hzシータ、No5はFzの1–3 Hzデルタについて、既存
 
 No6はFzシータ4–7 Hz、No7はFzデルタ1–3 Hzの絶対PSDを、No1／No3の検証済みcacheから読み取ります。各Set序盤50%・25%と、前Set終盤から次Set序盤への50%・25%の差を、Cキューブ群とVロートプレミアム群で被験者内対応のまま可視化します。Set 1基準の割り算はしないため、既知のSet 1欠測ペアも利用可能Setで対象に含みます。両Noの主結果は追加の被験者除外や推測統計を行わず、各40ペアで実行済みです。各Noで製品別4 PNG、ペア別・群別の値、実行ログを専用OneDriveルートへ保存しました。これらを保持したまま、No7のVロートプレミアム群だけに、ペア101–201と133–233の両条件を群集計から除いた事後・探索的な感度分析図4枚（Set序盤2枚、Set境界2枚）を追加しました。保存済みペア別値から再集計し、別名の群集計CSV2件と実行JSON1件を出力・読み戻し確認済みです。対象は20ペアから18ペアとなり、以前の101–201単独除外版7ファイルは現行成果物から取り除きました。除外理由を確定した品質判定や一般的な除外規則とは扱わず、No6、Cキューブ、既存の主結果、No1〜No5の成果物は変更していません。詳細と読み方は[Phase 4 No6・No7解析仕様](docs/Phase4_No6_No7_Fz序盤絶対PSD_解析仕様.md)を参照します。
 
+### Phase 4 No8–11（Pz・FzのIAF：実装中）
+
+No8はPzのSet別IAF、No9はPzの60秒区間・5秒移動IAF、No10・No11は同じ2手法のFz版です。Phase 1のEEGから10秒periodic Hann・50% overlapで0.1 Hz刻みのスペクトルを計算し、8–15 Hzのピークを品質判定付きで推定します。No1–7の帯域パワー・Set 1変化率とは区別し、個人の2条件線図だけを作り、Grand-average・定量化バー・統計・topography・新たな被験者除外は行いません。共通スペクトルcacheを専用ローカルフォルダへ保存し、4つのNo別OneDriveフォルダへ成果物を出力します。現在は方法確定・実装中で、実行完了の主張ではありません。計算・QC・図・保存・実行の全仕様は[Phase 4 No8–11共有用解析仕様](docs/Phase4_No8-11_共有用解析仕様.md)を参照します。
+
 ## Phase 5相関解析の確定方針
 
 Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解析です。DEQSは問1〜15の程度得点を0〜100点へ換算し、問16は使用しません。RTはPhase 2 No1の主解析 `AllTrials` のSet 1・Set 6平均値を使用し、Phase 2保存値とのID・条件・Set・有効試行数・数値一致を全件確認してから解析します。`Eye Drop Effect = (Control Set6 / Control Set1) − (Eye Drop Set6 / Eye Drop Set1)` とし、正値を点眼によってRT増加率が抑えられた方向と定義します。比率同士の差であるため単位はなく、Figureでは `[a.u.]` と表示します。Cキューブ群とVロートプレミアム群を分け、製品別にPearsonの積率相関係数を算出します。検定は両側、p値は未補正です。ID109–209はSet 1、ID120–220はSet 6欠測のため本指標を算出しません。Figureは点と `r; p` の注記を基本とし、信頼帯と0の水平線は表示せず、回帰線は未補正両側 `p < 0.05` の場合だけ表示します。横軸は `DEQS Score [a.u.]` の0〜85、縦軸は `Eye Drop Effect [a.u.]` とします。Figure、表、照合記録、出力構造、完了条件は[Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)を正本とします。2026年10月5日に比率差の確定式で40被験者ペアを再実行し、Phase 2保存済み240行との完全一致、製品別有効人数19名、指定OneDrive成果物の読戻しを確認済みです。
@@ -146,6 +150,7 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 No3共有用解析仕様](docs/Phase4_No3_共有用解析仕様.md)：No3本体、No3_sub、No3_addを統合した確定版
 - [Phase 4 No4・No5 Fz序盤PSD Change解析仕様](docs/Phase4_No4_No5_Fz序盤PSDChange_解析仕様.md)：Fzシータ・デルタの各Set序盤に着目する実施済み追加探索の計算方針、出力構造、検証記録、未確定事項
 - [Phase 4 No6・No7 Fz序盤絶対PSD解析仕様](docs/Phase4_No6_No7_Fz序盤絶対PSD_解析仕様.md)：Fzシータ・デルタの絶対PSDで各Set序盤と隣接Set境界を比較する追加探索の計算、図、出力、検証記録
+- [Phase 4 No8–11 IAF共有用解析仕様](docs/Phase4_No8-11_共有用解析仕様.md)：Pz・FzのSet別IAFと60秒区間IAF、0.1 Hzスペクトル、ピーク品質判定、個人図、共通cache・保存構造
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
 - [Phase 4 PSD Change topography 条件別・双方向外れ値除外感度解析](docs/Phase4_PSDChange_Topography外れ値除外感度解析.md)：No1_sub～No3_subを横断し、条件別のSet 1絶対PSD高値、持続的上昇、絶対PSD低値を伴う持続的低下、paired OR、除外率・N、6図の定性評価、監査記録を定義
 - [Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)：DEQS得点化、Phase 2 RT照合、Eye Drop Effect、製品別相関、Figure、OneDrive構造、検証条件をまとめた現行仕様

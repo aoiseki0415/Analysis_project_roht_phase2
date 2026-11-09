@@ -1,0 +1,213 @@
+# Phase 4 No8–11：Pz・Fzの個人アルファピーク周波数（IAF）
+
+## 1. 目的と現在の状態
+
+本書はNo8–11に共通する実装仕様である。2026-11-09時点で方法を確定し、実装中である。実行結果は検証完了後に記録する。結果が出たことと、方法が決まったことを区別する。
+
+課題進行に伴う8–15 Hzのピーク周波数を、各被験者のEye DropとControlで比較する。従来のNo1–7で調べたパワーの大きさやSet 1基準変化率とは異なり、単位Hzのピーク位置を扱う。CキューブとVロートプレミアムを別フォルダに整理し、同じ方法を全被験者へ適用する。製品効果・疲労・眠気の改善を、本探索図だけで断定しない。
+
+| No | 対象ch | 解析単位 | 横軸 | 出力ルート |
+|---|---|---|---|---|
+| No8 | Pz | 各Set全体から1つのIAF | Set 1–6 | `No8_PzSetwiseIAF/` |
+| No9 | Pz | 60秒の推定区間を5秒移動 | Experimental Progress, % | `No9_PzTimeResolvedIAF/` |
+| No10 | Fz | No8と同じ | Set 1–6 | `No10_FzSetwiseIAF/` |
+| No11 | Fz | No9と同じ | Experimental Progress, % | `No11_FzTimeResolvedIAF/` |
+
+出力は1被験者ペアにつき2条件を描く個人図のみ。Grand-average、バーグラフ、統計検定、topography、Set 1での除算は行わない。PzとFzで手法・品質基準を変えず、ch間の差を方法の差と混同しない。
+
+## 2. 入力・対象者・欠測
+
+1. 実行前にREADME、運用ルール、解析上の注意事項、Notionの解析ストーリー配下を読む。
+2. 非公開manifestの `first_session_id,second_session_id,drops_session_id,product` を、許可済みの被験者対応資料と照合する。100番台／200番台から点眼条件を推測しない。
+3. Phase 1のセット別「脳活動解析用」HDF5を読み取り専用で使用する。Phase 1で確定したフィルタ・トレンド除去・ICA処理後EEGと区間maskを用い、瞬き成分の復元信号は使わない。No1–3の1 Hz PSD cacheも、0.1 HzのIAF推定入力には流用しない。
+4. 入力のサンプリング周波数は256 Hzであることを検証する。異なる場合に256 Hzとみなして処理しない。時刻、EEG列、Set番号、ch名、単位、ICA学習除外ch情報を照合する。
+5. 対象は現行の40被験者ペア・80セッション。共通の対象外・4件の既知欠測Setは `docs/解析上の注意事項.md` に従う。新たな被験者除外や、No4–7・topographyの事後感度分析除外は導入しない。
+6. 既知欠測Setでは、その条件の線を描かず、対応条件の利用可能データは表示する。IAFにはSet 1 baselineが不要なので、Set 1欠測を理由にペア全体を外さない。欠測や不採用推定値を0・10 Hz・隣接値で補完しない。
+
+Phase 1でICA学習から除外されたchは、最終EEGにフィルタ・トレンド除去済み信号として保持されている。そのchが解析対象の場合も自動的な追加除外はしないが、ICAによる成分除去が通常chと同様に適用されたとは扱わず、QC列へ記録する。具体的なセッション対応は非公開QC表で管理する。
+
+## 3. 共通スペクトルの作成
+
+### 3.1 10秒segmentと周波数軸
+
+各Setの開始から10秒のsegmentを5秒間隔で置く。Setをまたぐsegment、末尾の不完全segment、paddingは使わない。各segmentが実測10秒であることが重要で、短いデータへのzero paddingによって見かけ上0.1 Hzにする方法ではない。
+
+| パラメータ | 確定値・処理 | 理由 |
+|---|---|---|
+| 関数 | `scipy.signal.welch`と同値の修正periodogram平均 | FFT・窓・PSD正規化を統一 |
+| 入力単位 | µVへ統一 | PSDをµV²/Hzで保存 |
+| `fs` | 256 Hz | 入力属性から毎回検証 |
+| segment長 | 10秒、2560 samples | FFT bin間隔0.1 Hz |
+| 窓 | periodic Hann（`sym=False`） | 共通のspectral taper |
+| segment間隔 | 5秒、1280 samples | 50% overlap |
+| `nperseg`, `nfft` | ともに2560 | 追加zero paddingなし |
+| segment内trend | `detrend='constant'` | segment内の平均を除く |
+| PSD設定 | `return_onesided=True, scaling='density'` | 片側PSD密度 |
+| segment間平均 | 有効periodogramの算術平均（`average='mean'`相当） | medianへ暗黙に変更しない |
+| 保存帯域 | 1.0–40.0 Hz、0.1 Hz刻み、両端含む391 bins | 背景推定・ピークQCのため8–15 Hz外も保持 |
+| ピーク探索帯域 | 8.0–15.0 Hz、両端含む | 本プロジェクトのalpha定義 |
+
+0.1 HzはFFT bin間隔である。Hann窓のスペクトル広がり、信号対雑音比、有限データ長のため、0.1 Hz精度で生理学的周波数差が識別できる保証ではない。
+
+### 3.2 不良区間をまたがせない
+
+Phase 1の不良時間maskに1 sampleでも重なる10秒segmentは、当該segment全体を不採用とする。対象chに非有限sampleがあるsegmentも不採用とする。有効なsegmentのみを元の時間位置のまま保存する。除外部分を切り詰めて連結した信号へFFTをかけない。
+
+No1–3の帯域平均PSDに対するlog10上側3SD閾値は、IAFへ流用しない。No8–11ではPhase 1時間maskと本書のsegment・ピーク品質判定を使う。alphaのピークが弱い場合の欠測化は、被験者全体の除外とは異なる。
+
+### 3.3 保存と再利用
+
+Pz・Fz両方の1–40 Hz線形PSDを、セッション別の共通HDF5へ保存する。背景除去・SG平滑化前の線形PSDを正本とし、派生処理で上書きしない。保存対象には少なくとも、周波数軸、ch名、Set番号、Setの実時間長、segment開始・終了時刻、元sample位置、有効mask、不採用理由、ICA学習除外ch情報、入力hash、計算設定hashを含める。
+
+このcacheはNo8–11で共有する。共通入力を4回読み直して同じスペクトルを再計算せず、図の調整時には検証済みcacheから再描画する。入力hashまたは計算設定が変わった場合に限り、変更理由を記録して再計算する。
+
+## 4. IAFの推定と品質判定
+
+### 4.1 共通のピーク推定
+
+各推定区間で、採用segmentの**線形PSDを先に平均**する。segment別IAFを平均する方法ではない。その平均スペクトルへ次を適用する。
+
+1. 1–40 Hzについて `x=log10(frequency), y=log10(mean PSD)` とする。有限・正のスペクトルであることを検証する。
+2. 一次式 `y=a+b*x` を最小二乗で当てはめ、`residual=y-(a+b*x)` として傾いた背景を引く。この背景除去はピーク検出のためだけであり、保存線形PSDやパワーの単位を変更しない。
+3. 残差を周波数方向へSavitzky–Golay filter（27 bins、5次多項式、`mode='interp'`）で平滑化する。0.1 Hz bin上の27点窓であり、時間方向の平滑化ではない。
+4. `scipy.signal.find_peaks`相当で局所最大を検出し、そのうち8–15 Hzにある最も高いピークを候補とする。8 Hz・15 Hzも、帯域外隣接binと比較して局所最大なら採用候補にできる。単調なスペクトルの帯域端を、無条件にピークとしない。
+5. 候補周波数との差が1 Hz以上5 Hz以下のbin（±1・±5 Hzの境界を含む）に候補ピーク値自体を加え、平均と標準偏差（`ddof=1`）を算出する。ピークのz値が1.75以上なら採用する。0.1 Hz bin単位で比較集合を固定する。
+6. 局所最大なし、z値1.75未満、標準偏差が0、平滑化残差の最大値−最小値が`1e-10`未満、PSD非有限・非正、またはデータ量不足ならIAFはNaNとし、不採用理由を保存する。数値丸めによる平坦スペクトルの偽ピークを防ぎ、推定不能を「alphaがない」と断定しない。
+
+最大候補の周波数を0.1 Hz gridで報告し、追加の放物線補間、Gaussian fitting、任意のpeak distance/width制約、見栄えに応じた個人別閾値は使用しない。高さが同じなら低い周波数を選ぶ。候補峰数を保存し、主峰から0.5 Hz以上離れ、平滑化残差高が主峰の80%以上の別候補があれば複数峰QCフラグを付ける。これはCorcoranらのpeak dominanceの考え方を参考にしたプロジェクト独自の注意表示で、原著の完全再現でも除外規則でもない。主値は最大峰のままとし、複数峰だけを理由に追加除外しない。
+
+### 4.2 No8・No10：Set全体から1つ
+
+そのSetの全有効10秒segmentを平均する。重複時間を二重加算しない**有効segmentの時間区間の和集合**が60秒以上あることを最低条件とする。最初の60秒だけを使うのではない。休憩時間・別Setのデータで不足分を補わない。
+
+データが長いSetほど多くのperiodogramが使われ、推定の不確実性は同一とは限らない。有効segment数とunique coverage秒数を保存し、IAFの点の数だけで品質を判断しない。
+
+### 4.3 No9・No11：60秒区間を5秒ずつ移動
+
+Set長を `T` 秒とし、完全な60秒区間の開始時刻を `0,5,10,...,5×floor((T−60)/5)` 秒とする。`T<60` のSetには推定値を作らない。各区間には10秒segmentが最大11個含まれる。区間内で6個以上が有効、かつ有効segmentのunique coverageが35秒以上のときだけ、その平均PSDからIAFを求める。
+
+**この6/11・35秒基準は本プロジェクトの欠損QC規則であり、文献が保証する基準ではない。60秒は暦時間の推定範囲で、常に60秒のclean EEGを使う意味ではない。** 有効率・coverageを数値表とログへ保存する。無効segmentを別時間から補充しない。
+
+結果を区間中央 `t=start+30` 秒へ置き、`progress=100×t/T` に変換する。全体軸は `100×(Set番号−1)+progress` とする。周波数推定は実時間上で完了してから横軸表示だけを変換する。100点への再標本化や追加の時間平滑化はしない。Set開始／末尾の約30秒は完全な60秒区間を置けないため値を描かず、padding・端への外挿はしない。欠測推定値をまたぐ線もつながない。
+
+5秒移動の隣接推定値は55秒分が重複するので、独立な5秒分の脳活動ではない。線の細かな揺れは生理的変化だけでなく、欠損量やピークの選択変化を反映しうる。
+
+## 5. Figureの仕様・読み方
+
+| 項目 | 共通仕様 |
+|---|---|
+| 出力 | PNG、180 dpi、白背景、1ペア1枚 |
+| 寸法 | No8・No10は12×8 inch、No9・No11は24×8 inch |
+| フォント | Arial。代替フォントへの黙示的fallbackを不可とし検査 |
+| 軸名 | 28 pt |
+| 目盛数字 | 20 pt |
+| 凡例 | 20 pt、枠なし、上側中央、2列、`Eye Drop (製品名)`と`Control` |
+| 線 | 3 pt、Set境界をまたいで接続しない |
+| 枠・tick | 軸幅1.5 pt、tick幅1.5 pt・長さ6 pt、上・右spineは表示しない |
+| 縦軸 | `IAF (Hz)`、7.5–15.5 Hz固定。IAF＝Individual Alpha Frequency |
+| y ticks | 8, 10, 12, 14 Hz |
+| No8・No10横軸 | `Set`、整数1–6、各Setの有限値を丸印と線で表示 |
+| No9・No11横軸 | `Experimental Progress, %`、0–600、50刻み |
+| Set境界 | 100,200,...,500%へ灰色`#B8B8B8`破線・1.4 pt |
+| Set名 | No9・No11では22 pt、各Set中央、y=15.18 Hz・上端揃え（軸高さ約0.96） |
+| 余白 | left=0.09、right=0.985、top=0.78、bottom=0.20、凡例anchor=(0.5,1.18) |
+| 保存 | `bbox_inches='tight'`。主図に参加者タイトル・N・統計注記を足さない |
+
+IAFの軸はHzの共通範囲に固定し、PSD解析の最大値比率ルールをそのまま当てはめない。NaNによる空白は「未計算」「データ不足」「ピーク不明瞭」等であり、0 Hzではない。理由はQC表・スペクトル確認図で判断する。
+
+### 配色
+
+| 解析 | Control | Cキューブ Eye Drop | Vロートプレミアム Eye Drop |
+|---|---|---|---|
+| No8・No10（Set別） | `#402B5D` | `#00616B` | `#008F95` |
+| No9・No11（時間変化） | `#402B5D` | `#405A8C` | `#718FB8` |
+
+Controlは従来と同じ深い紫。点眼色はNo1–7の既存HEXと重複させない。ch間比較を容易にするため、同じ方法のPzとFzは同色とする。
+
+## 6. 保存構造
+
+### ローカル：再利用する解析データ
+
+許可された `SandBox_ロート案件（データ）/解析に必要なデータたち/` 配下だけに保存する。
+
+```text
+Phase4_脳波解析/
+  No8-11_PzFzIAF/
+    SpectralSegments/
+      Pair<初回ID>-<2回目ID>_01_ID<初回ID>_PzFz_IAFSpectra.h5
+      Pair<初回ID>-<2回目ID>_02_ID<2回目ID>_PzFz_IAFSpectra.h5
+```
+
+ファイル名順で同じ被験者の2セッションが隣接する。原本EEG、従来No1–7のcacheを変更しない。No8–11の図調整・ピークQCの再現にはこの共通スペクトルcacheを用いる。
+
+### OneDrive：図・数値・監査
+
+許可された `実験本番_本解析/Phase4_脳波解析/` 配下に、4解析を並列で置く。
+
+```text
+Phase4_脳波解析/
+  No8_PzSetwiseIAF/
+    CCube/Individual/*.png
+    VRohtoPremium/Individual/*.png
+    Sub/tables/
+    Sub/QualityCheck/
+    Sub/logs/
+  No9_PzTimeResolvedIAF/       （同じ構造）
+  No10_FzSetwiseIAF/          （同じ構造）
+  No11_FzTimeResolvedIAF/     （同じ構造）
+```
+
+`Individual/`直下に全員のPNGを並べ、個人別フォルダ、CSV、JSONを置かない。PNG名は `Pair<初回ID>-<2回目ID>_No<番号>_<ch>_<SetwiseIAFまたはTimeResolvedIAF>.png` とし、製品は親フォルダで識別する。
+
+- `Sub/tables/`：推定単位ごとのIAF、候補周波数、peak z、採否・理由、候補峰数、有効segment数、coverage、時刻・progress、ch・条件照合、ICA学習除外chフラグ、Set長。
+- `Sub/QualityCheck/SetSpectra/`：No8・No10に、線形PSD、背景除去・スペクトル平滑化後の形、候補／採用ピークを確認できるSet別スペクトルQC図を保存。No9・No11は対応chのSetSpectraと時間窓ごとのQC数値表を参照し、同じSetスペクトル図を重複生成しない。主図の欠測と理由が対応することを確認する。
+- `Sub/logs/`：実行範囲、入力・設定hash、スクリプト版、cache再利用／再計算、出力一覧・件数、検証、警告、未完了事項。データ量不足とweak peakを区別して集約する。
+
+Notionには確定仕様・集約した実施結果・解釈の限界を記載し、今回の通常個人結果を新規DBとして重複保存しない。
+
+## 7. スクリプトと実行モード
+
+共通実装を `解析プログラム/Phase4_脳波解析/phase4_iaf.py` とし、次の入口は解析Noを固定する薄いwrapperとする。全参加者は同じ共通コードのループで処理し、個人別の閾値・手作業補正を加えない。
+
+| No | 入口スクリプト |
+|---|---|
+| No8 | `Phase4_No8_PzSetwiseIAF.py` |
+| No9 | `Phase4_No9_PzTimeResolvedIAF.py` |
+| No10 | `Phase4_No10_FzSetwiseIAF.py` |
+| No11 | `Phase4_No11_FzTimeResolvedIAF.py` |
+
+READMEに指定されたプロジェクト専用Pythonを使用する。manifestの実パスは非公開実行ログで記録し、Gitへコピーしない。次は4解析共通実行と単独実行の形式である。
+
+入出力のルートは運用で許可された固定パスのみとし、CLIによる任意フォルダへの上書き指定は許可しない。
+
+```sh
+.venv/bin/python '解析プログラム/Phase4_脳波解析/phase4_iaf.py' --manifest '<非公開manifestの絶対パス>' --production-batch --all
+.venv/bin/python '解析プログラム/Phase4_脳波解析/Phase4_No8_PzSetwiseIAF.py' --manifest '<非公開manifestの絶対パス>' --production-batch --all
+```
+
+- `--all`：入力監査→必要なcache計算→IAF推定→図・表・QC・ログ生成。
+- `--compute-only`：検証と共通スペクトルcache生成まで。成果物PNGは作らない。
+- `--figures-only`：検証済みcacheだけからIAF・図・表を生成。cache不足・不一致を黙って再計算しない。
+- wrapperは対応Noへ固定し、共通engineの一括実行ではNo8–11をまとめて処理する。
+
+## 8. 検証と完了条件
+
+本番前にパイロットで計算・欠測・保存・描画を確認し、その後、同じ仕様を全対象へ適用する。
+
+1. manifest：ペア重複なし、1人2セッション、点眼IDがペア内、製品対応、対象40ペア・80セッションを確認。
+2. 入力：256 Hz、Pz/Fz列・単位、Set境界、既知欠測、maskとサンプル位置、ICA除外chの保持を確認。
+3. PSD：既知周波数の合成正弦波、0.1 Hz軸、PSD単位、Welch相当計算、10秒segmentの不良sample拒否、欠損区間を連結しないことを検証。
+4. ピーク：既知alphaピーク、帯域端、weak/no peak、平坦PSD、複数峰、8–15 Hz外ピーク、NaNの扱いを検証。背景推定の変更が保存線形PSDに影響しないことを確認。
+5. 時間：Set全体のunique coverage、60秒区間の11候補・6有効基準、5秒間隔、区間中央、progress換算、Set端の空白と欠測非補間を検証。
+6. 保存：HDF5を読み戻してshape・値・設定hashを確認。図だけモードでcacheのhashが変わらないことを確認。
+7. 図：各Noで40ペア分が想定数、製品別各20枚であることを確認。不採用値が多い場合も理由付きの図を残し、値を捏造しない。PNGを開き、Arial、文字サイズ、色、軸、線、空白、凡例の重なりを点検する。
+8. QC：有効率とpeak z、弱峰・複数峰、chのICA除外フラグ、極端な推移を確認し、品質の説明と製品効果の解釈を分ける。
+9. 記録：OneDriveログ、Notionの概要／詳細、Git仕様・実装が一致し、commit・push・remote検証まで終えてから完了を報告する。
+
+## 9. 根拠と今回の適用範囲
+
+- [Janssensら：IAFの再現性とピーク品質判定](https://pmc.ncbi.nlm.nih.gov/articles/PMC9541964/)：log–log背景除去、27点・5次SG、局所最大、周辺スペクトルによるz=1.75判定を参考にする。原著は7–13 Hz・主に後方電極・別のepoch設計であり、本解析の8–15 Hz、Pz/Fz、10秒実測segment、60秒移動区間へそのまま妥当性が保証されるわけではない。原著自身も品質閾値はデータに基づく調整値としている。本解析は同手法を参考にした適用であって完全再現ではない。
+- [SciPy Welch公式仕様](https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.welch.html)：Hann・50% overlapと密度スケーリングを参照。10秒の採用は0.1 Hz binを実測長から作る本解析の設計判断。
+- [Corcoranら（2018）](https://doi.org/10.1111/psyp.13064)：IAF自動推定とスペクトル平滑化の関連先行研究。4秒窓の先行例を、4秒Hannが唯一の標準であると説明しない。今回の10秒Hann設計とは区別する。
+
+特にFzでは明瞭なalpha peakが見えにくい可能性がある。無理に全区間へ周波数値を割り当てず、品質基準を満たす推定の範囲を示す。Pz/FzのIAFは頭皮電極上の推定値であり、それぞれ独立した発生源の周波数や、注意・疲労・眠気の直接測定値を意味しない。
