@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
+import pytest
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "解析プログラム" / "Phase4_脳波解析"
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -71,3 +73,98 @@ def test_missing_set_removes_only_pairwise_set_and_adjacent_transition() -> None
     boundary = [row for row in module.quantify_boundary(item) if row["ToSet"] in (2, 3)]
     assert all(not row["PairedTransitionAvailable"] for row in boundary)
     assert all(np.isnan(row["EyeDrop_Transition_uV2_per_Hz"]) for row in boundary)
+
+
+def _saved_pair_values(*, boundary: bool) -> pd.DataFrame:
+    rows = []
+    for product in ("CCube", "VRohtoPremium"):
+        for subject in range(20):
+            pair_id = (
+                "101-201"
+                if product == "VRohtoPremium" and subject == 0
+                else f"{300 if product == 'CCube' else 400 + subject}-{500 + subject}"
+            )
+            for window in (
+                module.BOUNDARY_WINDOWS if boundary else {"FullSetQC": 100.0, **module.SET_WINDOWS}
+            ):
+                for number in range(2 if boundary else 1, 7):
+                    row = {"PairID": pair_id, "Product": product, "Window": window}
+                    if boundary:
+                        row.update({"FromSet": number - 1, "ToSet": number})
+                    else:
+                        row["Set"] = number
+                    suffix = "Transition_uV2_per_Hz" if boundary else "PSD_uV2_per_Hz"
+                    row[f"EyeDrop_{suffix}"] = float(subject + number + 2)
+                    row[f"Control_{suffix}"] = float(subject + number)
+                    rows.append(row)
+    return pd.DataFrame(rows)
+
+
+@pytest.mark.parametrize("boundary", [False, True])
+def test_saved_pair_validation_rejects_incomplete_duplicate_and_wrong_product(
+    boundary: bool,
+) -> None:
+    frame = _saved_pair_values(boundary=boundary)
+    module._validate_saved_pair_values(frame, boundary=boundary)  # noqa: SLF001
+    with pytest.raises(ValueError):
+        module._validate_saved_pair_values(frame.iloc[:-1], boundary=boundary)  # noqa: SLF001
+    with pytest.raises(ValueError):
+        module._validate_saved_pair_values(  # noqa: SLF001
+            pd.concat([frame, frame.iloc[[0]]], ignore_index=True), boundary=boundary
+        )
+    wrong_product = frame.copy()
+    wrong_product.loc[wrong_product["PairID"] == "101-201", "Product"] = "CCube"
+    with pytest.raises(ValueError):
+        module._validate_saved_pair_values(wrong_product, boundary=boundary)  # noqa: SLF001
+
+
+def test_no7_sensitivity_writes_only_additional_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    band = module.BANDS[7]
+    source_bytes = {}
+    for folder_name, pair_stem, group_stem, boundary in (
+        ("SetQuantification", "PairSetWindowValues", "GroupSetWindowSummary", False),
+        ("BetweenSetQuantification", "PairSetTransitionValues", "GroupSetTransitionSummary", True),
+    ):
+        folder = tmp_path / "Sub" / "tables" / folder_name
+        folder.mkdir(parents=True)
+        frame = _saved_pair_values(boundary=boundary)
+        for stem, values in (
+            (pair_stem, frame),
+            (group_stem, module.summarize(frame, boundary=boundary)),
+        ):
+            path = folder / f"{band.stem}_{stem}.csv"
+            values.to_csv(path, index=False)
+            source_bytes[path] = path.read_bytes()
+
+    drawn = []
+
+    def fake_plot(
+        frame: pd.DataFrame, product: str, window: str, band: object, path: Path, **kwargs: object
+    ) -> None:
+        assert product == "VRohtoPremium"
+        assert frame["PairID"].nunique() == 19
+        assert "101-201" not in set(frame["PairID"])
+        assert "Excluding Pair 101-201" in str(kwargs["title_suffix"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"test-png")
+        drawn.append(path)
+
+    monkeypatch.setattr(module, "plot_quantification", fake_plot)
+    assert module.run_excluded_pair_sensitivity(tmp_path, band, SimpleNamespace()) == 0
+    assert len(drawn) == 4
+    assert all("ExcludePair101-201" in path.name for path in drawn)
+    assert all(path.read_bytes() == data for path, data in source_bytes.items())
+    for folder_name, group_stem in (
+        ("SetQuantification", "GroupSetWindowSummary"),
+        ("BetweenSetQuantification", "GroupSetTransitionSummary"),
+    ):
+        path = (
+            tmp_path
+            / "Sub"
+            / "tables"
+            / folder_name
+            / f"{band.stem}_{group_stem}_ExcludePair101-201_VRohtoPremium.csv"
+        )
+        assert set(pd.read_csv(path)["Paired_N"]) == {19}

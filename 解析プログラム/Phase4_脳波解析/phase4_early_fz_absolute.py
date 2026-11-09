@@ -54,8 +54,11 @@ BANDS = {
 }
 SET_WINDOWS = {"FirstHalf": 50.0, "FirstQuarter": 25.0}
 BOUNDARY_WINDOWS = {"BoundaryHalf": 50.0, "BoundaryQuarter": 25.0}
-VERSION = "phase4-no6-no7-absolute-2026-11-09.1"
+VERSION = "phase4-no6-no7-absolute-2026-11-09.2"
 CONTROL_BAR_COLOR = "#66547D"
+SENSITIVITY_PAIR_ID = "101-201"
+SENSITIVITY_PRODUCT = "VRohtoPremium"
+SENSITIVITY_SUFFIX = "ExcludePair101-201"
 
 
 def parent_for(band: Band) -> Any:
@@ -381,6 +384,7 @@ def plot_quantification(
     *,
     boundary: bool,
     parent: Any,
+    title_suffix: str = "",
 ) -> None:
     selected = frame.loc[(frame["Product"] == product) & (frame["Window"] == window)]
     suffix = "Transition_uV2_per_Hz" if boundary else "PSD_uV2_per_Hz"
@@ -418,7 +422,7 @@ def plot_quantification(
         if boundary
         else f"First {fraction:g}% of Each Set"
     )
-    figure.suptitle(title, fontsize=26, fontfamily="Arial", y=0.995)
+    figure.suptitle(title + title_suffix, fontsize=26, fontfamily="Arial", y=0.995)
     figure.subplots_adjust(
         left=0.07 if boundary else 0.06,
         right=0.995,
@@ -435,6 +439,180 @@ def output_root_for(root: Path, band: Band) -> Path:
     return root / "Phase4_脳波解析" / band.stem
 
 
+def _validate_saved_pair_values(frame: pd.DataFrame, *, boundary: bool) -> None:
+    """Reject incomplete or mismatched production tables before sensitivity output."""
+    coordinate = ["FromSet", "ToSet"] if boundary else ["Set"]
+    windows = BOUNDARY_WINDOWS if boundary else {"FullSetQC": 100.0, **SET_WINDOWS}
+    suffix = "Transition_uV2_per_Hz" if boundary else "PSD_uV2_per_Hz"
+    required = {
+        "PairID",
+        "Product",
+        "Window",
+        *coordinate,
+        f"EyeDrop_{suffix}",
+        f"Control_{suffix}",
+    }
+    if not required.issubset(frame.columns):
+        raise ValueError(f"Saved pair table lacks columns: {sorted(required - set(frame.columns))}")
+    identifiers = ["PairID", "Product", "Window", *coordinate]
+    if frame[identifiers].isna().any(axis=None):
+        raise ValueError("Saved pair table has a missing identifier or coordinate")
+    if set(frame["Window"]) != set(windows):
+        raise ValueError("Saved pair table has unexpected window names")
+    if frame.duplicated(["PairID", "Product", "Window", *coordinate]).any():
+        raise ValueError("Saved pair table contains duplicate pair/window coordinates")
+    expected_coordinates = (
+        {(start, start + 1) for start in range(1, 6)}
+        if boundary
+        else {(number,) for number in range(1, 7)}
+    )
+    expected_per_pair = len(windows) * len(expected_coordinates)
+    for product in ("CCube", SENSITIVITY_PRODUCT):
+        product_rows = frame.loc[frame["Product"] == product]
+        if product_rows["PairID"].nunique() != 20 or len(product_rows) != 20 * expected_per_pair:
+            raise ValueError(f"{product}: expected 20 complete saved pairs")
+        for _, rows in product_rows.groupby("PairID"):
+            observed = {
+                (row.Window, *(getattr(row, key) for key in coordinate))
+                for row in rows.itertuples(index=False)
+            }
+            expected = {(window, *point) for window in windows for point in expected_coordinates}
+            if observed != expected:
+                raise ValueError(f"{product}: incomplete Set/window coordinates")
+    if len(frame) != 40 * expected_per_pair:
+        raise ValueError("Saved pair table contains an unexpected product or row")
+    target = frame.loc[frame["PairID"] == SENSITIVITY_PAIR_ID]
+    if len(target) != expected_per_pair or set(target["Product"]) != {SENSITIVITY_PRODUCT}:
+        raise ValueError("Sensitivity pair is absent or assigned to the wrong product")
+
+
+def _validate_saved_group_summary(
+    pair_values: pd.DataFrame, saved_path: Path, *, boundary: bool
+) -> None:
+    """Ensure the pair-value source still reproduces the retained main result."""
+    expected = summarize(pair_values, boundary=boundary)
+    saved = pd.read_csv(saved_path)
+    keys = ["Product", "Window", "FromSet", "ToSet"] if boundary else ["Product", "Window", "Set"]
+    if set(saved.columns) != set(expected.columns) or len(saved) != len(expected):
+        raise ValueError(f"{saved_path}: main group summary has drifted")
+    merged = expected.merge(
+        saved, on=keys, how="outer", suffixes=("_calculated", "_saved"), indicator=True
+    )
+    if len(merged) != len(expected) or not merged["_merge"].eq("both").all():
+        raise ValueError(f"{saved_path}: main group coordinates have drifted")
+    for column in expected.columns.difference(keys):
+        if not np.allclose(
+            merged[f"{column}_calculated"],
+            merged[f"{column}_saved"],
+            rtol=1e-10,
+            atol=1e-8,
+            equal_nan=True,
+        ):
+            raise ValueError(f"{saved_path}: main group values have drifted in {column}")
+
+
+def run_excluded_pair_sensitivity(root: Path, band: Band, parent: Any) -> int:
+    """Add No7 V-only figures from existing per-pair values; leave main files intact."""
+    if band.number != 7:
+        raise ValueError("Pair 101-201 sensitivity is defined for No7 only")
+    table_set = root / "Sub" / "tables" / "SetQuantification"
+    table_boundary = root / "Sub" / "tables" / "BetweenSetQuantification"
+    source_specs = [
+        (table_set, "PairSetWindowValues", "GroupSetWindowSummary", False),
+        (table_boundary, "PairSetTransitionValues", "GroupSetTransitionSummary", True),
+    ]
+    validated = []
+    for folder, pair_stem, group_stem, boundary in source_specs:
+        pair_path = folder / f"{band.stem}_{pair_stem}.csv"
+        group_path = folder / f"{band.stem}_{group_stem}.csv"
+        frame = pd.read_csv(pair_path, dtype={"PairID": str})
+        _validate_saved_pair_values(frame, boundary=boundary)
+        _validate_saved_group_summary(frame, group_path, boundary=boundary)
+        filtered = frame.loc[
+            (frame["Product"] == SENSITIVITY_PRODUCT) & (frame["PairID"] != SENSITIVITY_PAIR_ID)
+        ].copy()
+        if filtered["PairID"].nunique() != 19:
+            raise ValueError("Sensitivity selection did not retain 19 V Rohto pairs")
+        summary = summarize(filtered, boundary=boundary)
+        original_v = summarize(
+            frame.loc[frame["Product"] == SENSITIVITY_PRODUCT], boundary=boundary
+        )
+        if not np.all((original_v["Paired_N"].to_numpy() - summary["Paired_N"].to_numpy()) == 1):
+            raise ValueError("Removing the pair did not reduce each paired N by one")
+        validated.append((folder, group_stem, boundary, pair_path, filtered, summary, original_v))
+    outputs = []
+    paired_counts = {}
+    for folder, group_stem, boundary, _pair_path, filtered, summary, original_v in validated:
+        csv_path = (
+            folder / f"{band.stem}_{group_stem}_{SENSITIVITY_SUFFIX}_{SENSITIVITY_PRODUCT}.csv"
+        )
+        summary.to_csv(csv_path, index=False)
+        outputs.append(str(csv_path))
+        paired_counts["boundary" if boundary else "set"] = [
+            dict(
+                zip(
+                    (["Window", "FromSet", "ToSet"] if boundary else ["Window", "Set"]),
+                    (row.Window, row.FromSet, row.ToSet) if boundary else (row.Window, row.Set),
+                    strict=True,
+                )
+            )
+            | {"before": int(before), "after": int(row.Paired_N)}
+            for row, before in zip(
+                summary.itertuples(index=False), original_v["Paired_N"], strict=True
+            )
+        ]
+        windows = BOUNDARY_WINDOWS if boundary else SET_WINDOWS
+        kind = "BetweenSetQuantification" if boundary else "SetQuantification"
+        for window in windows:
+            png_path = (
+                root
+                / SENSITIVITY_PRODUCT
+                / kind
+                / f"{band.stem}_{kind}_{window}_{SENSITIVITY_PRODUCT}_{SENSITIVITY_SUFFIX}.png"
+            )
+            plot_quantification(
+                filtered,
+                SENSITIVITY_PRODUCT,
+                window,
+                band,
+                png_path,
+                boundary=boundary,
+                parent=parent,
+                title_suffix=" | Excluding Pair 101-201",
+            )
+            outputs.append(str(png_path))
+    log_path = root / "Sub" / "logs" / f"{band.stem}_{SENSITIVITY_SUFFIX}_RunSummary.json"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log = {
+        "analysis": band.stem,
+        "status": "completed",
+        "completed_at": datetime.now().astimezone().isoformat(),
+        "script_version": VERSION,
+        "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "scope": "No7 V Rohto Premium post-hoc sensitivity only",
+        "method": (
+            "Original saved pair values; remove pair 101-201 from both paired "
+            "conditions before group summary and drawing"
+        ),
+        "source_pair_csv_sha256": {
+            str(pair_path): hashlib.sha256(pair_path.read_bytes()).hexdigest()
+            for _, _, _, pair_path, _, _, _ in validated
+        },
+        "pair_count_before": 20,
+        "pair_count_after": 19,
+        "paired_n": paired_counts,
+        "outputs": outputs,
+        "main_results_modified": False,
+        "inferential_statistics": "not computed; exploratory",
+        "interpretation_caveat": (
+            "Post-hoc sensitivity, not a global participant exclusion or causal evidence"
+        ),
+    }
+    log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+    logging.info("No7 V sensitivity completed: %s", root)
+    return 0
+
+
 def run(number: int) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     band = BANDS[number]
@@ -442,12 +620,21 @@ def run(number: int) -> int:
     parser = argparse.ArgumentParser(
         description=f"Phase 4 No{number}: Fz absolute PSD early-Set analysis"
     )
-    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path)
     parser.add_argument("--production-batch", action="store_true", required=True)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--preflight-only", action="store_true")
     mode.add_argument("--all", action="store_true")
+    mode.add_argument("--excluded-pair-sensitivity-only", action="store_true")
     args = parser.parse_args()
+    if args.excluded_pair_sensitivity_only:
+        if args.manifest is not None:
+            parser.error("--manifest is not used for saved-table sensitivity analysis")
+        return run_excluded_pair_sensitivity(
+            output_root_for(parent.DEFAULT_OUTPUT_ROOT, band), band, parent
+        )
+    if args.manifest is None:
+        parser.error("--manifest is required for preflight and full analysis")
     specs = parent.load_manifest(args.manifest)
     items = preflight(specs, parent.DEFAULT_CACHE_ROOT, band, parent)
     logging.info("No%s cache/manifest preflight passed for %s pairs", number, len(items))
@@ -512,16 +699,14 @@ def run(number: int) -> int:
         "pairs_by_product": {"CCube": 20, "VRohtoPremium": 20},
         "additional_participant_exclusions": "none",
         "existing_masks": (
-            "Phase 1 interval overlap >=1% and session-by-channel pooled "
-            "log10 PSD upper 3SD"
+            "Phase 1 interval overlap >=1% and session-by-channel pooled log10 PSD upper 3SD"
         ),
         "method": (
             "Unsmoothed, post-mask absolute Fz PSD; Set first 50%/25% "
             "and next first minus previous last 50%/25%"
         ),
         "fullset_reference": (
-            f"All 40 pairs and available Sets match completed {band.parent_stem} "
-            "full-Set values"
+            f"All 40 pairs and available Sets match completed {band.parent_stem} full-Set values"
         ),
         "missing_set_policy": (
             "Known missing Set and adjacent transitions excluded in both paired "
