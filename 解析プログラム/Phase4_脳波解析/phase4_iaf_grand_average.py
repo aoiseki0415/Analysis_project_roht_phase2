@@ -1,4 +1,4 @@
-"""No8–11 paired IAF Change grand-averages from immutable saved v3 estimates.
+"""No8–9 paired IAF Change grand-averages from immutable saved v3 estimates.
 
 This module never calls Welch, spectral smoothing, or peak estimation.  The
 command line has fixed production roots; parameterized helpers enable synthetic
@@ -30,17 +30,17 @@ from phase4_iaf import (
     write_json,
 )
 
-VERSION = "phase4-iaf-change-grand-average-2026-11-10-v1"
+VERSION = "phase4-iaf-change-grand-average-2026-11-10-v2-setwise"
 BASE = DEFAULT_OUTPUT_ROOT / "Phase4_脳波解析"
 CONDITIONS = ("Eye Drop", "Control")
 PRODUCTS = ("CCube", "VRohtoPremium")
 COHORTS = ("AllAvailable", "SelectedParticipants")
 ADOPTION = "Grand-average採用（追加選別版）"
+SELECTION_SCHEMA = "phase4-iaf-selection-setwise-2026-11-10-v2"
+ACTIVE_SELECTION_ANALYSES = {"8": "Pz", "9": "Fz"}
 SELECTED_COUNTS = {
-    8: {"CCube": 14, "VRohtoPremium": 15},
-    9: {"CCube": 14, "VRohtoPremium": 15},
-    10: {"CCube": 13, "VRohtoPremium": 13},
-    11: {"CCube": 13, "VRohtoPremium": 13},
+    8: {"CCube": 12, "VRohtoPremium": 11},
+    9: {"CCube": 11, "VRohtoPremium": 10},
 }
 KEYS = ["pair_id", "condition", "position"]
 TABLE_NAMES = ("ParticipantIAFChange.csv", "GroupSummary.csv", "InclusionByInterval.csv")
@@ -49,11 +49,7 @@ TABLE_NAMES = ("ParticipantIAFChange.csv", "GroupSummary.csv", "InclusionByInter
 def interval_labels(number: int) -> list[str]:
     if number not in ANALYSES:
         raise ValueError("Unknown IAF analysis")
-    return (
-        [str(i) for i in range(1, 7)]
-        if number in (8, 10)
-        else [f"{i}{half}" for i in range(1, 7) for half in ("a", "b")]
-    )
+    return [str(i) for i in range(1, 7)]
 
 
 def read_manifest(path: Path) -> dict[str, dict[str, str]]:
@@ -89,6 +85,12 @@ def load_selection(
     json_path: Path, csv_path: Path, manifest: dict[str, dict[str, str]]
 ) -> pd.DataFrame:
     record = json.loads(json_path.read_text(encoding="utf-8"))
+    if (
+        record.get("schema") != SELECTION_SCHEMA
+        or record.get("active_analyses") != ACTIVE_SELECTION_ANALYSES
+        or set(record.get("manual_exclusions", {})) != set(ACTIVE_SELECTION_ANALYSES)
+    ):
+        raise ValueError("Selection schema/active analysis mapping is not current No8/9")
     if record.get("status") != "final":
         raise ValueError("Only a finalized selection is accepted")
     frame = pd.DataFrame(record["decisions"]).astype(str)
@@ -106,8 +108,8 @@ def load_selection(
     if set(frame.columns) != required or set(counterpart.columns) != required:
         raise ValueError("Frozen selection columns mismatch")
     keys = ["analysis_number", "pair_id"]
-    if len(frame) != 160 or frame.duplicated(keys).any():
-        raise ValueError("Selection requires exactly 160 distinct No/pair decisions")
+    if len(frame) != 80 or frame.duplicated(keys).any():
+        raise ValueError("Selection requires exactly 80 distinct No/pair decisions")
     pd.testing.assert_frame_equal(
         frame.sort_values(keys).reset_index(drop=True).sort_index(axis=1),
         counterpart.sort_values(keys).reset_index(drop=True).sort_index(axis=1),
@@ -197,7 +199,7 @@ def validate_estimates(
                 str(int(r.set_number)) + (r.interval if r.interval != "whole" else "")
                 for r in cc.itertuples()
             ]
-            if observed != labels or (number in (8, 10) and not cc.interval.eq("whole").all()):
+            if observed != labels or not cc.interval.eq("whole").all():
                 raise ValueError("Estimate Set/half ordering mismatch")
     values = frame.frequency_hz.to_numpy(dtype=float)
     if np.isinf(values).any():
@@ -240,10 +242,10 @@ def read_stored_cache_iaf(
                 if str(attrs[key]) != person[key]:
                     raise ValueError("Cache participant metadata mismatch")
             seen.add(sid)
-            for number, (channel, kind, _) in ANALYSES.items():
+            for number, (channel, _, _) in ANALYSES.items():
                 for position, label in enumerate(interval_labels(number), 1):
                     set_number = int(label[0])
-                    interval = "whole" if kind == "setwise" else label[1]
+                    interval = "whole"
                     if f"Set{set_number}" in handle:
                         peak = handle[f"Set{set_number}/{interval}/peaks/{channel}"]
                         frequency = float(peak.attrs["frequency_hz"])
@@ -292,17 +294,17 @@ def preflight(
         raise ValueError("Expected exactly 80 saved IAF caches")
     protected = [manifest_path, selection_json, selection_csv, selection_log, *caches]
     frames = {}
-    for number, (channel, kind, folder) in ANALYSES.items():
+    for number, (channel, _, folder) in ANALYSES.items():
         root = base / folder
         saved_manifest = root / "Sub/tables/ParticipantManifest.csv"
         if read_manifest(saved_manifest) != manifest:
-            raise ValueError("The four saved participant manifests disagree")
+            raise ValueError("The two saved participant manifests disagree")
         estimates = root / f"Sub/tables/No{number}_IAF_Estimates.csv"
         frames[number] = validate_estimates(
             pd.read_csv(estimates, dtype={"session_id": str, "pair_id": str}), number, manifest
         )
         protected.extend((saved_manifest, estimates))
-        tag = "SetwiseIAF" if kind == "setwise" else "HalfSetIAF"
+        tag = "SetwiseIAF"
         for pair, person in manifest.items():
             path = (
                 root
@@ -482,7 +484,7 @@ def assert_output_path(path: Path, base: Path = BASE) -> None:
     resolved = path.resolve()
     allowed = [base / ANALYSES[n][2] for n in ANALYSES]
     if not any(resolved.is_relative_to(root.resolve()) for root in allowed):
-        raise ValueError("Output escapes authorized No8–11 folders")
+        raise ValueError("Output escapes authorized No8–9 folders")
     if not resolved.is_relative_to(base.resolve()):
         raise ValueError("Output root symlink escapes Phase4")
 
@@ -616,6 +618,10 @@ def main(argv: list[str] | None = None) -> int:
         "additional_smoothing": False,
         "statistical_tests": False,
         "source_schema": SCHEMA,
+        "selection_schema": SELECTION_SCHEMA,
+        "active_analysis_channels": ACTIVE_SELECTION_ANALYSES,
+        "figure_y_limits_hz": [-1.1, 1.1],
+        "figure_y_ticks_hz": [-1.0, -0.5, 0.0, 0.5, 1.0],
         "source_calc_config_sha256": config_hash(),
         "mean": "equal participant arithmetic mean of paired baseline differences",
         "sem": "sample SD (ddof=1) / sqrt(n); NaN for n<2",

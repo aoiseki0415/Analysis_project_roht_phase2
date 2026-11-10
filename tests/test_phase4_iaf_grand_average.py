@@ -44,7 +44,7 @@ def synthetic_estimates(number, manifest):
                         "analysis_number": number,
                         "channel": ga.ANALYSES[number][0],
                         "set_number": int(label[0]),
-                        "interval": "whole" if number in (8, 10) else label[1],
+                        "interval": "whole",
                         "position": position,
                         "frequency_hz": 9 + ci + index / 10 + (position - 1) / 10,
                         "quality": "ok",
@@ -81,7 +81,7 @@ def set_missing(frame, pair, condition, position):
     frame.loc[mask, "quality"] = "all_windows_invalid"
 
 
-@pytest.mark.parametrize("number", [8, 9, 10, 11])
+@pytest.mark.parametrize("number", [8, 9])
 def test_own_condition_baselines_and_exact_zero(number):
     manifest = synthetic_manifest(2)
     estimates = synthetic_estimates(number, manifest)
@@ -96,10 +96,10 @@ def test_own_condition_baselines_and_exact_zero(number):
     assert groups.n.eq(1).all()
     assert groups.sem_iaf_change_hz.isna().all()
     assert groups.sd_iaf_change_hz.isna().all()
-    assert set(groups.baseline_interval) == {"1" if number in (8, 10) else "1a"}
+    assert set(groups.baseline_interval) == {"1"}
 
 
-@pytest.mark.parametrize("number", [8, 9, 10, 11])
+@pytest.mark.parametrize("number", [8, 9])
 def test_paired_baseline_missing_excludes_whole_pair_only_for_this_no(number):
     manifest = synthetic_manifest(2)
     estimates = synthetic_estimates(number, manifest)
@@ -113,7 +113,7 @@ def test_paired_baseline_missing_excludes_whole_pair_only_for_this_no(number):
     assert inclusion.loc[inclusion.pair_id != pair, "included"].all()
 
 
-@pytest.mark.parametrize("number", [8, 9, 10, 11])
+@pytest.mark.parametrize("number", [8, 9])
 def test_later_missing_pairs_only_that_interval_without_collapsing_grid(number):
     manifest = synthetic_manifest(2)
     estimates = synthetic_estimates(number, manifest)
@@ -242,6 +242,8 @@ def frozen_selection(tmp_path):
     frame = frame.astype(str)
     json_path, csv_path = tmp_path / "selection.json", tmp_path / "selection.csv"
     record = {
+        "schema": ga.SELECTION_SCHEMA,
+        "active_analyses": ga.ACTIVE_SELECTION_ANALYSES,
         "status": "final",
         "decisions": frame.to_dict("records"),
         "manual_exclusions": {str(n): dict.fromkeys(ga.PRODUCTS, []) for n in ga.ANALYSES},
@@ -254,8 +256,8 @@ def frozen_selection(tmp_path):
 def test_frozen_json_csv_match_counts(frozen_selection):
     manifest, json_path, csv_path = frozen_selection
     selection = ga.load_selection(json_path, csv_path, manifest)
-    assert len(selection) == 160
-    assert selection[ga.ADOPTION].eq("する").sum() == 110
+    assert len(selection) == 80
+    assert selection[ga.ADOPTION].eq("する").sum() == 44
 
 
 @pytest.mark.parametrize("alteration", ["notfinal", "duplicate", "mismatch", "manual", "counts"])
@@ -316,7 +318,7 @@ def test_protected_input_hash_detects_changes(tmp_path):
         ga.assert_hashes(fingerprints)
 
 
-@pytest.mark.parametrize("number", [8, 9, 10, 11])
+@pytest.mark.parametrize("number", [8, 9])
 def test_table_roundtrip_preserves_labels_missingness_and_numerical_values(
     tmp_path, monkeypatch, number
 ):
@@ -372,10 +374,25 @@ def test_read_cache_uses_stored_attributes_and_never_peak_reestimation(tmp_path,
             paths.append(path)
     before = {str(p): ga.sha256_file(p) for p in paths}
     rows = ga.read_stored_cache_iaf(paths, manifest)
-    assert len(rows[8]) == 24 and len(rows[9]) == 48
-    assert rows[10].frequency_hz.eq(10.3).all()
+    assert len(rows[8]) == 24 and len(rows[9]) == 24
+    assert rows[9].frequency_hz.eq(10.3).all()
     ga.assert_hashes(before)
     with h5py.File(paths[0], "r+") as handle:
         handle.attrs["schema"] = "obsolete"
     with pytest.raises(ValueError, match="schema"):
         ga.read_stored_cache_iaf(paths, manifest)
+
+
+@pytest.mark.parametrize("field", ["schema", "active_analyses", "manual_exclusions"])
+def test_selection_rejects_legacy_numbering(frozen_selection, field):
+    manifest, json_path, csv_path = frozen_selection
+    record = json.loads(json_path.read_text())
+    if field == "schema":
+        record[field] = "old-v1"
+    elif field == "active_analyses":
+        record[field] = {"8": "Pz", "9": "Pz", "10": "Fz", "11": "Fz"}
+    else:
+        record[field]["10"] = dict.fromkeys(ga.PRODUCTS, [])
+    json_path.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match="Selection schema/active"):
+        ga.load_selection(json_path, csv_path, manifest)

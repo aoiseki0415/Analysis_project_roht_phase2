@@ -20,7 +20,7 @@ import phase4_iaf_figures as module  # noqa: E402
 
 def _inputs(number: int = 8, product: str = "VRohtoPremium") -> dict:
     frequency = np.arange(10, 401) / 10
-    count = 12 if number in (9, 11) else 6
+    count = 6
     psd = np.stack([
         3 / frequency + (index + 2) * np.exp(-((frequency - 10) / 0.8) ** 2)
         for index in range(count)
@@ -38,7 +38,7 @@ def _close_figures():
     plt.close("all")
 
 
-@pytest.mark.parametrize("number", [8, 9, 10, 11])
+@pytest.mark.parametrize("number", [8, 9])
 def test_panel_design_and_independent_eighty_percent_y_scales(number: int) -> None:
     data = _inputs(number)
     # Maximum is deliberately outside alpha; the entire displayed 1–30 Hz matters.
@@ -69,9 +69,9 @@ def test_panel_design_and_independent_eighty_percent_y_scales(number: int) -> No
     assert iaf.get_ylim() == (7.5, 15.5)
     assert iaf.get_xlim() == (0.75, count + 0.25)
     assert iaf.get_yticks().tolist() == list(range(8, 16))
-    assert iaf.get_xlabel() == ("Set / Half" if count == 12 else "Set")
+    assert iaf.get_xlabel() == "Set"
     assert iaf.get_ylabel() == "IAF (Hz)"
-    expected_ch = "Pz" if number < 10 else "Fz"
+    expected_ch = "Pz" if number == 8 else "Fz"
     assert iaf.get_title() == f"{expected_ch} — Alpha Peak Frequency"
     assert [line.get_color() for line in iaf.lines] == [
         module.FIGURE_CONFIG["eye_drop_colors"][number]["VRohtoPremium"], "#402B5D"
@@ -99,7 +99,7 @@ def test_panel_design_and_independent_eighty_percent_y_scales(number: int) -> No
     assert fig._suptitle is None
 
 
-@pytest.mark.parametrize("count", [6, 12])
+@pytest.mark.parametrize("count", [6])
 def test_hls_gradient_has_fixed_bright_to_dark_order(count: int) -> None:
     palette = module.segment_colors("#5689CF", count)
     hue_light_sat = np.array([colorsys.rgb_to_hls(*rgb) for rgb in palette])
@@ -108,7 +108,7 @@ def test_hls_gradient_has_fixed_bright_to_dark_order(count: int) -> None:
     np.testing.assert_allclose(hue_light_sat[:, 2], hue_light_sat[0, 2])
 
 
-def test_half_set_legend_column_order_missing_rows_and_no_nan_bridge() -> None:
+def test_setwise_fz_legend_order_missing_rows_and_no_nan_bridge() -> None:
     data = _inputs(9)
     data["drops_psd"][2] = np.nan
     data["drops_iaf_hz"][2] = np.nan
@@ -116,10 +116,9 @@ def test_half_set_legend_column_order_missing_rows_and_no_nan_bridge() -> None:
     fig = module.build_three_panel_figure(**data)
     labels = [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
     assert labels == [
-        "Set 1a", "Set 2a unavailable", "Set 3a", "Set 4a", "Set 5a", "Set 6a",
-        "Set 1b", "Set 2b", "Set 3b", "Set 4b", "Set 5b", "Set 6b",
+        "Set 1", "Set 2", "Set 3 unavailable", "Set 4", "Set 5", "Set 6",
     ]
-    assert fig.axes[0].get_legend()._ncols == 2
+    assert fig.axes[0].get_legend()._ncols == 1
     assert len(fig.axes[0].lines[2].get_xdata()) == 291
     assert np.isnan(fig.axes[0].lines[2].get_ydata()).all()
     assert np.isfinite(fig.axes[1].lines[2].get_ydata()).all()
@@ -129,14 +128,9 @@ def test_half_set_legend_column_order_missing_rows_and_no_nan_bridge() -> None:
     path_segments = list(fig.axes[2].lines[0].get_path().iter_segments(remove_nans=True))
     assert sum(code == MplPath.MOVETO for _, code in path_segments) == 2
     assert [text.get_text() for text in fig.axes[2].get_xticklabels()] == [
-        f"{number}{half}" for number in range(1, 7) for half in ("a", "b")
+        str(number) for number in range(1, 7)
     ]
-    assert len(fig.texts) == 1
-    assert fig.texts[0].get_position() == (0.5, 0.035)
-    assert fig.texts[0].get_fontsize() == 17
-    assert fig.texts[0].get_text() == (
-        "a: first half (0–50%)  |  b: second half (50–100%)"
-    )
+    assert len(fig.texts) == 0
 
 
 def test_empty_and_zero_psd_remain_distinguished_without_imputation() -> None:
@@ -165,7 +159,7 @@ def test_save_real_pixel_dimensions_and_close(tmp_path: Path, number: int) -> No
         result = module.plot_pair_three_panel(output_path=filename, **_inputs(number))
     assert plt.get_fignums() == figures_before
     assert result["dimensions_px"] == [4860, 1800]
-    assert result["interval_count"] == (12 if number == 9 else 6)
+    assert result["interval_count"] == 6
     assert result["psd_input_dataset"] == "smoothed_mean_psd_uv2_hz"
     assert result["plotting_applies_smoothing"] is False
     with Image.open(filename) as image:
@@ -192,14 +186,14 @@ def test_renderer_uses_supplied_smoothed_psd_without_a_second_smoothing() -> Non
         np.testing.assert_array_equal(data[key], before[key])
 
 
-@pytest.mark.parametrize("number", [8, 9, 10, 11])
+@pytest.mark.parametrize("number", [8, 9])
 def test_engine_render_passes_only_smoothed_rows_to_plotter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, number: int
 ) -> None:
     import phase4_iaf as engine
 
     spec = engine.ParticipantSpec("901", "902", "902", "VRohtoPremium")
-    count = 12 if number in (9, 11) else 6
+    count = 6
     rows = []
     for condition in ("Eye Drop", "Control"):
         for position in range(count):
@@ -312,3 +306,21 @@ def test_extreme_psd_scientific_ticks_keep_labels_on_canvas(maximum: float) -> N
             assert not ax.yaxis.label.get_window_extent(renderer).overlaps(
                 fig.axes[index - 1].get_window_extent(renderer)
             )
+
+
+def test_new_no9_preserves_former_fz_setwise_palette() -> None:
+    assert module.FIGURE_CONFIG["eye_drop_colors"] == {
+        8: {"CCube": "#2456A6", "VRohtoPremium": "#5689CF"},
+        9: {"CCube": "#A63D46", "VRohtoPremium": "#CF7278"},
+    }
+
+
+@pytest.mark.parametrize("number", [10, 11])
+def test_retired_analysis_numbers_rejected(number: int) -> None:
+    with pytest.raises(ValueError, match="Only current"):
+        module.build_three_panel_figure(**_inputs(number))
+
+
+def test_retired_halfset_gradient_rejected() -> None:
+    with pytest.raises(ValueError, match="6 whole-Set"):
+        module.segment_colors("#5689CF", 12)

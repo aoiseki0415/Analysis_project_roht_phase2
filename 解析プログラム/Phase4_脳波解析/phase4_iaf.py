@@ -1,4 +1,4 @@
-"""No8–11: once-smoothed whole/half-Set PSD alpha peaks and audited raw cache.
+"""No8–9: once-smoothed whole-Set PSD alpha peaks and audited raw cache.
 
 The fixed production roots are deliberately not CLI-overridable. Numerical helper
 functions accept arrays/paths so synthetic tests never require production writes.
@@ -37,7 +37,7 @@ from Phase4_No1_FmTheta import (
 )
 from scipy.signal import find_peaks, get_window, periodogram
 
-VERSION = "phase4-iaf-smoothed-localpeak-2026-11-10.3"
+VERSION = "phase4-iaf-setwise-renumbered-2026-11-10.4"
 SCHEMA = "phase4-iaf-smoothed-localpeak-2026-11-10-v3"
 LEGACY_SCHEMA = "phase4-iaf-localpeak-2026-11-10-v2"
 CHANNELS = ("Pz", "Fz")
@@ -47,13 +47,14 @@ STEP_SAMPLES = 1280
 FREQUENCIES = np.arange(10, 401, dtype=float) / 10
 ANALYSES = {
     8: ("Pz", "setwise", "No8_PzSetwiseIAF"),
-    9: ("Pz", "halfset", "No9_PzHalfSetIAF"),
-    10: ("Fz", "setwise", "No10_FzSetwiseIAF"),
-    11: ("Fz", "halfset", "No11_FzHalfSetIAF"),
+    9: ("Fz", "setwise", "No9_FzSetwiseIAF"),
 }
 DEFAULT_CACHE_ROOT = (
-    DEFAULT_INPUT_ROOT.parents[1] / "Phase4_脳波解析/No8-11_PzFzIAF/SpectralSegments"
+    DEFAULT_INPUT_ROOT.parents[1] / "Phase4_脳波解析/No8-9_PzFzIAF/SpectralSegments"
 )
+# The v3 storage/configuration hash is intentionally unchanged. Existing caches
+# retain whole/a/b groups for byte-preserving provenance; a/b are legacy-only.
+# All active rows, figures, reviews, and Grand-averages below use whole Sets only.
 LEGACY_CONFIG = {
     "schema": LEGACY_SCHEMA,
     "channels": CHANNELS,
@@ -142,7 +143,11 @@ def sha256_file(path: Path) -> str:
 
 
 def estimation_intervals(n_samples: int) -> dict[str, tuple[int, int]]:
-    """Half-open intervals on original sample support, before artifact removal."""
+    """Legacy v3 storage intervals, retained only for cache/hash compatibility.
+
+    Active No8/9 analyses read ``whole`` only. Preserved a/b groups are not
+    current analyses and do not create half-Set tables or figures.
+    """
     if n_samples < 0:
         raise ValueError("Negative sample count")
     midpoint = (int(n_samples) + 1) // 2
@@ -825,9 +830,9 @@ def rows_from_cache(path: Path) -> dict[int, list[dict[str, Any]]]:
             key: _text(handle.attrs[key])
             for key in ("pair_id", "session_id", "condition", "product")
         }
-        for analysis, (channel, kind, _) in ANALYSES.items():
+        for analysis, (channel, _, _) in ANALYSES.items():
             ci = CHANNELS.index(channel)
-            labels = ("whole",) if kind == "setwise" else ("a", "b")
+            labels = ("whole",)
             for set_number in range(1, 7):
                 for interval in labels:
                     row = {
@@ -836,9 +841,7 @@ def rows_from_cache(path: Path) -> dict[int, list[dict[str, Any]]]:
                         "channel": channel,
                         "set_number": set_number,
                         "interval": interval,
-                        "position": set_number
-                        if kind == "setwise"
-                        else 2 * set_number - int(interval == "a"),
+                        "position": set_number,
                         "frequency_hz": np.nan,
                         "selected_peak_psd": np.nan,
                         "n_candidates": 0,
@@ -901,7 +904,9 @@ def validate_rows(rows: list[dict[str, Any]], number: int, n_sessions: int) -> d
     frame = pd.DataFrame(
         [{k: v for k, v in row.items() if k not in SPECTRAL_ROW_KEYS} for row in rows]
     )
-    expected = n_sessions * (6 if number in (8, 10) else 12)
+    if number not in ANALYSES:
+        raise ValueError("Only current No8 (Pz) and No9 (Fz) are supported")
+    expected = n_sessions * 6
     if len(frame) != expected or frame.duplicated(["session_id", "position"]).any():
         raise AssertionError("Estimate row count/positions mismatch")
     finite = np.isfinite(frame.frequency_hz)
@@ -938,8 +943,8 @@ def render_analysis(
 ) -> list[dict[str, Any]]:
     from phase4_iaf_figures import plot_pair_three_panel
 
-    channel, kind, _ = ANALYSES[number]
-    tag = "SetwiseIAF" if kind == "setwise" else "HalfSetIAF"
+    channel, _, _ = ANALYSES[number]
+    tag = "SetwiseIAF"
     results = []
     for spec in specs:
         pair_rows = [row for row in rows if row["pair_id"] == spec.pair_id]
@@ -948,7 +953,7 @@ def render_analysis(
             selected = sorted(
                 [r for r in pair_rows if r["condition"] == condition], key=lambda r: r["position"]
             )
-            if len(selected) != (6 if kind == "setwise" else 12):
+            if len(selected) != 6:
                 raise ValueError("Figure requires all fixed positions for both conditions")
             kwargs[f"{prefix}_psd"] = np.stack([r["smoothed_mean_psd"] for r in selected])
             kwargs[f"{prefix}_iaf_hz"] = np.array([r["frequency_hz"] for r in selected])
@@ -973,6 +978,8 @@ def render_analysis(
 
 
 def main(argv: list[str] | None = None, *, fixed_analysis: int | None = None) -> int:
+    if fixed_analysis is not None and fixed_analysis not in ANALYSES:
+        raise ValueError("Only current No8 (Pz) and No9 (Fz) are supported")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--production-batch", action="store_true")
@@ -991,7 +998,9 @@ def main(argv: list[str] | None = None, *, fixed_analysis: int | None = None) ->
     args = parser.parse_args(argv)
     if args.upgrade_smoothing and (args.figures_only or args.preflight_only):
         parser.error("--upgrade-smoothing requires --all or --compute-only")
-    numbers = [fixed_analysis] if fixed_analysis else args.analysis
+    numbers = [fixed_analysis] if fixed_analysis is not None else args.analysis
+    if len(numbers) != len(set(numbers)):
+        parser.error("--analysis must not contain duplicate analyses")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     specs = [
         ParticipantSpec(

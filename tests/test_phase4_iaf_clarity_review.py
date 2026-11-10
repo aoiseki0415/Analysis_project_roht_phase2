@@ -116,7 +116,7 @@ def synthetic_run(tmp_path):
             base / review.ANALYSES[8][2] / "Sub/tables/ParticipantManifest.csv"
         ),
         "cache_unchanged": True,
-        "review_sheet_count": 160,
+        "review_sheet_count": 80,
         "outputs": review_outputs,
     }
     (logs / "PeakClarityReview_Preparation.json").write_text(
@@ -128,9 +128,9 @@ def synthetic_run(tmp_path):
 def test_finalization_counts_baselines_observations_and_source_integrity(synthetic_run):
     base, caches, paths = synthetic_run
     record = review.finalize(paths, base=base, cache_root=caches)
-    assert record["participant_review_rows"] == 160
-    assert record["interval_review_rows"] == 2880
-    assert record["group_summary_rows"] == 8
+    assert record["participant_review_rows"] == 80
+    assert record["interval_review_rows"] == 960
+    assert record["group_summary_rows"] == 4
     assert record["selection_finalized"] is False
     assert record["grand_average_executed"] is False
     assert record["exclusions_applied"] is False
@@ -138,27 +138,27 @@ def test_finalization_counts_baselines_observations_and_source_integrity(synthet
     review.assert_hashes(record["input_cache_sha256"])
     review.assert_hashes(record["source_file_sha256"])
     root = base / review.ANALYSES[8][2] / "Sub/PeakClarityReview"
-    pairs = pd.read_csv(root / "ParticipantReview.csv")
+    pairs = pd.read_csv(root / "ParticipantReview.csv", dtype={"baseline_interval": str})
     groups = pd.read_csv(root / "GroupSummary.csv")
     no9 = pairs.loc[pairs.analysis_number == 9].reset_index(drop=True)
     assert no9.iloc[0].observation_class == "両条件Cなし"
     assert bool(no9.iloc[0].contains_ambiguous_interval)
     assert no9.iloc[0].eye_drop_U_count == 0
     assert no9.iloc[1].observation_class == "片条件Cあり"
-    assert no9.iloc[2].baseline_interval == "1a"
+    assert no9.iloc[2].baseline_interval == "1"
     assert not bool(no9.iloc[2].both_baselines_finite)
-    assert no9.iloc[2].paired_finite_interval_count == 11
+    assert no9.iloc[2].paired_finite_interval_count == 5
     assert no9.iloc[2].baseline_valid_paired_interval_count == 0
     assert bool(no9.iloc[3].both_baselines_finite)
-    assert no9.iloc[3].baseline_valid_paired_interval_count == 11
+    assert no9.iloc[3].baseline_valid_paired_interval_count == 5
     assert (
         groups.both_conditions_C + groups.one_condition_C + groups.neither_condition_C == 20
     ).all()
     md = (root / "PeakClarityReview.md").read_text()
     assert "採否は未確定" in md and "全区間Uとは断定できない" in md
-    assert md.count("### Cキューブ") == 4 and md.count("### Vロートプレミアム") == 4
-    assert md.count("・[元図]") == 160
-    assert len(json.loads((root / "AssessmentInput.json").read_text())) == 160
+    assert md.count("### Cキューブ") == 2 and md.count("### Vロートプレミアム") == 2
+    assert md.count("・[元図]") == 80
+    assert len(json.loads((root / "AssessmentInput.json").read_text())) == 80
 
 
 def _edit_json(path, mutate):
@@ -254,8 +254,8 @@ def test_no_local_peak_is_not_missing_psd(synthetic_run):
 
 def test_duplicate_inventory_interval_and_missing_analysis_fail(synthetic_run):
     base, _, paths = synthetic_run
-    with pytest.raises(ValueError, match="four distinct"):
-        review.load_assessments(paths[:3])
+    with pytest.raises(ValueError, match="two distinct"):
+        review.load_assessments(paths[:1])
     manifest_path = base / review.ANALYSES[8][2] / "Sub/tables/ParticipantManifest.csv"
     manifest = review.read_manifest(manifest_path)
     inventory = base / review.ANALYSES[8][2] / "Sub/PeakClarityReview/SavedEstimateInventory.csv"
@@ -264,3 +264,21 @@ def test_duplicate_inventory_interval_and_missing_analysis_fail(synthetic_run):
     frame.to_csv(inventory, index=False)
     with pytest.raises(ValueError, match="Duplicate inventory"):
         review.validated_inventory(inventory, 8, manifest)
+
+
+def test_finalized_selection_prevents_provisional_overwrite(synthetic_run):
+    base, caches, paths = synthetic_run
+    selection = (
+        base / review.ANALYSES[8][2] / "Sub/PeakClarityReview/GrandAverageSelection_Final.json"
+    )
+    selection.write_text('{"status":"final"}')
+    before = selection.read_bytes()
+    with pytest.raises(ValueError, match="Finalized selection exists"):
+        review.finalize(paths, base=base, cache_root=caches)
+    assert selection.read_bytes() == before
+
+
+@pytest.mark.parametrize("number", [10, 11])
+def test_retired_review_number_is_not_silently_remapped(number):
+    with pytest.raises(ValueError, match="Only current"):
+        review.interval_labels(number)

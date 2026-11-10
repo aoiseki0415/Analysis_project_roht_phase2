@@ -30,7 +30,7 @@ from phase4_iaf import (  # noqa: E402
 )
 from phase4_iaf_figures import require_arial  # noqa: E402
 
-VERSION = "iaf-clarity-review-20261110-v1"
+VERSION = "iaf-clarity-review-20261110-v2-setwise"
 BASE = DEFAULT_OUTPUT_ROOT / "Phase4_脳波解析"
 CONDITIONS = ("Eye Drop", "Control")
 PRODUCTS = ("CCube", "VRohtoPremium")
@@ -51,7 +51,9 @@ def label(row):
 
 
 def make_sheet(rows, path, number, pair, product):
-    count = 6 if number in (8, 10) else 12
+    if number not in ANALYSES:
+        raise ValueError("Only current No8 (Pz) and No9 (Fz) are supported")
+    count = 6
     nrow = count // 6 * 2
     fig, axes = plt.subplots(nrow, 6, figsize=(24, 3.5 * nrow), squeeze=False)
     for ci, condition in enumerate(CONDITIONS):
@@ -97,7 +99,23 @@ def make_sheet(rows, path, number, pair, product):
     plt.close(fig)
 
 
+def assert_no_final_selection(root):
+    """Protect finalized manual decisions from provisional review overwrites."""
+    if (Path(root) / "GrandAverageSelection_Final.json").exists():
+        raise ValueError("Finalized selection exists; provisional review cannot overwrite it")
+
+
 def prepare():
+    # Refreshing evidence plots never reopens or overwrites finalized adoption.
+    selection_root = BASE / ANALYSES[8][2] / "Sub/PeakClarityReview"
+    protected_selection = {
+        str(path): sha256_file(path)
+        for path in (
+            selection_root / "GrandAverageSelection_Final.json",
+            selection_root / "GrandAverageSelection_Final.csv",
+        )
+        if path.exists()
+    }
     require_arial()
     plt.rcParams["font.family"] = "Arial"
     manifest_path = BASE / ANALYSES[8][2] / "Sub/tables/ParticipantManifest.csv"
@@ -142,6 +160,7 @@ def prepare():
             outputs.append(str(out))
     if any(sha256_file(Path(path)) != value for path, value in sources.items()):
         raise ValueError("Input cache changed")
+    assert_hashes(protected_selection)
     record = {
         "version": VERSION,
         "time_utc": datetime.now(UTC).isoformat(),
@@ -154,6 +173,7 @@ def prepare():
         "exclusions_applied": False,
         "grand_average_executed": False,
         "cache_unchanged": True,
+        "final_selection_unchanged_sha256": protected_selection,
     }
     log = BASE / ANALYSES[8][2] / "Sub/logs/PeakClarityReview_Preparation.json"
     log.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -161,11 +181,9 @@ def prepare():
 
 
 def interval_labels(number):
-    return (
-        [str(i) for i in range(1, 7)]
-        if number in (8, 10)
-        else [f"{i}{half}" for i in range(1, 7) for half in ("a", "b")]
-    )
+    if number not in ANALYSES:
+        raise ValueError("Only current No8 (Pz) and No9 (Fz) are supported")
+    return [str(i) for i in range(1, 7)]
 
 
 def read_manifest(path):
@@ -195,8 +213,8 @@ def read_manifest(path):
 
 
 def load_assessments(paths):
-    if len(paths) != 4 or len(set(map(str, paths))) != 4:
-        raise ValueError("Provide four distinct assessment JSON files")
+    if len(paths) != 2 or len(set(map(str, paths))) != 2:
+        raise ValueError("Provide two distinct assessment JSON files for current No8/9")
     assessments = {}
     for path in paths:
         entries = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -204,7 +222,7 @@ def load_assessments(paths):
             raise ValueError(f"Assessment JSON must contain 40 pairs: {path}")
         numbers = {entry.get("analysis_number") for entry in entries}
         if len(numbers) != 1 or next(iter(numbers)) not in ANALYSES:
-            raise ValueError("Each JSON must describe exactly one of No8–11")
+            raise ValueError("Each JSON must describe exactly one of No8–9")
         number = next(iter(numbers))
         if number in assessments:
             raise ValueError("Duplicate analysis number in assessment files")
@@ -233,7 +251,7 @@ def load_assessments(paths):
             by_pair[pair] = entry
         assessments[number] = by_pair
     if set(assessments) != set(ANALYSES):
-        raise ValueError("All of No8–11 are required")
+        raise ValueError("All of No8–9 are required")
     return assessments
 
 
@@ -408,7 +426,7 @@ def build_review_tables(assessments, inventories, manifest, base):
                 / mapping["product"]
                 / f"Pair{pair}_No{number}_AlphaReview.png"
             )
-            tag = "SetwiseIAF" if number in (8, 10) else "HalfSetIAF"
+            tag = "SetwiseIAF"
             result["original_figure_path"] = str(
                 root
                 / mapping["product"]
@@ -451,8 +469,8 @@ def build_review_tables(assessments, inventories, manifest, base):
                         selected.clarity_grade.eq(grade).sum()
                     )
             summaries.append(summary)
-    if (len(participant_frame), len(interval_frame), len(summaries)) != (160, 2880, 8):
-        raise ValueError("Final report row counts must be 160/2880/8")
+    if (len(participant_frame), len(interval_frame), len(summaries)) != (80, 960, 4):
+        raise ValueError("Final report row counts must be 80/960/4")
     return participant_frame, interval_frame, pd.DataFrame(summaries)
 
 
@@ -462,25 +480,25 @@ def _md(value):
 
 def render_report(participants, summaries, report_root):
     lines = [
-        "# No8–11 IAFピーク明瞭性レビュー",
+        "# No8–9 IAFピーク明瞭性レビュー",
         "",
         "## 位置づけ",
         "",
         "保存済みの周波数方向5点・1回平滑化PSDをNo別・製品群別・条件別に確認した、Codexの暫定的な定性評価です。"
         "IAFの再推定、既存値の置換、被験者除外、Grand-averageの計算・描画は行っていません。採否は未確定です。",
         "",
-        "全160の区間別拡大評価図を確認しました（各図の6／12区間すべて）。"
-        "元の3パネルPNGは必要例を併読し、全160元PNGを別途全数目視した意味ではありません。"
+        "全80の区間別拡大評価図を確認しました（各図の6区間すべて）。"
+        "元の3パネルPNGは必要例を併読し、全80元PNGを別途全数目視した意味ではありません。"
         "評価者間信頼性は未測定です。",
         "",
-        "- C：周囲背景と分かれた代表的な山を識別できる。小振幅や複数峰だけで不明瞭にはしない。",
+        "- C：周囲背景と分かれた一つの明瞭なalphaの山を識別できる。小振幅だけでは不明瞭にしない。",
         "- A：候補はあるが同程度多峰、肩、帯域端、広帯域の櫛状などで代表峰が曖昧（判断保留）。",
         "- U：確認可能なPSDに明瞭な山が見当たらない。M：PSDがなく評価不能。"
         "Mは不明瞭の証拠ではない。",
         "- 少なくとも1区間Cなら、その条件は『明瞭区間あり』。全区間Cは要求しない。",
         "- 『両条件Cあり／片条件Cあり／両条件Cなし』は観察分類であり採用集合ではない。"
         "CなしでもAやMがあれば全区間Uとは断定できない。",
-        "- 基準IAFの有限性と明瞭性は別。No8/10はSet 1、No9/11は1aを基準とする。"
+        "- 基準IAFの有限性と明瞭性は別。No8（Pz）・No9（Fz）ともSet 1全体を基準とする。"
         "基準の明瞭さは必須基準にしていない。",
         "- 片条件のみ明瞭なペアの最終採否は未確定。後続欠測は将来の群集計でその区間だけpaired OR、"
         "片条件の基準欠測は当該Noの差分群集計全体で利用不能。",
@@ -511,7 +529,7 @@ def render_report(participants, summaries, report_root):
     for number in sorted(ANALYSES):
         lines += [
             f"## No{number}：{ANALYSES[number][0]}・"
-            f"{'Set全体' if number in (8, 10) else 'Set前後半'}",
+            "Set全体",
             "",
             "gradeの並び："
             + ", ".join(interval_labels(number))
@@ -570,6 +588,7 @@ def finalize(paths, *, base=BASE, cache_root=DEFAULT_CACHE_ROOT):
     """Finalize review records only. Optional roots exist for isolated synthetic tests."""
     base, cache_root = Path(base), Path(cache_root)
     root = base / ANALYSES[8][2] / "Sub/PeakClarityReview"
+    assert_no_final_selection(root)
     log_root = base / ANALYSES[8][2] / "Sub/logs"
     preparation_path = log_root / "PeakClarityReview_Preparation.json"
     preparation = json.loads(preparation_path.read_text(encoding="utf-8"))
@@ -615,7 +634,7 @@ def finalize(paths, *, base=BASE, cache_root=DEFAULT_CACHE_ROOT):
         protected.update(originals)
     manifest = manifests[8]
     if any(value != manifest for value in manifests.values()):
-        raise ValueError("Manifest correspondence differs between No8–11")
+        raise ValueError("Manifest correspondence differs between No8–9")
     if (
         sha256_file(base / ANALYSES[8][2] / "Sub/tables/ParticipantManifest.csv")
         != preparation["manifest_sha256"]
@@ -626,7 +645,7 @@ def finalize(paths, *, base=BASE, cache_root=DEFAULT_CACHE_ROOT):
         assessments, inventories, manifest, base
     )
     review_paths = set(participants.review_figure_path)
-    if preparation.get("review_sheet_count") != 160 or review_paths != set(preparation["outputs"]):
+    if preparation.get("review_sheet_count") != 80 or review_paths != set(preparation["outputs"]):
         raise ValueError("Prepared review sheet coverage mismatch")
     protected.update(map(Path, review_paths))
     if not all(Path(path).is_file() for path in participants.original_figure_path):
@@ -691,7 +710,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--prepare", action="store_true")
-    modes.add_argument("--finalize", nargs=4, type=Path, metavar="ASSESSMENT_JSON")
+    modes.add_argument("--finalize", nargs=2, type=Path, metavar="ASSESSMENT_JSON")
     args = parser.parse_args()
     if args.prepare:
         prepare()

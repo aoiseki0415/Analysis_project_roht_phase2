@@ -1,8 +1,9 @@
-"""Square No8–11 baseline-referenced IAF Grand-average figures.
+"""Square No8–9 baseline-referenced IAF Grand-average figures.
 
 The numerical engine supplies participant-averaged IAF differences and SEM.
 This module neither estimates IAF nor smooths, interpolates, or imputes values.
-The caller computes one shared limit from both cohorts within each No/product.
+All No/product/cohort figures share the fixed -1.1 to +1.1 Hz display limits.
+Saved values are never clipped; off-axis means/SEM are counted in audit metadata.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from phase4_iaf_figures import (  # noqa: E402
 from PIL import Image  # noqa: E402
 
 FIGURE_CONFIG = {
-    "version": "phase4-iaf-change-grand-average-2026-11-10-v1",
+    "version": "phase4-iaf-change-grand-average-2026-11-10-v2-setwise",
     "font": "Arial",
     "figure_inches": [10, 10],
     "dpi": 180,
@@ -49,13 +50,11 @@ FIGURE_CONFIG = {
     "marker_edge_pt": 1,
     "legend_pt": 17,
     "legend_handlelength": 2,
-    "half_set_note_pt": 17,
-    "half_set_note_xy": [0.5, 0.035],
     "shade": "mean ± SEM",
     "shade_alpha": 0.18,
-    "symmetric_axis_fraction": 0.80,
-    "zero_or_empty_y_limit_hz": 1.0,
-    "tick_steps": [1, 2, 2.5, 5, 10],
+    "fixed_y_limit_hz": 1.1,
+    "y_limits_hz": [-1.1, 1.1],
+    "y_ticks_hz": [-1.0, -0.5, 0.0, 0.5, 1.0],
     "control_color": INDIVIDUAL_CONFIG["control_color"],
     "eye_drop_colors": deepcopy(INDIVIDUAL_CONFIG["eye_drop_colors"]),
     "plotting_applies_smoothing": False,
@@ -82,40 +81,28 @@ def _mean_sem_arrays(mean: ArrayLike, sem: ArrayLike) -> tuple[np.ndarray, np.nd
 
 
 def shared_y_limit(series: Iterable[tuple[ArrayLike, ArrayLike]]) -> float:
-    """Return the common symmetric half-range for all/selected, both conditions.
-
-    The largest absolute mean ± SEM is placed at 80% of the distance from zero
-    to either limit. A mean with undefined SEM (e.g. N=1) still enters the
-    limit, without treating its undefined uncertainty as zero for drawing.
-    The ±1 Hz fallback is used only for entirely zero or absent information.
-    """
-    maximum = 0.0
+    """Validate the supplied series, then return the fixed shared 1.1 Hz limit."""
     for mean, sem in series:
-        means, sems = _mean_sem_arrays(mean, sem)
-        finite_mean = np.isfinite(means)
-        if finite_mean.any():
-            maximum = max(maximum, float(np.max(np.abs(means[finite_mean]))))
-        finite_sem = finite_mean & np.isfinite(sems)
-        if finite_sem.any():
-            endpoints = np.concatenate([
-                means[finite_sem] - sems[finite_sem], means[finite_sem] + sems[finite_sem],
-            ])
-            maximum = max(maximum, float(np.max(np.abs(endpoints))))
-    if maximum == 0:
-        return FIGURE_CONFIG["zero_or_empty_y_limit_hz"]
-    return maximum / FIGURE_CONFIG["symmetric_axis_fraction"]
+        _mean_sem_arrays(mean, sem)
+    return FIGURE_CONFIG["fixed_y_limit_hz"]
 
 
-def _symmetric_ticks(limit: float) -> np.ndarray:
-    """Keep exact data-derived limits with 3–6 nice, symmetric visible ticks."""
-    for nbins in (5, 4, 6, 3):
-        candidates = ticker.MaxNLocator(
-            nbins=nbins, steps=FIGURE_CONFIG["tick_steps"], symmetric=True
-        ).tick_values(-limit, limit)
-        visible = candidates[(candidates >= -limit) & (candidates <= limit)]
-        if 3 <= visible.size <= 6 and np.allclose(visible, -visible[::-1]):
-            return visible
-    raise ValueError(f"Cannot construct 3–6 symmetric ticks for ±{limit} Hz")
+def display_range_counts(mean: ArrayLike, sem: ArrayLike) -> dict[str, int]:
+    """Audit display-only clipping without modifying the statistical values."""
+    means, sems = _mean_sem_arrays(mean, sem)
+    limit = FIGURE_CONFIG["fixed_y_limit_hz"]
+    finite_mean = np.isfinite(means)
+    finite_sem = finite_mean & np.isfinite(sems)
+    lower, upper = means - sems, means + sems
+    return {
+        "mean_points_outside_axis": int(np.count_nonzero(finite_mean & (np.abs(means) > limit))),
+        "sem_lower_endpoints_outside_axis": int(
+            np.count_nonzero(finite_sem & (np.abs(lower) > limit))
+        ),
+        "sem_upper_endpoints_outside_axis": int(
+            np.count_nonzero(finite_sem & (np.abs(upper) > limit))
+        ),
+    }
 
 
 def build_grand_average_figure(
@@ -131,11 +118,11 @@ def build_grand_average_figure(
 ) -> Figure:
     """Build a square figure without writing; the caller owns and closes it."""
     require_arial()
-    if analysis_number not in (8, 9, 10, 11):
-        raise ValueError("Only No8, No9, No10 and No11 are supported")
+    if analysis_number not in (8, 9):
+        raise ValueError("Only current No8 (Pz) and No9 (Fz) are supported")
     if product not in PRODUCT_LABELS or cohort not in COHORT_LABELS:
         raise ValueError("Unknown product or Grand-average cohort")
-    count = 12 if analysis_number in (9, 11) else 6
+    count = 6
     data = [
         _mean_sem_arrays(drops_mean_hz, drops_sem_hz),
         _mean_sem_arrays(control_mean_hz, control_sem_hz),
@@ -144,12 +131,9 @@ def build_grand_average_figure(
         raise ValueError(f"No{analysis_number} requires exactly {count} interval values")
     if not np.array_equal(np.isfinite(data[0][0]), np.isfinite(data[1][0])):
         raise ValueError("Both conditions must have the same paired interval availability")
-    if not np.isfinite(y_limit_hz) or y_limit_hz <= 0:
-        raise ValueError("The symmetric y limit must be finite and positive")
-    required = shared_y_limit(data) * FIGURE_CONFIG["symmetric_axis_fraction"]
-    if any(np.isfinite(mean).any() for mean, _ in data) and required > y_limit_hz + 1e-12:
-        raise ValueError("The supplied y limit would clip a mean or SEM endpoint")
-    channel = "Pz" if analysis_number in (8, 9) else "Fz"
+    if not np.isfinite(y_limit_hz) or y_limit_hz != FIGURE_CONFIG["fixed_y_limit_hz"]:
+        raise ValueError("Every current Grand-average must use the fixed ±1.1 Hz display axis")
+    channel = "Pz" if analysis_number == 8 else "Fz"
     palette = [
         FIGURE_CONFIG["eye_drop_colors"][analysis_number][product],
         FIGURE_CONFIG["control_color"],
@@ -182,11 +166,9 @@ def build_grand_average_figure(
             )
         ax.set(
             xlim=(0.75, count + 0.25), ylim=(-y_limit_hz, y_limit_hz), xticks=x,
-            yticks=_symmetric_ticks(y_limit_hz),
+            yticks=FIGURE_CONFIG["y_ticks_hz"],
         )
-        if count == 12:
-            ax.set_xticklabels([f"{number}{half}" for number in range(1, 7) for half in ("a", "b")])
-        ax.set_xlabel("Set / Half" if count == 12 else "Set", fontsize=28, labelpad=14)
+        ax.set_xlabel("Set", fontsize=28, labelpad=14)
         ax.set_ylabel("IAF Change (Hz)", fontsize=28, labelpad=14)
         ax.set_title(
             f"{channel} — {PRODUCT_LABELS[product]}\n{COHORT_LABELS[cohort]}",
@@ -196,12 +178,6 @@ def build_grand_average_figure(
         formatter = ticker.ScalarFormatter(useOffset=False)
         formatter.set_scientific(False)
         ax.yaxis.set_major_formatter(formatter)
-        if count == 12:
-            fig.text(
-                *FIGURE_CONFIG["half_set_note_xy"],
-                "a: first half (0–50%)  |  b: second half (50–100%)",
-                ha="center", fontsize=17,
-            )
         if not any(np.isfinite(mean).any() for mean, _ in data):
             ax.text(
                 0.5, 0.35, "No available paired IAF change", ha="center", va="center",
@@ -246,13 +222,18 @@ def plot_grand_average(
             "figure": str(output_path), "figure_style_version": FIGURE_CONFIG["version"],
             "font_file": require_arial(), "dimensions_px": dimensions,
             "analysis_number": analysis_number, "product": product, "cohort": cohort,
-            "channel": "Pz" if analysis_number in (8, 9) else "Fz",
-            "interval_count": 12 if analysis_number in (9, 11) else 6,
+            "channel": "Pz" if analysis_number == 8 else "Fz",
+            "interval_count": 6,
             "y_limits_hz": list(fig.axes[0].get_ylim()),
             "y_ticks_hz": fig.axes[0].get_yticks().tolist(),
             "eye_drop_color": FIGURE_CONFIG["eye_drop_colors"][analysis_number][product],
             "control_color": FIGURE_CONFIG["control_color"],
             "shade": FIGURE_CONFIG["shade"], "shade_alpha": FIGURE_CONFIG["shade_alpha"],
+            "display_range_counts": {
+                "Eye Drop": display_range_counts(drops_mean_hz, drops_sem_hz),
+                "Control": display_range_counts(control_mean_hz, control_sem_hz),
+            },
+            "statistical_values_clipped": False,
             "plotting_applies_smoothing": False, "plotting_applies_interpolation": False,
         }
     finally:

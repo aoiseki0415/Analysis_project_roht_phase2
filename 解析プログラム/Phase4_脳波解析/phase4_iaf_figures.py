@@ -1,4 +1,4 @@
-"""Current No8–11 three-panel IAF figures; no spectral calculations.
+"""Current No8–9 three-panel IAF figures; no spectral calculations.
 
 All PSD inputs are the already validated, once frequency-smoothed linear
 interval-mean PSD and its selected local alpha peak. The caller must supply the
@@ -23,7 +23,7 @@ from numpy.typing import ArrayLike  # noqa: E402
 from PIL import Image  # noqa: E402
 
 FIGURE_CONFIG = {
-    "version": "phase4-iaf-threepanel-2026-11-10-v3-ma5",
+    "version": "phase4-iaf-threepanel-2026-11-10-v4-setwise",
     "psd_input_dataset": "smoothed_mean_psd_uv2_hz",
     "plotting_applies_smoothing": False,
     "font": "Arial",
@@ -58,15 +58,12 @@ FIGURE_CONFIG = {
     "iaf_marker_pt": 10,
     "iaf_marker_edge_pt": 1,
     "iaf_legend_pt": 17,
-    "half_set_note_pt": 17,
     "lightness_first": 0.80,
     "lightness_span": 0.58,
     "control_color": "#402B5D",
     "eye_drop_colors": {
         8: {"CCube": "#2456A6", "VRohtoPremium": "#5689CF"},
-        9: {"CCube": "#23734B", "VRohtoPremium": "#53A078"},
-        10: {"CCube": "#A63D46", "VRohtoPremium": "#CF7278"},
-        11: {"CCube": "#79543A", "VRohtoPremium": "#AC8058"},
+        9: {"CCube": "#A63D46", "VRohtoPremium": "#CF7278"},
     },
 }
 
@@ -85,8 +82,8 @@ def require_arial() -> str:
 
 def segment_colors(base_color: str, count: int) -> list[tuple[float, float, float]]:
     """Keep hue/saturation and use the specified bright-to-dark HLS gradient."""
-    if count not in (6, 12):
-        raise ValueError("IAF figures require exactly 6 or 12 intervals")
+    if count != 6:
+        raise ValueError("IAF figures require exactly 6 whole-Set intervals")
     hue, _, saturation = colorsys.rgb_to_hls(*colors.to_rgb(base_color))
     return [
         colorsys.hls_to_rgb(hue, 0.80 - 0.58 * index / (count - 1), saturation)
@@ -95,9 +92,9 @@ def segment_colors(base_color: str, count: int) -> list[tuple[float, float, floa
 
 
 def _interval_labels(count: int) -> list[str]:
-    if count == 6:
-        return [f"Set {index}" for index in range(1, 7)]
-    return [f"Set {index}{half}" for index in range(1, 7) for half in ("a", "b")]
+    if count != 6:
+        raise ValueError("IAF figures require exactly 6 whole-Set intervals")
+    return [f"Set {index}" for index in range(1, 7)]
 
 
 def _validate_inputs(
@@ -109,11 +106,11 @@ def _validate_inputs(
     drops_iaf_hz: ArrayLike,
     control_iaf_hz: ArrayLike,
 ) -> tuple[np.ndarray, list[np.ndarray], list[np.ndarray], int]:
-    if analysis_number not in (8, 9, 10, 11):
-        raise ValueError("Only No8, No9, No10 and No11 are supported")
+    if analysis_number not in (8, 9):
+        raise ValueError("Only current No8 (Pz) and No9 (Fz) are supported")
     if product not in PRODUCT_LABELS:
         raise ValueError(f"Unknown product: {product}")
-    count = 12 if analysis_number in (9, 11) else 6
+    count = 6
     frequencies = np.asarray(frequencies_hz, dtype=float)
     expected_frequencies = np.arange(10, 401, dtype=float) / 10
     if frequencies.shape != (391,) or not np.allclose(
@@ -162,7 +159,7 @@ def build_three_panel_figure(
     """Build the approved figure without writing files; caller owns the figure.
 
     PSD rows must already be smoothed once by the numerical engine, and IAF
-    elements must come from those same spectra. They retain all 6/12 interval
+    elements must come from those same spectra. They retain all 6 whole-Set interval
     positions, including NaNs. This renderer deliberately has no raw-data
     fallback and performs no extra smoothing or peak selection.
     The input arrays are never altered. In particular no paired-OR missingness is
@@ -173,7 +170,7 @@ def build_three_panel_figure(
         analysis_number, product, frequencies_hz, drops_psd, control_psd,
         drops_iaf_hz, control_iaf_hz,
     )
-    channel = "Pz" if analysis_number in (8, 9) else "Fz"
+    channel = "Pz" if analysis_number == 8 else "Fz"
     drops_label = f"Eye Drop ({PRODUCT_LABELS[product]})"
     labels = _interval_labels(count)
     palette = [
@@ -226,13 +223,11 @@ def build_three_panel_figure(
             ax.set_ylabel("PSD (µV²/Hz)", fontsize=28, labelpad=14)
             ax.set_title(title, fontsize=26, pad=20)
             handles, legend_labels = ax.get_legend_handles_labels()
-            order = list(range(0, count, 2)) + list(range(1, count, 2)) if count == 12 else (
-                list(range(count))
-            )
+            order = list(range(count))
             ax.legend(
                 [handles[index] for index in order], [legend_labels[index] for index in order],
                 loc="upper right", frameon=False, fontsize=18, handlelength=1.7,
-                labelspacing=0.30, ncol=2 if count == 12 else 1, columnspacing=0.8,
+                labelspacing=0.30, ncol=1, columnspacing=0.8,
             )
             if not finite_values.size or maximum == 0:
                 message = "No usable PSD" if not finite_values.size else "Zero PSD"
@@ -248,17 +243,10 @@ def build_three_panel_figure(
         iaf_ax.set(
             xlim=(0.75, count + 0.25), ylim=(7.5, 15.5), xticks=x, yticks=range(8, 16)
         )
-        if count == 12:
-            iaf_ax.set_xticklabels([label.removeprefix("Set ") for label in labels])
-        iaf_ax.set_xlabel("Set / Half" if count == 12 else "Set", fontsize=28, labelpad=14)
+        iaf_ax.set_xlabel("Set", fontsize=28, labelpad=14)
         iaf_ax.set_ylabel("IAF (Hz)", fontsize=28, labelpad=14)
         iaf_ax.set_title(f"{channel} — Alpha Peak Frequency", fontsize=26, pad=20)
         iaf_ax.legend(loc="upper right", frameon=False, fontsize=17, handlelength=2)
-        if count == 12:
-            fig.text(
-                0.5, 0.035, "a: first half (0–50%)  |  b: second half (50–100%)",
-                ha="center", fontsize=17,
-            )
         # Ensure newly instantiated tick texts acquire the same explicit font.
         fig.canvas.draw()
     return fig
@@ -303,9 +291,9 @@ def plot_pair_three_panel(
             "font_file": require_arial(),
             "dimensions_px": dimensions,
             "analysis_number": analysis_number,
-            "channel": "Pz" if analysis_number in (8, 9) else "Fz",
+            "channel": "Pz" if analysis_number == 8 else "Fz",
             "product": product,
-            "interval_count": 12 if analysis_number in (9, 11) else 6,
+            "interval_count": 6,
             "psd_y_limits": [list(ax.get_ylim()) for ax in fig.axes[:2]],
             "iaf_y_limits": list(fig.axes[2].get_ylim()),
             "missing_iaf_eye_drop": int(np.isnan(drops_iaf_hz).sum()),

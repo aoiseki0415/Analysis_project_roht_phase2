@@ -432,13 +432,13 @@ def test_ica_excluded_flag_is_retained_without_excluding_available_signal(tmp_pa
     spec, source, cache = _synthetic_session(tmp_path)
     cache_file, _ = MODULE.prepare_cache(spec, "101", source, cache, read_only=False)
     rows = MODULE.rows_from_cache(cache_file)
-    assert [len(rows[number]) for number in (8, 9, 10, 11)] == [6, 12, 6, 12]
+    assert [len(rows[number]) for number in (8, 9)] == [6, 6]
     assert all(not row["ica_channel_excluded"] for row in rows[8])
-    assert all(row["ica_channel_excluded"] for row in rows[10])
-    assert all(row["quality"] == "ok" and row["frequency_hz"] == 11.7 for row in rows[10])
-    assert [row["position"] for row in rows[9]] == list(range(1, 13))
-    assert [row["interval"] for row in rows[9]] == ["a", "b"] * 6
-    assert MODULE.validate_rows(rows[10], 10, 1)["retained_ica_excluded_channel_rows"] == 6
+    assert all(row["ica_channel_excluded"] for row in rows[9])
+    assert all(row["quality"] == "ok" and row["frequency_hz"] == 11.7 for row in rows[9])
+    assert [row["position"] for row in rows[9]] == list(range(1, 7))
+    assert [row["interval"] for row in rows[9]] == ["whole"] * 6
+    assert MODULE.validate_rows(rows[9], 9, 1)["retained_ica_excluded_channel_rows"] == 6
 
 
 def test_missing_set_only_blanks_affected_session_not_its_paired_control(tmp_path: Path) -> None:
@@ -452,10 +452,10 @@ def test_missing_set_only_blanks_affected_session_not_its_paired_control(tmp_pat
     first_path, _ = MODULE.prepare_cache(spec, "109", source, cache, read_only=False)
     second_path, _ = MODULE.prepare_cache(spec, "209", source, cache, read_only=False)
     first, second = MODULE.rows_from_cache(first_path), MODULE.rows_from_cache(second_path)
-    for number in (8, 9, 10, 11):
+    for number in (8, 9):
         first_set = [row for row in first[number] if row["set_number"] == 1]
         partner_set = [row for row in second[number] if row["set_number"] == 1]
-        assert len(first_set) == (1 if number in (8, 10) else 2)
+        assert len(first_set) == 1
         assert all(row["quality"] == "missing_set" for row in first_set)
         assert all(np.isnan(row["frequency_hz"]) for row in first_set)
         assert all(row["quality"] == "ok" for row in partner_set)
@@ -704,7 +704,7 @@ def test_spectral_rows_keep_raw_and_smoothed_arrays_separate(tmp_path: Path) -> 
     spec, source, cache = _synthetic_session(tmp_path)
     path, _ = MODULE.prepare_cache(spec, "101", source, cache, read_only=False)
     rows = MODULE.rows_from_cache(path)
-    for number in (8, 9, 10, 11):
+    for number in (8, 9):
         for row in rows[number]:
             np.testing.assert_array_equal(
                 row["smoothed_mean_psd"], _independent_smoothing(row["mean_psd"])
@@ -713,3 +713,23 @@ def test_spectral_rows_keep_raw_and_smoothed_arrays_separate(tmp_path: Path) -> 
             assert row["smoothing_points"] == 5 and row["smoothing_passes"] == 1
             peak = MODULE.select_peak(FREQUENCIES, row["smoothed_mean_psd"])
             assert row["frequency_hz"] == peak["frequency_hz"]
+
+
+def test_active_setwise_mapping_and_storage_compatibility() -> None:
+    assert MODULE.ANALYSES == {
+        8: ("Pz", "setwise", "No8_PzSetwiseIAF"),
+        9: ("Fz", "setwise", "No9_FzSetwiseIAF"),
+    }
+    assert "No8-9_PzFzIAF" in str(MODULE.DEFAULT_CACHE_ROOT)
+    assert MODULE.SCHEMA == "phase4-iaf-smoothed-localpeak-2026-11-10-v3"
+    assert MODULE.CONFIG["intervals"].startswith("whole Set; halves")
+    # Legacy storage is retained; active rows/plots cannot select those halves.
+    assert set(MODULE.estimation_intervals(6400)) == {"whole", "a", "b"}
+
+
+@pytest.mark.parametrize("number", [10, 11])
+def test_retired_analysis_numbers_fail_before_input_io(number: int) -> None:
+    with pytest.raises(ValueError, match="Only current"):
+        MODULE.main([], fixed_analysis=number)
+    with pytest.raises(SystemExit):
+        MODULE.main(["--manifest", "not-read.csv", "--preflight-only", "--analysis", str(number)])
