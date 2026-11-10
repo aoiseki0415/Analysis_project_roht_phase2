@@ -1,4 +1,4 @@
-"""No8–11: whole/half-Set linear-PSD local alpha peaks, with audited shared cache.
+"""No8–11: once-smoothed whole/half-Set PSD alpha peaks and audited raw cache.
 
 The fixed production roots are deliberately not CLI-overridable. Numerical helper
 functions accept arrays/paths so synthetic tests never require production writes.
@@ -11,7 +11,9 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -35,8 +37,9 @@ from Phase4_No1_FmTheta import (
 )
 from scipy.signal import find_peaks, get_window, periodogram
 
-VERSION = "phase4-iaf-localpeak-2026-11-10.2"
-SCHEMA = "phase4-iaf-localpeak-2026-11-10-v2"
+VERSION = "phase4-iaf-smoothed-localpeak-2026-11-10.3"
+SCHEMA = "phase4-iaf-smoothed-localpeak-2026-11-10-v3"
+LEGACY_SCHEMA = "phase4-iaf-localpeak-2026-11-10-v2"
 CHANNELS = ("Pz", "Fz")
 SFREQ = 256.0
 SEGMENT_SAMPLES = 2560
@@ -51,8 +54,8 @@ ANALYSES = {
 DEFAULT_CACHE_ROOT = (
     DEFAULT_INPUT_ROOT.parents[1] / "Phase4_脳波解析/No8-11_PzFzIAF/SpectralSegments"
 )
-CONFIG = {
-    "schema": SCHEMA,
+LEGACY_CONFIG = {
+    "schema": LEGACY_SCHEMA,
     "channels": CHANNELS,
     "sfreq_hz": SFREQ,
     "segment_samples": SEGMENT_SAMPLES,
@@ -76,14 +79,58 @@ CONFIG = {
     "background_correction_or_smoothing": False,
     "log3sd_exclusion": False,
 }
+BASE_PSD_CONFIG = {
+    key: value
+    for key, value in LEGACY_CONFIG.items()
+    if key not in ("schema", "peak", "extra_peak_constraints", "background_correction_or_smoothing")
+}
+SMOOTHING_CONFIG = {
+    "axis": "frequency",
+    "input": "mean linear PSD after valid periodogram averaging,1-40Hz",
+    "method": "centered equal-weight arithmetic moving average",
+    "points": 5,
+    "passes": 1,
+    "bin_spacing_hz": 0.1,
+    "center_offsets_hz": [-0.2, -0.1, 0.0, 0.1, 0.2],
+    "endpoint": "truncated available bins,3/4 points at stored 1/40Hz edges",
+    "nonfinite": "invalid spectrum remains unavailable; no interpolation",
+}
+CONFIG = {
+    **BASE_PSD_CONFIG,
+    "schema": SCHEMA,
+    "smoothing": SMOOTHING_CONFIG,
+    "peak": "find_peaks(smoothed mean linear PSD),8-15Hz inclusive,highest PSD,tie lowest Hz",
+    "extra_peak_constraints": None,
+    "background_correction": False,
+}
+RAW_INTERVAL_DATASETS = (
+    "psd",
+    "starts",
+    "ends",
+    "valid",
+    "rejection_code",
+    "mean_psd",
+    "n_valid_segments",
+    "usable_seconds",
+    "coverage_fraction",
+)
+SPECTRAL_ROW_KEYS = {"mean_psd", "smoothed_mean_psd"}
+
+
+def _json_config(value: dict[str, Any]) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+
+def _config_digest(value: dict[str, Any]) -> str:
+    return hashlib.sha256(_json_config(value).encode()).hexdigest()
 
 
 def config_json() -> str:
-    return json.dumps(CONFIG, sort_keys=True, ensure_ascii=False)
+    return _json_config(CONFIG)
 
 
 def config_hash() -> str:
-    return hashlib.sha256(config_json().encode()).hexdigest()
+    return _config_digest(CONFIG)
 
 
 def sha256_file(path: Path) -> str:
@@ -152,7 +199,7 @@ def compute_periodograms(
 
 
 def select_peak(freqs: np.ndarray, mean_linear_psd: np.ndarray) -> dict[str, Any]:
-    """Choose a local maximum, not a band-end argmax or quality-screened peak."""
+    """Pure selector: caller supplies the once-smoothed PSD; no hidden smoothing."""
     freqs = np.asarray(freqs, dtype=float)
     power = np.asarray(mean_linear_psd, dtype=float)
     if freqs.shape != FREQUENCIES.shape or not np.allclose(freqs, FREQUENCIES):
@@ -183,6 +230,29 @@ def select_peak(freqs: np.ndarray, mean_linear_psd: np.ndarray) -> dict[str, Any
     return result
 
 
+def smooth_mean_psd(mean_linear_psd: np.ndarray) -> np.ndarray:
+    """Apply one frequency-domain 5-bin mean without changing raw input.
+
+    Averaging is across the last axis of the complete stored 1–40 Hz spectrum.
+    A partially nonfinite/negative spectrum is invalid, not repaired by smoothing.
+    Stored endpoints use 3/4 available bins; alpha endpoints still use all 5 bins.
+    """
+    source = np.asarray(mean_linear_psd, dtype=np.float64)
+    if source.ndim < 1 or source.shape[-1] != len(FREQUENCIES):
+        raise ValueError("Smoothing requires the complete 391-bin 1–40 Hz spectrum")
+    result = np.full(source.shape, np.nan, dtype=np.float64)
+    flattened = source.reshape((-1, len(FREQUENCIES)))
+    output = result.reshape(flattened.shape)
+    for index, spectrum in enumerate(flattened):
+        if not np.isfinite(spectrum).all() or np.any(spectrum < 0):
+            continue
+        # Direct local means avoid cumulative-sum cancellation for small bins.
+        output[index] = [
+            spectrum[max(0, i - 2) : min(len(spectrum), i + 3)].mean() for i in range(len(spectrum))
+        ]
+    return result
+
+
 def unique_coverage_seconds(starts: np.ndarray) -> float:
     starts = np.sort(np.asarray(starts, dtype=int))
     if not len(starts):
@@ -201,6 +271,7 @@ def estimate_interval(
 ) -> dict[str, Any]:
     result: dict[str, Any] = compute_periodograms(data_uv, mask, start_sample=start_sample)
     means = np.full((2, len(FREQUENCIES)), np.nan)
+    smoothed = np.full_like(means, np.nan)
     counts = result["valid"].sum(axis=0).astype(int)
     coverage = np.zeros(2)
     peaks = []
@@ -208,7 +279,8 @@ def estimate_interval(
         valid = result["valid"][:, ch]
         if counts[ch]:
             means[ch] = result["psd"][valid, ch].mean(axis=0)
-        peak = select_peak(FREQUENCIES, means[ch])
+        smoothed[ch] = smooth_mean_psd(means[ch])
+        peak = select_peak(FREQUENCIES, smoothed[ch])
         if not counts[ch]:
             peak["quality"] = "too_short" if not len(result["starts"]) else "all_windows_invalid"
         peaks.append(peak)
@@ -217,6 +289,7 @@ def estimate_interval(
     last_end = int(result["ends"][-1]) - start_sample if len(result["ends"]) else 0
     result.update(
         mean_psd=means,
+        smoothed_mean_psd=smoothed,
         n_possible_segments=len(result["starts"]),
         n_valid_segments=counts,
         usable_seconds=coverage,
@@ -352,25 +425,29 @@ def _write_interval(group: h5py.Group, result: dict[str, Any]) -> None:
         group.attrs[key] = result[key]
     group.attrs["start_seconds"] = result["start_sample"] / SFREQ
     group.attrs["stop_seconds"] = result["stop_sample"] / SFREQ
-    for key in (
-        "psd",
-        "starts",
-        "ends",
-        "valid",
-        "rejection_code",
-        "mean_psd",
-        "n_valid_segments",
-        "usable_seconds",
-        "coverage_fraction",
-    ):
+    for key in RAW_INTERVAL_DATASETS:
         group.create_dataset(key, data=result[key], compression="gzip", shuffle=True)
+    _write_smoothing(group, result["smoothed_mean_psd"])
     for channel, peak in zip(CHANNELS, result["peaks"], strict=True):
-        target = group.create_group(f"peaks/{channel}")
-        for key, value in peak.items():
-            if isinstance(value, np.ndarray):
-                target.create_dataset(key, data=value)
-            else:
-                target.attrs[key] = value
+        _write_peak(group, channel, peak)
+
+
+def _write_smoothing(group: h5py.Group, smoothed: np.ndarray) -> None:
+    # Explicit-unit names are hard links, not a second rounded copy of the raw PSD.
+    group["window_psd_uv2_hz"] = group["psd"]
+    group["mean_psd_uv2_hz"] = group["mean_psd"]
+    group.create_dataset(
+        "smoothed_mean_psd_uv2_hz", data=smoothed, compression="gzip", shuffle=True
+    )
+
+
+def _write_peak(group: h5py.Group, channel: str, peak: dict[str, Any]) -> None:
+    target = group.create_group(f"peaks/{channel}")
+    for key, value in peak.items():
+        if isinstance(value, np.ndarray):
+            target.create_dataset(key, data=value)
+        else:
+            target.attrs[key] = value
 
 
 def validate_cache(
@@ -378,18 +455,35 @@ def validate_cache(
     *,
     expected_metadata: dict[str, Any] | None = None,
     expected_sources: list[dict[str, Any]] | None = None,
+    legacy_unsmoothed: bool = False,
 ) -> dict[str, Any]:
+    """Validate current cache, or explicitly validate exact v2 for migration only."""
+    expected_config = LEGACY_CONFIG if legacy_unsmoothed else CONFIG
+    expected_schema = LEGACY_SCHEMA if legacy_unsmoothed else SCHEMA
+    raw_payload_sha256 = None
     with h5py.File(path, "r") as handle:
         expected = {
-            "schema": SCHEMA,
-            "calc_config_json": config_json(),
-            "calc_config_sha256": config_hash(),
+            "schema": expected_schema,
+            "calc_config_json": _json_config(expected_config),
+            "calc_config_sha256": _config_digest(expected_config),
             "complete": 1,
         }
+        if not legacy_unsmoothed:
+            expected.update(
+                base_psd_config_json=_json_config(BASE_PSD_CONFIG),
+                base_psd_config_sha256=_config_digest(BASE_PSD_CONFIG),
+                smoothing_config_json=_json_config(SMOOTHING_CONFIG),
+                smoothing_config_sha256=_config_digest(SMOOTHING_CONFIG),
+                peak_input_dataset="smoothed_mean_psd_uv2_hz",
+            )
         expected.update(expected_metadata or {})
         for key, value in expected.items():
             if handle.attrs.get(key) != value:
                 raise ValueError(f"{path}: stale/mismatched cache attribute {key}")
+        if not legacy_unsmoothed:
+            raw_payload_sha256 = handle.attrs.get("raw_payload_sha256")
+            if not isinstance(raw_payload_sha256, str) or len(raw_payload_sha256) != 64:
+                raise ValueError(f"{path}: missing raw spectral payload fingerprint")
         sources = json.loads(handle.attrs["sources_json"])
         if expected_sources is not None and sources != expected_sources:
             raise ValueError(f"{path}: changed source fingerprints; no silent reuse")
@@ -427,6 +521,13 @@ def validate_cache(
                     2,
                 ):
                     raise ValueError(f"{path}: spectral shape mismatch")
+                if not legacy_unsmoothed:
+                    if (
+                        group["mean_psd_uv2_hz"].id != group["mean_psd"].id
+                        or group["window_psd_uv2_hz"].id != group["psd"].id
+                        or group["smoothed_mean_psd_uv2_hz"].shape != (2, len(FREQUENCIES))
+                    ):
+                        raise ValueError(f"{path}: raw aliases/smoothed spectrum mismatch")
                 if (
                     not np.isfinite(psd[valid]).all()
                     or np.any(psd[valid] < 0)
@@ -455,7 +556,14 @@ def validate_cache(
                         group["mean_psd"][ci], mean, equal_nan=True, rtol=1e-12, atol=0
                     ):
                         raise ValueError(f"{path}: mean spectrum mismatch")
-                    peak = select_peak(FREQUENCIES, mean)
+                    peak_input = mean
+                    if not legacy_unsmoothed:
+                        peak_input = smooth_mean_psd(mean)
+                        if not np.array_equal(
+                            group["smoothed_mean_psd_uv2_hz"][ci], peak_input, equal_nan=True
+                        ):
+                            raise ValueError(f"{path}: once-smoothed spectrum mismatch")
+                    peak = select_peak(FREQUENCIES, peak_input)
                     cached_peak = group[f"peaks/{ch}"]
                     if not np.isclose(
                         cached_peak.attrs["frequency_hz"], peak["frequency_hz"], equal_nan=True
@@ -485,7 +593,134 @@ def validate_cache(
                     fraction = coverage / duration if duration else 0
                     if not np.isclose(group["coverage_fraction"][ci], fraction):
                         raise ValueError(f"{path}: coverage fraction mismatch")
-    return {"path": str(path), "schema": SCHEMA, "validated": True}
+    if raw_payload_sha256 is not None and raw_cache_fingerprint(path) != raw_payload_sha256:
+        raise ValueError(f"{path}: raw spectral payload fingerprint mismatch")
+    return {"path": str(path), "schema": expected_schema, "validated": True}
+
+
+def _processing_attributes() -> dict[str, Any]:
+    return {
+        "schema": SCHEMA,
+        "calc_config_json": config_json(),
+        "calc_config_sha256": config_hash(),
+        "base_psd_config_json": _json_config(BASE_PSD_CONFIG),
+        "base_psd_config_sha256": _config_digest(BASE_PSD_CONFIG),
+        "smoothing_config_json": _json_config(SMOOTHING_CONFIG),
+        "smoothing_config_sha256": _config_digest(SMOOTHING_CONFIG),
+        "peak_input_dataset": "smoothed_mean_psd_uv2_hz",
+        "code_version": VERSION,
+        "engine_sha256": sha256_file(Path(__file__)),
+    }
+
+
+def raw_cache_fingerprint(path: Path) -> str:
+    """Hash untouched raw values and acquisition/window metadata, excluding peaks."""
+    digest = hashlib.sha256()
+
+    def update_value(key: str, value: Any) -> None:
+        digest.update(key.encode())
+        array = np.asarray(value)
+        digest.update(str((array.shape, array.dtype.str)).encode())
+        if array.dtype.kind in "OSU":
+            digest.update(json.dumps(array.tolist(), default=_text, sort_keys=True).encode())
+        else:
+            digest.update(np.ascontiguousarray(array).tobytes())
+
+    with h5py.File(path, "r") as handle:
+        for key in ("sources_json", "sfreq_hz", "psd_unit"):
+            update_value(f"attrs/{key}", handle.attrs[key])
+        for key in ("frequencies_hz", "channel_names"):
+            update_value(key, handle[key][:])
+        for name in sorted(key for key in handle if key.startswith("Set")):
+            parent = handle[name]
+            for key in sorted(parent.attrs):
+                update_value(f"{name}/attrs/{key}", parent.attrs[key])
+            update_value(f"{name}/ica_channel_excluded", parent["ica_channel_excluded"][:])
+            for interval in ("whole", "a", "b"):
+                group = parent[interval]
+                for key in sorted(group.attrs):
+                    update_value(f"{name}/{interval}/attrs/{key}", group.attrs[key])
+                for key in RAW_INTERVAL_DATASETS:
+                    update_value(f"{name}/{interval}/{key}", group[key][:])
+    return digest.hexdigest()
+
+
+def upgrade_smoothing_cache(
+    path: Path,
+    *,
+    expected_metadata: dict[str, Any],
+    expected_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Explicit atomic v2→v3 upgrade; never recompute EEG PSD or accept other schemas."""
+    with h5py.File(path, "r") as source:
+        schema = source.attrs.get("schema")
+    if schema == SCHEMA:
+        validate_cache(path, expected_metadata=expected_metadata, expected_sources=expected_sources)
+        return {"upgraded": False, "schema": SCHEMA}
+    validate_cache(
+        path,
+        expected_metadata=expected_metadata,
+        expected_sources=expected_sources,
+        legacy_unsmoothed=True,
+    )
+    original_hash = sha256_file(path)
+    raw_hash = raw_cache_fingerprint(path)
+    descriptor, filename = tempfile.mkstemp(
+        prefix=f".{path.stem}.", suffix=".partial.h5", dir=path.parent
+    )
+    os.close(descriptor)
+    temporary = Path(filename)
+    try:
+        shutil.copyfile(path, temporary)
+        with h5py.File(temporary, "r+") as target:
+            target.attrs["complete"] = 0
+            prior_code = _text(target.attrs.get("code_version", "unknown"))
+            prior_engine = _text(target.attrs.get("engine_sha256", "unknown"))
+            target.attrs.update(_processing_attributes())
+            target.attrs.update(
+                upgraded_from_schema=LEGACY_SCHEMA,
+                upgraded_from_code_version=prior_code,
+                base_psd_created_by_version=prior_code,
+                base_psd_engine_sha256=prior_engine,
+                upgraded_from_file_sha256=original_hash,
+                raw_payload_sha256=raw_hash,
+                smoothing_applied_utc=datetime.now(UTC).isoformat(),
+                upgrade_method="validated raw cache copy; no EEG PSD recomputation",
+            )
+            for record in expected_sources:
+                parent = target[f"Set{record['set']}"]
+                for interval in ("whole", "a", "b"):
+                    group = parent[interval]
+                    smoothed = smooth_mean_psd(group["mean_psd"][:])
+                    _write_smoothing(group, smoothed)
+                    del group["peaks"]
+                    for ci, ch in enumerate(CHANNELS):
+                        peak = select_peak(FREQUENCIES, smoothed[ci])
+                        if not group["n_valid_segments"][ci]:
+                            peak["quality"] = (
+                                "too_short" if not len(group["starts"]) else "all_windows_invalid"
+                            )
+                        if ch in record["missing_channels"]:
+                            peak["quality"] = "missing_channel"
+                        _write_peak(group, ch, peak)
+            target.attrs["complete"] = 1
+        validate_cache(
+            temporary, expected_metadata=expected_metadata, expected_sources=expected_sources
+        )
+        if raw_cache_fingerprint(temporary) != raw_hash:
+            raise AssertionError("Smoothing upgrade changed raw spectral payload")
+        if sha256_file(path) != original_hash:
+            raise ValueError("Cache changed during upgrade; refusing replacement")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {
+        "upgraded": True,
+        "schema": SCHEMA,
+        "raw_payload_sha256": raw_hash,
+        "previous_file_sha256": original_hash,
+        "sha256": sha256_file(path),
+    }
 
 
 def prepare_cache(
@@ -496,32 +731,35 @@ def prepare_cache(
     *,
     read_only: bool,
     fingerprints: list[dict[str, Any]] | None = None,
+    upgrade_smoothing: bool = False,
 ) -> tuple[Path, bool]:
+    if read_only and upgrade_smoothing:
+        raise ValueError("--figures-only is read-only and cannot upgrade smoothing")
     path = cache_file(cache_root, spec, sid)
     records = (
         fingerprints if fingerprints is not None else source_fingerprints(spec, sid, input_root)
     )
     metadata = session_metadata(spec, sid)
     if path.exists():
+        if upgrade_smoothing:
+            upgrade_smoothing_cache(path, expected_metadata=metadata, expected_sources=records)
         validate_cache(path, expected_metadata=metadata, expected_sources=records)
         return path, False
-    if read_only:
-        raise FileNotFoundError(f"--figures-only requires valid existing cache: {path}")
+    if read_only or upgrade_smoothing:
+        raise FileNotFoundError(f"This mode requires a valid existing cache: {path}")
     cache_root.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".partial.h5")
     try:
         with h5py.File(temporary, "w") as target:
             target.attrs.update(metadata)
+            target.attrs.update(_processing_attributes())
             target.attrs.update(
-                schema=SCHEMA,
-                calc_config_json=config_json(),
-                calc_config_sha256=config_hash(),
                 sources_json=json.dumps(records, sort_keys=True),
                 sfreq_hz=SFREQ,
                 psd_unit="uV^2/Hz",
-                code_version=VERSION,
-                engine_sha256=sha256_file(Path(__file__)),
                 created_utc=datetime.now(UTC).isoformat(),
+                base_psd_created_by_version=VERSION,
+                base_psd_engine_sha256=sha256_file(Path(__file__)),
                 rejection_code_legend="bit0=Phase1_bad_time;bit1=target_nonfinite;0=valid",
             )
             target.create_dataset("frequencies_hz", data=FREQUENCIES)
@@ -564,6 +802,9 @@ def prepare_cache(
                             result["peaks"][ci]["quality"] = "missing_channel"
                     _write_interval(parent.create_group(label), result)
             target.attrs["complete"] = 1
+        raw_hash = raw_cache_fingerprint(temporary)
+        with h5py.File(temporary, "r+") as target:
+            target.attrs["raw_payload_sha256"] = raw_hash
         validate_cache(temporary, expected_metadata=metadata, expected_sources=records)
         os.replace(temporary, path)
     finally:
@@ -575,6 +816,11 @@ def prepare_cache(
 def rows_from_cache(path: Path) -> dict[int, list[dict[str, Any]]]:
     rows: dict[int, list[dict[str, Any]]] = {number: [] for number in ANALYSES}
     with h5py.File(path, "r") as handle:
+        if (
+            handle.attrs.get("schema") != SCHEMA
+            or handle.attrs.get("calc_config_sha256") != config_hash()
+        ):
+            raise ValueError("Rows require current smoothed-PSD cache; no raw fallback")
         metadata = {
             key: _text(handle.attrs[key])
             for key in ("pair_id", "session_id", "condition", "product")
@@ -612,6 +858,10 @@ def rows_from_cache(path: Path) -> dict[int, list[dict[str, Any]]]:
                         "tail_unused_seconds": np.nan,
                         "ica_channel_excluded": False,
                         "mean_psd": np.full(len(FREQUENCIES), np.nan),
+                        "smoothed_mean_psd": np.full(len(FREQUENCIES), np.nan),
+                        "peak_input_dataset": "smoothed_mean_psd_uv2_hz",
+                        "smoothing_points": 5,
+                        "smoothing_passes": 1,
                     }
                     if f"Set{set_number}" in handle:
                         parent = handle[f"Set{set_number}"]
@@ -639,6 +889,7 @@ def rows_from_cache(path: Path) -> dict[int, list[dict[str, Any]]]:
                             row[key] = group[key][ci].item()
                         row.update(
                             mean_psd=group["mean_psd"][ci],
+                            smoothed_mean_psd=group["smoothed_mean_psd_uv2_hz"][ci],
                             set_duration_seconds=float(parent.attrs["duration_seconds"]),
                             ica_channel_excluded=bool(parent["ica_channel_excluded"][ci]),
                         )
@@ -647,7 +898,9 @@ def rows_from_cache(path: Path) -> dict[int, list[dict[str, Any]]]:
 
 
 def validate_rows(rows: list[dict[str, Any]], number: int, n_sessions: int) -> dict[str, Any]:
-    frame = pd.DataFrame([{k: v for k, v in row.items() if k != "mean_psd"} for row in rows])
+    frame = pd.DataFrame(
+        [{k: v for k, v in row.items() if k not in SPECTRAL_ROW_KEYS} for row in rows]
+    )
     expected = n_sessions * (6 if number in (8, 10) else 12)
     if len(frame) != expected or frame.duplicated(["session_id", "position"]).any():
         raise AssertionError("Estimate row count/positions mismatch")
@@ -697,7 +950,7 @@ def render_analysis(
             )
             if len(selected) != (6 if kind == "setwise" else 12):
                 raise ValueError("Figure requires all fixed positions for both conditions")
-            kwargs[f"{prefix}_psd"] = np.stack([r["mean_psd"] for r in selected])
+            kwargs[f"{prefix}_psd"] = np.stack([r["smoothed_mean_psd"] for r in selected])
             kwargs[f"{prefix}_iaf_hz"] = np.array([r["frequency_hz"] for r in selected])
         destination = (
             root
@@ -723,6 +976,11 @@ def main(argv: list[str] | None = None, *, fixed_analysis: int | None = None) ->
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--production-batch", action="store_true")
+    parser.add_argument(
+        "--upgrade-smoothing",
+        action="store_true",
+        help="Validate and atomically upgrade v2 raw caches without EEG PSD recomputation",
+    )
     mode = parser.add_mutually_exclusive_group(required=True)
     for name in ("all", "compute-only", "figures-only", "preflight-only"):
         mode.add_argument(f"--{name}", action="store_true")
@@ -731,6 +989,8 @@ def main(argv: list[str] | None = None, *, fixed_analysis: int | None = None) ->
             "--analysis", type=int, choices=list(ANALYSES), nargs="+", default=list(ANALYSES)
         )
     args = parser.parse_args(argv)
+    if args.upgrade_smoothing and (args.figures_only or args.preflight_only):
+        parser.error("--upgrade-smoothing requires --all or --compute-only")
     numbers = [fixed_analysis] if fixed_analysis else args.analysis
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     specs = [
@@ -771,13 +1031,16 @@ def main(argv: list[str] | None = None, *, fixed_analysis: int | None = None) ->
         "schema": SCHEMA,
         "config": CONFIG,
         "calc_config_sha256": config_hash(),
+        "base_psd_config_sha256": _config_digest(BASE_PSD_CONFIG),
+        "smoothing_config_sha256": _config_digest(SMOOTHING_CONFIG),
+        "upgrade_smoothing_requested": args.upgrade_smoothing,
         "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "script_sha256": {p.name: sha256_file(p) for p in code_paths if p.exists()},
         "manifest_sha256": sha256_file(args.manifest),
         "n_pairs": len(specs),
         "analyses": numbers,
         "limitations": (
-            "Exploratory raw-PSD local maxima; no peak-strength cutoff; "
+            "Exploratory once-smoothed-PSD local maxima; no peak-strength cutoff; "
             "no biological/efficacy inference"
         ),
     }
@@ -821,6 +1084,8 @@ def main(argv: list[str] | None = None, *, fixed_analysis: int | None = None) ->
         cache_records = []
         for index, spec in enumerate(specs, 1):
             for sid in (spec.first_session_id, spec.second_session_id):
+                expected_path = cache_file(DEFAULT_CACHE_ROOT, spec, sid)
+                previous_hash = sha256_file(expected_path) if expected_path.exists() else None
                 path, created = prepare_cache(
                     spec,
                     sid,
@@ -828,12 +1093,22 @@ def main(argv: list[str] | None = None, *, fixed_analysis: int | None = None) ->
                     DEFAULT_CACHE_ROOT,
                     read_only=args.figures_only,
                     fingerprints=sources[sid],
+                    upgrade_smoothing=args.upgrade_smoothing,
                 )
                 before_hash = sha256_file(path)
                 session_rows = rows_from_cache(path)
                 for n in numbers:
                     rows[n].extend(session_rows[n])
-                cache_records.append({"path": str(path), "created": created, "sha256": before_hash})
+                cache_records.append(
+                    {
+                        "path": str(path),
+                        "created": created,
+                        "sha256": before_hash,
+                        "upgraded_smoothing": not created and previous_hash != before_hash,
+                        "previous_sha256": previous_hash,
+                        "raw_payload_sha256": raw_cache_fingerprint(path),
+                    }
+                )
             logging.info("Cache pair %d/%d ready", index, len(specs))
         run["cache"] = cache_records
         run["validation"] = {}
@@ -843,7 +1118,7 @@ def main(argv: list[str] | None = None, *, fixed_analysis: int | None = None) ->
             table_root.mkdir(parents=True, exist_ok=True)
             stats = validate_rows(rows[n], n, len(specs) * 2)
             frame = pd.DataFrame(
-                [{k: v for k, v in row.items() if k != "mean_psd"} for row in rows[n]]
+                [{k: v for k, v in row.items() if k not in SPECTRAL_ROW_KEYS} for row in rows[n]]
             )
             table_path = table_root / f"No{n}_IAF_Estimates.csv"
             frame.to_csv(table_path, index=False)

@@ -1,4 +1,4 @@
-"""Independent checks for the v2 setwise / half-set local-peak IAF contract."""
+"""Independent checks for the v3 once-smoothed local-peak IAF contract."""
 
 from __future__ import annotations
 
@@ -302,7 +302,7 @@ def test_cache_round_trip_halves_units_provenance_and_readonly_hash(tmp_path: Pa
     fingerprint = MODULE.sha256_file(cache_file)
     MODULE.validate_cache(cache_file)
     with h5py.File(cache_file, "r") as handle:
-        assert handle.attrs["schema"] == "phase4-iaf-localpeak-2026-11-10-v2"
+        assert handle.attrs["schema"] == "phase4-iaf-smoothed-localpeak-2026-11-10-v3"
         assert handle.attrs["condition"] == "Control"
         assert handle.attrs["product"] == "CCube"
         assert handle.attrs["calc_config_json"] == MODULE.config_json()
@@ -317,6 +317,12 @@ def test_cache_round_trip_halves_units_provenance_and_readonly_hash(tmp_path: Pa
             assert whole["peaks/Pz"].attrs["frequency_hz"] == 10.2
             assert whole["peaks/Fz"].attrs["frequency_hz"] == 11.7
             assert np.isclose(whole["mean_psd"][0].sum() * 0.1, 2)
+            assert whole["mean_psd_uv2_hz"].id == whole["mean_psd"].id
+            assert whole["window_psd_uv2_hz"].id == whole["psd"].id
+            np.testing.assert_array_equal(
+                whole["smoothed_mean_psd_uv2_hz"][:],
+                _independent_smoothing(whole["mean_psd"][:]),
+            )
     same_file, created = MODULE.prepare_cache(spec, "101", source, cache, read_only=True)
     assert same_file == cache_file
     assert not created
@@ -367,7 +373,9 @@ def test_cache_rejects_changed_source_before_reuse(tmp_path: Path) -> None:
     assert MODULE.sha256_file(cache_file) == cache_hash
 
 
-@pytest.mark.parametrize("target", ["psd", "mean_psd", "n_valid_segments", "peak"])
+@pytest.mark.parametrize(
+    "target", ["psd", "mean_psd", "smoothed_mean_psd_uv2_hz", "n_valid_segments", "peak"]
+)
 def test_cache_rejects_corrupted_numerical_contents(tmp_path: Path, target: str) -> None:
     spec, source, cache = _synthetic_session(tmp_path)
     cache_file, _ = MODULE.prepare_cache(spec, "101", source, cache, read_only=False)
@@ -377,6 +385,8 @@ def test_cache_rejects_corrupted_numerical_contents(tmp_path: Path, target: str)
             group["psd"][0, 0, 92] = -1.0
         elif target == "mean_psd":
             group["mean_psd"][0, 92] = 1e6
+        elif target == "smoothed_mean_psd_uv2_hz":
+            group["smoothed_mean_psd_uv2_hz"][0, 92] = 1e6
         elif target == "n_valid_segments":
             group["n_valid_segments"][0] = 999
         else:
@@ -482,3 +492,224 @@ def test_cache_rejects_wrong_condition_mapping(tmp_path: Path) -> None:
     swapped_spec = MODULE.ParticipantSpec("101", "201", "101", "CCube")
     with pytest.raises(ValueError, match="cache attribute"):
         MODULE.prepare_cache(swapped_spec, "101", source, cache, read_only=True)
+
+
+def _independent_smoothing(values: np.ndarray) -> np.ndarray:
+    """Explicit five available neighboring bins, once, along frequency only."""
+    result = np.full(values.shape, np.nan, dtype=float)
+    for index in np.ndindex(values.shape[:-1]):
+        if not np.isfinite(values[index]).all() or np.any(values[index] < 0):
+            continue
+        for frequency_index in range(values.shape[-1]):
+            first = max(0, frequency_index - 2)
+            last = min(values.shape[-1], frequency_index + 3)
+            result[index + (frequency_index,)] = np.mean(values[index][first:last])
+    return result
+
+
+def test_smoothing_is_once_five_equal_bins_with_truncated_endpoints_not_zero_padding() -> None:
+    rng = np.random.default_rng(832)
+    raw = rng.uniform(0, 40, (3, 2, 391))
+    before = raw.copy()
+    smoothed = MODULE.smooth_mean_psd(raw)
+    np.testing.assert_array_equal(smoothed, _independent_smoothing(raw))
+    np.testing.assert_array_equal(raw, before)
+    np.testing.assert_array_equal(smoothed[..., 0], raw[..., :3].mean(axis=-1))
+    np.testing.assert_array_equal(smoothed[..., 1], raw[..., :4].mean(axis=-1))
+    np.testing.assert_array_equal(smoothed[..., -1], raw[..., -3:].mean(axis=-1))
+    assert not np.allclose(smoothed, MODULE.smooth_mean_psd(smoothed))
+
+
+@pytest.mark.parametrize("frequency", [8.0, 15.0])
+def test_smoothing_alpha_endpoint_uses_neighbors_outside_alpha(frequency: float) -> None:
+    raw = np.ones(391)
+    index = np.flatnonzero(FREQUENCIES == frequency)[0]
+    raw[index - 2 : index + 3] = [3, 5, 7, 11, 19]
+    result = MODULE.smooth_mean_psd(raw)
+    assert result[index] == 9.0
+
+
+@pytest.mark.parametrize("bad_value", [np.nan, np.inf, -1.0])
+def test_smoothing_does_not_repair_partial_invalid_spectrum(bad_value: float) -> None:
+    values = np.ones((3, 391))
+    values[0] = np.nan
+    values[1, 75] = bad_value
+    result = MODULE.smooth_mean_psd(values)
+    assert np.isnan(result[:2]).all()
+    np.testing.assert_array_equal(result[2], 1)
+    assert MODULE.select_peak(FREQUENCIES, result[1])["quality"] == "invalid_spectrum"
+
+
+def test_smoothing_changes_peak_to_highest_smoothed_not_raw_candidate() -> None:
+    raw = _power((9, 20))
+    center = np.flatnonzero(FREQUENCIES == 11)[0]
+    raw[center - 2 : center + 3] = [5, 7, 9, 7, 5]
+    assert MODULE.select_peak(FREQUENCIES, raw)["frequency_hz"] == 9
+    smoothed = MODULE.smooth_mean_psd(raw)
+    result = MODULE.select_peak(FREQUENCIES, smoothed)
+    assert result["frequency_hz"] == 11
+    assert result["selected_peak_psd"] == smoothed[center]
+    assert result["selected_peak_psd"] != raw[center]
+
+
+def test_estimate_interval_peak_uses_once_smoothed_mean_and_raw_values_stay_unmodified() -> None:
+    rng = np.random.default_rng(92)
+    values = _signals(35 * FS) + rng.normal(0, 0.8, (35 * FS, 2))
+    result = MODULE.estimate_interval(values, np.zeros(len(values), bool))
+    expected_raw = np.stack(
+        [result["psd"][result["valid"][:, ci], ci].mean(axis=0) for ci in range(2)]
+    )
+    expected_smoothed = _independent_smoothing(expected_raw)
+    np.testing.assert_array_equal(result["mean_psd"], expected_raw)
+    np.testing.assert_array_equal(result["smoothed_mean_psd"], expected_smoothed)
+    for ci in range(2):
+        expected = MODULE.select_peak(FREQUENCIES, expected_smoothed[ci])
+        assert result["peaks"][ci]["frequency_hz"] == expected["frequency_hz"]
+        assert result["peaks"][ci]["selected_peak_psd"] == expected["selected_peak_psd"]
+
+
+def _legacy_cache(tmp_path: Path) -> tuple:
+    """Create only synthetic v2 raw/peak payload for explicit migration tests."""
+    spec, source, cache = _synthetic_session(tmp_path)
+    path, _ = MODULE.prepare_cache(spec, "101", source, cache, read_only=False)
+    with h5py.File(path, "r+") as handle:
+        handle.attrs.update(
+            schema=MODULE.LEGACY_SCHEMA,
+            calc_config_json=MODULE._json_config(MODULE.LEGACY_CONFIG),
+            calc_config_sha256=MODULE._config_digest(MODULE.LEGACY_CONFIG),
+            code_version="phase4-iaf-localpeak-2026-11-10.2",
+        )
+        for key in (
+            "base_psd_config_json",
+            "base_psd_config_sha256",
+            "smoothing_config_json",
+            "smoothing_config_sha256",
+            "peak_input_dataset",
+            "base_psd_created_by_version",
+            "base_psd_engine_sha256",
+        ):
+            del handle.attrs[key]
+        for number in range(1, 7):
+            for interval in ("whole", "a", "b"):
+                group = handle[f"Set{number}/{interval}"]
+                for key in ("mean_psd_uv2_hz", "window_psd_uv2_hz", "smoothed_mean_psd_uv2_hz"):
+                    del group[key]
+                del group["peaks"]
+                for ci, ch in enumerate(MODULE.CHANNELS):
+                    MODULE._write_peak(
+                        group, ch, MODULE.select_peak(FREQUENCIES, group["mean_psd"][ci])
+                    )
+    MODULE.validate_cache(path, legacy_unsmoothed=True)
+    return spec, source, cache, path
+
+
+def test_explicit_upgrade_preserves_raw_payload_bitwise_and_never_recomputes_psd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec, source, cache, path = _legacy_cache(tmp_path)
+    before_hash = MODULE.sha256_file(path)
+    raw_hash = MODULE.raw_cache_fingerprint(path)
+
+    def forbidden_psd(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Upgrade must not compute EEG PSD")
+
+    monkeypatch.setattr(MODULE, "compute_periodograms", forbidden_psd)
+    updated, created = MODULE.prepare_cache(
+        spec, "101", source, cache, read_only=False, upgrade_smoothing=True
+    )
+    assert updated == path and not created
+    assert MODULE.sha256_file(path) != before_hash
+    assert MODULE.raw_cache_fingerprint(path) == raw_hash
+    MODULE.validate_cache(path)
+    with h5py.File(path, "r") as handle:
+        assert handle.attrs["upgraded_from_file_sha256"] == before_hash
+        assert handle.attrs["raw_payload_sha256"] == raw_hash
+        assert handle.attrs["base_psd_config_sha256"] == MODULE._config_digest(
+            MODULE.BASE_PSD_CONFIG
+        )
+        for number in range(1, 7):
+            for interval in ("whole", "a", "b"):
+                group = handle[f"Set{number}/{interval}"]
+                expected = _independent_smoothing(group["mean_psd"][:])
+                np.testing.assert_array_equal(group["smoothed_mean_psd_uv2_hz"][:], expected)
+    current_hash = MODULE.sha256_file(path)
+    MODULE.prepare_cache(spec, "101", source, cache, read_only=False, upgrade_smoothing=True)
+    assert MODULE.sha256_file(path) == current_hash  # Explicit rerun is idempotent.
+    assert not list(cache.glob("*.partial.h5"))
+
+
+def test_v2_is_never_silently_reused_or_upgraded(tmp_path: Path) -> None:
+    spec, source, cache, path = _legacy_cache(tmp_path)
+    before = MODULE.sha256_file(path)
+    for read_only in (False, True):
+        with pytest.raises(ValueError, match="cache attribute schema"):
+            MODULE.prepare_cache(spec, "101", source, cache, read_only=read_only)
+    with pytest.raises(ValueError, match="no raw fallback"):
+        MODULE.rows_from_cache(path)
+    assert MODULE.sha256_file(path) == before
+
+
+@pytest.mark.parametrize("change", ["schema", "config", "source", "condition", "raw"])
+def test_upgrade_refuses_stale_or_mismatched_inputs_without_mutation(
+    tmp_path: Path, change: str
+) -> None:
+    spec, source, cache, path = _legacy_cache(tmp_path)
+    if change == "source":
+        with h5py.File(MODULE.input_path(source, "101", 1), "r+") as handle:
+            handle["signal/data"][0, 0] = 3e-6
+    elif change == "condition":
+        spec = MODULE.ParticipantSpec("101", "201", "101", "CCube")
+    else:
+        with h5py.File(path, "r+") as handle:
+            if change == "raw":
+                handle["Set1/whole/mean_psd"][0, 80] = 999
+            else:
+                attribute = "schema" if change == "schema" else "calc_config_sha256"
+                handle.attrs[attribute] = "invalid"
+    before = MODULE.sha256_file(path)
+    with pytest.raises(ValueError):
+        MODULE.prepare_cache(spec, "101", source, cache, read_only=False, upgrade_smoothing=True)
+    assert MODULE.sha256_file(path) == before
+
+
+def test_failed_upgrade_is_atomic_and_cleans_temporary_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec, source, cache, path = _legacy_cache(tmp_path)
+    before = MODULE.sha256_file(path)
+    validate = MODULE.validate_cache
+
+    def fail_new_cache(*args: object, **kwargs: object) -> dict:
+        if not kwargs.get("legacy_unsmoothed"):
+            raise ValueError("Synthetic failure validating the new cache")
+        return validate(*args, **kwargs)
+
+    monkeypatch.setattr(MODULE, "validate_cache", fail_new_cache)
+    with pytest.raises(ValueError, match="Synthetic failure"):
+        MODULE.prepare_cache(spec, "101", source, cache, read_only=False, upgrade_smoothing=True)
+    assert MODULE.sha256_file(path) == before
+    assert list(cache.iterdir()) == [path]
+
+
+def test_upgrade_requires_existing_cache_and_disallows_readonly_mode(tmp_path: Path) -> None:
+    spec, source, cache = _synthetic_session(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        MODULE.prepare_cache(spec, "101", source, cache, read_only=False, upgrade_smoothing=True)
+    with pytest.raises(ValueError, match="read-only"):
+        MODULE.prepare_cache(spec, "101", source, cache, read_only=True, upgrade_smoothing=True)
+    assert not cache.exists()
+
+
+def test_spectral_rows_keep_raw_and_smoothed_arrays_separate(tmp_path: Path) -> None:
+    spec, source, cache = _synthetic_session(tmp_path)
+    path, _ = MODULE.prepare_cache(spec, "101", source, cache, read_only=False)
+    rows = MODULE.rows_from_cache(path)
+    for number in (8, 9, 10, 11):
+        for row in rows[number]:
+            np.testing.assert_array_equal(
+                row["smoothed_mean_psd"], _independent_smoothing(row["mean_psd"])
+            )
+            assert row["peak_input_dataset"] == "smoothed_mean_psd_uv2_hz"
+            assert row["smoothing_points"] == 5 and row["smoothing_passes"] == 1
+            peak = MODULE.select_peak(FREQUENCIES, row["smoothed_mean_psd"])
+            assert row["frequency_hz"] == peak["frequency_hz"]

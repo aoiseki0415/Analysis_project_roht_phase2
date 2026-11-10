@@ -1,7 +1,9 @@
 """Current No8–11 three-panel IAF figures; no spectral calculations.
 
-All inputs are the already validated linear, interval-mean PSD and its selected
-local alpha peak. Plotting neither smooths the spectra nor imputes missing data.
+All PSD inputs are the already validated, once frequency-smoothed linear
+interval-mean PSD and its selected local alpha peak. The caller must supply the
+current cache's smoothed_mean_psd_uv2_hz, never its preserved raw mean PSD.
+Plotting neither smooths the spectra a second time nor imputes missing data.
 """
 
 from __future__ import annotations
@@ -21,7 +23,9 @@ from numpy.typing import ArrayLike  # noqa: E402
 from PIL import Image  # noqa: E402
 
 FIGURE_CONFIG = {
-    "version": "phase4-iaf-threepanel-2026-11-10-v2",
+    "version": "phase4-iaf-threepanel-2026-11-10-v3-ma5",
+    "psd_input_dataset": "smoothed_mean_psd_uv2_hz",
+    "plotting_applies_smoothing": False,
     "font": "Arial",
     "figure_inches": [27, 10],
     "dpi": 180,
@@ -157,7 +161,10 @@ def build_three_panel_figure(
 ) -> Figure:
     """Build the approved figure without writing files; caller owns the figure.
 
-    PSD rows and IAF elements retain all 6/12 interval positions, including NaNs.
+    PSD rows must already be smoothed once by the numerical engine, and IAF
+    elements must come from those same spectra. They retain all 6/12 interval
+    positions, including NaNs. This renderer deliberately has no raw-data
+    fallback and performs no extra smoothing or peak selection.
     The input arrays are never altered. In particular no paired-OR missingness is
     imposed: an available condition remains visible when its partner is missing.
     """
@@ -291,6 +298,8 @@ def plot_pair_three_panel(
         return {
             "figure": str(output_path),
             "figure_style_version": FIGURE_CONFIG["version"],
+            "psd_input_dataset": FIGURE_CONFIG["psd_input_dataset"],
+            "plotting_applies_smoothing": False,
             "font_file": require_arial(),
             "dimensions_px": dimensions,
             "analysis_number": analysis_number,

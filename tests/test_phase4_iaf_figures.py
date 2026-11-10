@@ -166,10 +166,98 @@ def test_save_real_pixel_dimensions_and_close(tmp_path: Path, number: int) -> No
     assert plt.get_fignums() == figures_before
     assert result["dimensions_px"] == [4860, 1800]
     assert result["interval_count"] == (12 if number == 9 else 6)
+    assert result["psd_input_dataset"] == "smoothed_mean_psd_uv2_hz"
+    assert result["plotting_applies_smoothing"] is False
     with Image.open(filename) as image:
         image.load()
         assert image.size == (4860, 1800)
         assert image.getpixel((0, 0))[:3] == (255, 255, 255)
+
+
+def test_renderer_uses_supplied_smoothed_psd_without_a_second_smoothing() -> None:
+    data = _inputs()
+    # A deliberately sharp feature would change if the renderer smoothed again.
+    # Whether it is a real valid smoothed spectrum is the engine's contract;
+    # rendering must copy the supplied values, not reinterpret them.
+    data["drops_psd"][:] = 0
+    data["control_psd"][:] = 0
+    data["drops_psd"][0, 91] = 8
+    data["control_psd"][0, 91] = 16
+    before = {key: data[key].copy() for key in ("drops_psd", "control_psd")}
+    fig = module.build_three_panel_figure(**data)
+    for axis, key, top in zip(fig.axes[:2], before, [10, 20], strict=True):
+        for index, line in enumerate(axis.lines[:6]):
+            np.testing.assert_array_equal(line.get_ydata(), before[key][index, :291])
+        assert axis.get_ylim() == (0, top)
+        np.testing.assert_array_equal(data[key], before[key])
+
+
+@pytest.mark.parametrize("number", [8, 9, 10, 11])
+def test_engine_render_passes_only_smoothed_rows_to_plotter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, number: int
+) -> None:
+    import phase4_iaf as engine
+
+    spec = engine.ParticipantSpec("901", "902", "902", "VRohtoPremium")
+    count = 12 if number in (9, 11) else 6
+    rows = []
+    for condition in ("Eye Drop", "Control"):
+        for position in range(count):
+            rows.append({
+                "pair_id": spec.pair_id,
+                "condition": condition,
+                "position": position,
+                "frequency_hz": 9 + position / 10,
+                # Make accidental raw-data usage conspicuous in both values/limits.
+                "mean_psd": np.full(391, 1000 + position),
+                "smoothed_mean_psd": np.full(391, 2 + position),
+            })
+    calls = []
+
+    def capture_plot(**kwargs):
+        calls.append(kwargs)
+        figure_args = {key: value for key, value in kwargs.items() if key != "output_path"}
+        figure = module.build_three_panel_figure(**figure_args)
+        for ax in figure.axes[:2]:
+            assert ax.get_ylim() == (0, (count + 1) / 0.80)
+            for index, line in enumerate(ax.lines[:count]):
+                np.testing.assert_array_equal(line.get_ydata(), np.full(291, 2 + index))
+        return {"psd_input_dataset": "smoothed_mean_psd_uv2_hz"}
+
+    monkeypatch.setattr(module, "plot_pair_three_panel", capture_plot)
+    monkeypatch.setattr(engine, "sha256_file", lambda path: "synthetic-render-hash")
+    result = engine.render_analysis(rows, [spec], tmp_path, number)
+    assert len(calls) == len(result) == 1
+    assert calls[0]["output_path"].parent == tmp_path / "VRohtoPremium" / "Individual"
+    for prefix in ("drops", "control"):
+        np.testing.assert_array_equal(
+            calls[0][f"{prefix}_psd"], np.stack([np.full(391, 2 + i) for i in range(count)])
+        )
+        np.testing.assert_array_equal(
+            calls[0][f"{prefix}_iaf_hz"], 9 + np.arange(count) / 10
+        )
+
+
+def test_engine_render_rejects_raw_only_rows_without_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import phase4_iaf as engine
+
+    spec = engine.ParticipantSpec("901", "902", "902", "VRohtoPremium")
+    rows = [
+        {
+            "pair_id": spec.pair_id, "condition": condition, "position": position,
+            "frequency_hz": 10.0, "mean_psd": np.ones(391),
+        }
+        for condition in ("Eye Drop", "Control") for position in range(6)
+    ]
+
+    def forbidden_plot(**kwargs):
+        pytest.fail("Old raw-only rows must never reach the current figure renderer")
+
+    monkeypatch.setattr(module, "plot_pair_three_panel", forbidden_plot)
+    with pytest.raises(KeyError, match="smoothed_mean_psd"):
+        engine.render_analysis(rows, [spec], tmp_path, 8)
 
 
 def test_missing_arial_does_not_fall_back(monkeypatch: pytest.MonkeyPatch) -> None:
