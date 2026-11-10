@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 from pathlib import Path
 
 import pandas as pd
@@ -25,7 +26,7 @@ PRODUCTS = ("CCube", "VRohtoPremium")
 CONDITIONS = ("Eye Drop", "Control")
 COHORTS = ("AllAvailable", "SelectedParticipants")
 ADOPTION = "Grand-average採用（追加選別版）"
-EXPECTED_SELECTED = {8: (12, 11), 9: (11, 10)}
+EXPECTED_SELECTED = {8: (12, 10), 9: (11, 10)}
 
 
 def sha256(path):
@@ -45,6 +46,25 @@ def assert_value(expected, observed, name):
             expected,
             observed,
         )
+
+
+def latest_output_records(log_paths):
+    """Resolve each file's latest successful writer, including scoped reruns.
+
+    Older run hashes remain historical evidence, not current selection claims.
+    The latest run must succeed; a failed run is never silently bypassed.
+    """
+    assert log_paths, "No grand-average run log"
+    logs = [(p, json.loads(p.read_text())) for p in sorted(log_paths)]
+    path, latest = logs[-1]
+    assert latest["status"] == "complete", "Latest run is not complete"
+    outputs = {}
+    for source_path, run in logs:
+        if run["status"] != "complete":
+            continue
+        for item in run["outputs"]:
+            outputs[item["path"]] = {**item, "source_run_log": str(source_path)}
+    return path, latest, outputs
 
 
 def audit_current_layout():
@@ -126,18 +146,15 @@ def main():
     )
     args = parser.parse_args()
     log_paths = sorted((BASE / FOLDERS[8] / "Sub/logs").glob("IAFGrandAverage_[0-9]*Z.json"))
-    assert log_paths, "No grand-average run log"
-    path = log_paths[-1]
-    log = json.loads(path.read_text())
-    assert log["status"] == "complete", "Latest run is not complete"
-    assert log["analyses"] == [8, 9]
+    path, log, output_records = latest_output_records(log_paths)
+    assert set(log["analyses"]).issubset(FOLDERS) and log["analyses"]
     assert log["psd_recomputed"] is False and log["iaf_reestimated"] is False
-    for no in FOLDERS:
+    for no in log["analyses"]:
         twin = BASE / FOLDERS[no] / "Sub/logs" / path.name
         assert json.loads(twin.read_text()) == log, "Two run records differ"
     for source, expected in log["protected_files_sha256"].items():
         assert sha256(source) == expected, "Protected file hash changed"
-    for item in log["outputs"]:
+    for item in output_records.values():
         assert sha256(item["path"]) == item["sha256"], "Saved output hash changed"
     source_directory = Path(
         "/Users/aoiseki/GitHub/Analysis_project_roht_phase2/解析プログラム/Phase4_脳波解析"
@@ -317,7 +334,7 @@ def main():
                     img.verify()
                 counts["png"] += 1
                 output_audits.append(
-                    next(item["render"] for item in log["outputs"] if item["path"] == str(png))
+                    output_records[str(png)]["render"]
                 )
                 assert output_audits[-1]["y_limits_hz"] == [-1.1, 1.1]
                 assert output_audits[-1]["y_ticks_hz"] == [-1.0, -0.5, 0.0, 0.5, 1.0]
@@ -350,9 +367,16 @@ def main():
         "run_log": str(path),
         "run_log_sha256": sha256(path),
         "audit_script_sha256": sha256(__file__),
+        "audit_git_head": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True,
+            cwd=Path(__file__).resolve().parents[2],
+        ).strip(),
         "checked_counts": counts,
         "protected_source_files_checked": len(log["protected_files_sha256"]),
-        "output_hashes_checked": len(log["outputs"]),
+        "output_hashes_checked": len(output_records),
+        "current_outputs_latest_writer": {
+            name: record["source_run_log"] for name, record in output_records.items()
+        },
         "run_source_code_hashes_checked": len(log["script_sha256"]),
         "maximum_absolute_participant_difference_residual_hz": maximum_absolute_residual,
         "source_differences_mean_sample_sd_sem_n_membership_baseline_zero": "all match",
@@ -364,7 +388,11 @@ def main():
         "cohort_valid_n": results,
     }
     if args.write_report:
-        destination = BASE / FOLDERS[8] / "Sub/logs/IAFGrandAverage_IndependentAudit_20261110.json"
+        run_tag = path.stem.removeprefix("IAFGrandAverage_")
+        destination = (
+            BASE / FOLDERS[8] / "Sub/logs"
+            / f"IAFGrandAverage_IndependentAudit_{run_tag}.json"
+        )
         assert destination.parent.is_dir(), "Authorized log directory missing"
         assert destination.parent.resolve().is_relative_to(BASE.resolve()), (
             "Output symlink escapes Phase4"
@@ -372,7 +400,7 @@ def main():
         assert destination.resolve().parent == destination.parent.resolve(), (
             "Report destination symlink escapes log directory"
         )
-        assert destination.name == "IAFGrandAverage_IndependentAudit_20261110.json"
+        assert destination.name == f"IAFGrandAverage_IndependentAudit_{run_tag}.json"
         temporary = destination.with_name(destination.name + ".partial")
         assert not temporary.is_symlink(), "Temporary output must not be a symlink"
         temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -257,7 +257,7 @@ def test_frozen_json_csv_match_counts(frozen_selection):
     manifest, json_path, csv_path = frozen_selection
     selection = ga.load_selection(json_path, csv_path, manifest)
     assert len(selection) == 80
-    assert selection[ga.ADOPTION].eq("する").sum() == 44
+    assert selection[ga.ADOPTION].eq("する").sum() == 43
 
 
 @pytest.mark.parametrize("alteration", ["notfinal", "duplicate", "mismatch", "manual", "counts"])

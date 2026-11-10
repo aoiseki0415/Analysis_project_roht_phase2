@@ -300,7 +300,7 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python 解析プログラム/Phase4_�
 .venv/bin/python 解析プログラム/Phase4_脳波解析/phase4_iaf_grand_average_audit.py --write-report
 ```
 
-最後の独立監査は、群集計engineを呼ばずに保存IAF・採否表を結合し、Pythonの和・標本分散から差分、平均、SD、SEM、N、基準0を再計算して照合する。加えて改番前wholeのIAF・AllAvailable値、PNG・cache・保護対象・出力のhash、図の寸法・軸設定を検証する。`--write-report`なしでは読み取り専用、指定時は許可されたNo8 `Sub/logs/IAFGrandAverage_IndependentAudit_20261110.json` だけへ集計監査を保存する。PNGのデコード・metadata検査と目視確認は別工程として扱う。
+最後の独立監査は、群集計engineを呼ばずに保存IAF・採否表を結合し、Pythonの和・標本分散から差分、平均、SD、SEM、N、基準0を再計算して照合する。加えて改番前wholeのIAF・AllAvailable値、PNG・cache・保護対象・出力のhash、図の寸法・軸設定を検証する。限定再実行後はファイルごとの最新完了runを採用し、更新しなかった図・表は直前の完了runへ対応付ける。最新runが失敗なら過去成功へ黙って戻さない。`--write-report`なしでは読み取り専用、指定時は許可されたNo8 `Sub/logs/IAFGrandAverage_IndependentAudit_<対象run時刻>.json` だけへ集計監査を保存する。PNGのデコード・metadata検査と目視確認は別工程として扱う。
 
 ## 11. 明瞭な単峰に限定する追加選別の方法
 
@@ -385,17 +385,17 @@ Cありは各条件に最低1区間明瞭な山があるという観察であり
 
 1. 従来の不採用をすべて保持する。
 2. 各条件に少なくとも1区間C・両条件のSet 1 IAF有限を最低条件とする。全Set Cや基準SetのCは要求しない。
-3. 最低条件を満たしても、[解析上の注意事項](解析上の注意事項.md)の最新追加除外に該当するペアは両条件・全Setで選別版だけ不採用にする。
+3. 最低条件を満たしても、[解析上の注意事項](解析上の注意事項.md)の最新追加除外に該当するペアは両条件・全Setで選別版だけ不採用にする。低PSDと保存IAFの大きな変化を確認したNo8 Vプレ1ペアの追加除外を含む。元の形状評価と、この後から確定した品質上の注意・利用者指定を区別して保存する。
 4. 効果方向、望ましいGrand-average、統計的有意性で追加の再選別をしない。指定された採否を無断で拡大しない。
 5. 採用者の後続IAFは明瞭区間だけへ絞らず、有限なら保持する。後続片条件欠測はpaired ORを適用する。
 6. AllAvailable、元IAF、個人PSD・図、No1–7にこの選別を逆適用しない。
 
 | 現行No | Cキューブ：採用／不採用 | Vロートプレミアム：採用／不採用 |
 |---|---:|---:|
-| No8（Pz） | 12／8 | 11／9 |
+| No8（Pz） | 12／8 | 10／10 |
 | No9（Fz） | 11／9 | 10／10 |
 
-これらは**確定した採用集合**の人数。実際のSet別Nは欠測によってさらに減り得るため、再集計結果で別に確認する。利用者指定、基準欠測、Cなし、形状所見を理由列で区別し、C/A/U/M自体は後から書き換えない。全80行の採否と4集合の整合を確認し、判定JSONを群集計の入力とする。最新選別JSON schemaは `phase4-iaf-selection-setwise-2026-11-10-v2`、`active_analyses` は8=Pz・9=Fz。旧4Noの選別JSONを現行として受け付けず、明示移行の対応表と最新指定を検証する。
+これらは**確定した採用集合**の人数。実際のSet別Nは欠測によってさらに減り得るため、再集計結果で別に確認する。利用者指定、基準欠測、Cなし、形状所見、低PSDの品質所見を理由列で区別し、C/A/U/M自体は後から書き換えない。全80行の採否と4集合の整合を確認し、判定JSONを群集計の入力とする。`active_analyses` は8=Pz・9=Fz。旧4Noや改番直後の採否を現行として受け付けず、最新指定と確定JSON／CSVの監査hashを検証する。今回の選別更新の仕様は第15節。
 
 古い `--finalize` は観察入力の報告化用で、最新の手動採否へ直接上書きしない。再生成する際は最新確定JSONを再適用して列と集合を照合する。旧版採否・判断入力・過去実行監査は `No8/Sub/history/BeforeRenumbering_20261110/` に隔離し、現在の採用集合と混ぜない。
 
@@ -414,9 +414,9 @@ Cありは各条件に最低1区間明瞭な山があるという観察であり
 - 新旧Noパス・active入口・文書リンク・Notionの手法／結果／履歴を照合し、旧No9/11や旧No10を現行として案内しない。
 - 対象外の成果物は不変。Git検証・commit・push・remote確認と外部文書の読戻しを完了条件とする。
 
-### 14.2 今回の実績
+### 14.2 改番・初回再集計時の実績（下記は追加除外前）
 
-2026-11-10に、改番と最新採否を適用し、保存済みIAFから両NoのGrand-averageを再集計した。実行記録 `IAFGrandAverage_20261110T125128981921Z.json` は `complete`、8 PNG・6 CSVの計14成果物を出力・読み戻し確認済み。Welch・IAFの再推定はしていない。
+2026-11-10に、改番時点の採否を適用し、保存済みIAFから両NoのGrand-averageを再集計した。実行記録 `IAFGrandAverage_20261110T125128981921Z.json` は `complete`、8 PNG・6 CSVの計14成果物を出力・読み戻し確認済み。Welch・IAFの再推定はしていない。以下は低PSD所見に基づくNo8 Vプレ1ペア追加除外**前**の実績であり、現在の選別集合は第13節、追加除外後の実績は第15節を参照する。
 
 | 現行No | 製品 | AllAvailable：Set別N | 選別採用集合 | SelectedParticipants：Set別N |
 |---|---|---:|---:|---:|
@@ -442,3 +442,44 @@ Cありは各条件に最低1区間明瞭な山があるという観察であり
 0 Hzは各条件自身のSet 1と同じ周波数、正は高周波化、負は低周波化。絶対IAFやPSD Change（%）ではない。線は被験者平均、shadeはSEMで、被験者間SDでも有意差の範囲でもない。AllAvailableが主結果、SelectedParticipantsは事後・非盲検の形状判断と利用者指定に基づく追加結果。選別されたことはIAF推定の生理的正解や製品効果を保証しない。
 
 SetごとにNが変わるため、線の変化には利用可能対象の変化が含まれ得る。固定y範囲は比較しやすさのためで、軸外の値も数値表から失わない。凡例・色は条件を示し、観察した高低だけを効果の証拠としない。OneDriveの保存・読み戻しはローカル同期先であり、クラウドサーバー同期は独立確認しない限り未検証とする。
+
+## 15. 低PSD所見に伴う限定的な採否更新（最新）
+
+### 15.1 確定した判断・適用範囲
+
+保存済みPSDとIAFの確認から、No8で2セッション、No9で1セッションを要注意とした。平均PSDは1回周波数平滑化済み8–15 Hzの算術平均であり、PSDとIAFを新たに推定した評価ではない。対象・Set・観察内容は[解析上の注意事項](解析上の注意事項.md)に記録する。低PSDとピーク位置の急変の同時発生は観察事実であって、信号消失や機器不良の確定診断ではない。
+
+今回、利用者が明示指定した**No8 Pz・Vロートプレミアムの1ペアだけ**を、SelectedParticipantsから両条件・全Setにわたり追加不採用とする。Set 6だけの除外ではない。他2件は要注意の記録だけとし、追加除外しない。平均PSD<1の一律自動除外や新しいIAF足切り、効果方向での再選別は導入しない。
+
+- No8 SelectedParticipantsの確定採用集合はCキューブ12、Vプレ10。No9はCキューブ11、Vプレ10で変更なし。
+- No8 VプレSelectedParticipantsの既存PNG1枚を置き換える。図の−1.1〜+1.1 Hz、Arial、色、平均±SEM、Set位置は変更しない。
+- AllAvailable全図・全群値、No8 Cキューブ、No9、個人PSD・IAF・PNG、cache、Phase 1、No1–7は維持する。
+- No8の補助3 CSVには最新の採否を反映する。`ParticipantIAFChange.csv`の採否フラグは更新するが、保存IAF・自身の基準・Hz差分・AllAvailable採否は不変。`InclusionByInterval.csv`の理由・選別採否と、対象群の`GroupSummary.csv`の平均・SD・SEM・Nを対応付ける。
+- 元C/A/U/M観察を改変せず、利用者指定の追加不採用理由を別列へ反映する。最新JSON・CSV・MDとID横の採否列を一致させ、更新前の非PNG採否・監査だけを履歴保存する。古い図は比較版として追加保存しない。
+
+### 15.2 実装・再実行・検証
+
+対象限定の実行でも、全40ペアのmanifest、現行保存IAF、cache、確定採否を照合する。計算は従来と同じ共通engineで保存IAFから差分・等重み平均・標本SEMを再集計し、Welch・IAF再推定はしない。変更対象以外の図・元データはSHA256で前後不変を確認する。追加除外が両条件・全Setへ反映されたこと、Set別Nの一致、基準差0、平均・SD・SEMの独立再計算一致を検証し、更新PNGを目視確認する。
+
+過去の完了ログのhashは当時の版を示す。現在の出力検証にはファイルごとの最新完了runを用い、過去runの採否hashを現在へ誤適用しない。今回の結果を前節の改番実績へ上書きせず、以下へ別記する。
+
+採否改訂用の入口は `phase4_iaf_selection_revision.py`。現行固定selection schemaは `phase4-iaf-selection-setwise-2026-11-10-v3`。個人IDはコードへ埋め込まず、`--analysis`、`--product`、`--pair`、`--reason`、`--revision-key`で指定する。applyなしで事前検証、`--apply`で明示更新する。旧v2・80行・4集合・frozen hash・条件対応を確認し、変更前のJSON／CSV／MD、ParticipantReview、観察GroupSummary、frozen監査を `Sub/history/SelectionRevision_20261110_PSDQuality/before/` へ保存してから更新する。`plan.json`を用いて途中停止から再開でき、同じrevision-keyを異なる対象・理由・manifestへ再利用できない。C/A/U/M観察はそのまま、観察集計表に併記された採用人数だけを更新する。旧PNGの複製はしない。
+
+群集計には `--analysis`・`--product`・`--cohort`の限定出力指定を使う。指定外の群の平均・SD・SEM・Nと保存IAF差分の不変を**書込み前**に検証し、指定図だけを描画する。例：
+
+```sh
+MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python 解析プログラム/Phase4_脳波解析/phase4_iaf_grand_average.py --manifest <非公開manifest.csv> --production-batch --analysis 8 --product VRohtoPremium --cohort SelectedParticipants --preflight-only
+MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python 解析プログラム/Phase4_脳波解析/phase4_iaf_grand_average.py --manifest <非公開manifest.csv> --production-batch --analysis 8 --product VRohtoPremium --cohort SelectedParticipants --all
+```
+
+### 15.3 今回の限定再実行の結果
+
+2026-11-10のrun `IAFGrandAverage_20261110T132836529424Z.json` が `complete`。No8 VプレSelectedParticipantsのPNG1枚と、No8の対応3 CSVを更新・読戻し確認した。選別集合は10ペア、Set 1–6の有効Nは**10、10、10、9、10、10**で両条件一致。指定ペアは全6 Setで不採用、基準差0・平均・標本SD・SEMが独立計算と一致した。
+
+- **対象外保持**：再実行時の保護355ファイルはSHA256一致。対象外の7群図、No9表、個人図・元推定・cacheを変更していない。両Noの全利用可能データ版とNo8 Cキューブの群値は不変。
+- **独立数値確認**：全体960個人差分行・960区間採否行・96群集計行を再照合。最大差分丸め残差は2.22×10⁻¹⁶ Hz。元80 HDF5・80個人PNGはbyte不変、元C/A/U/M観察80ペア・960区間も不変。対象外の他解析1,137ファイルはサイズ・更新時刻が一致した。
+- **Figure**：更新PNGを目視し、正方形1800×1800 px、Arial、既定の青／深紫、6 Set、平均±SEM、y=−1.1〜+1.1 Hz・5目盛、文字と凡例の配置を確認した。平均・SEMの軸外値は0。全8群図の寸法・デコード・metadata・最新版hashも確認した。
+- **検証**：全リポジトリ322テストとRuff成功。追加テストで1ペアのみの明示改訂、不正指定拒否、再開・再実行、限定外の数値変更拒否、ファイルごとの最新出力来歴を検証した。
+- **記録**：採否改訂は `IAFSelectionRevision_20261110_PSDQuality.json`、群集計は上記run、独立監査は `IAFGrandAverage_IndependentAudit_20261110T132836529424Z.json`。採否改訂ログの `grand_average_pending` は改訂直後の状態で、その後の完了は群集計runと独立監査を参照する。今回の限定更新でも、サンドボックスの書込拒否後に許可された実行経路で保存した。代替場所への結果保存はしていない。
+
+要注意所見は注意事項とNotionへ記録し、追加除外に指定されていない2件の採否を変更していない。OneDriveは指定ローカル同期先への保存・読戻し確認であり、クラウドサーバー側同期完了は独立には確認していない。

@@ -30,16 +30,16 @@ from phase4_iaf import (
     write_json,
 )
 
-VERSION = "phase4-iaf-change-grand-average-2026-11-10-v2-setwise"
+VERSION = "phase4-iaf-change-grand-average-2026-11-10-v3-scoped"
 BASE = DEFAULT_OUTPUT_ROOT / "Phase4_脳波解析"
 CONDITIONS = ("Eye Drop", "Control")
 PRODUCTS = ("CCube", "VRohtoPremium")
 COHORTS = ("AllAvailable", "SelectedParticipants")
 ADOPTION = "Grand-average採用（追加選別版）"
-SELECTION_SCHEMA = "phase4-iaf-selection-setwise-2026-11-10-v2"
+SELECTION_SCHEMA = "phase4-iaf-selection-setwise-2026-11-10-v3"
 ACTIVE_SELECTION_ANALYSES = {"8": "Pz", "9": "Fz"}
 SELECTED_COUNTS = {
-    8: {"CCube": 12, "VRohtoPremium": 11},
+    8: {"CCube": 12, "VRohtoPremium": 10},
     9: {"CCube": 11, "VRohtoPremium": 10},
 }
 KEYS = ["pair_id", "condition", "position"]
@@ -82,11 +82,17 @@ def read_manifest(path: Path) -> dict[str, dict[str, str]]:
 
 
 def load_selection(
-    json_path: Path, csv_path: Path, manifest: dict[str, dict[str, str]]
+    json_path: Path,
+    csv_path: Path,
+    manifest: dict[str, dict[str, str]],
+    *,
+    expected_schema: str = SELECTION_SCHEMA,
+    expected_counts: dict[int, dict[str, int]] | None = None,
 ) -> pd.DataFrame:
+    expected_counts = SELECTED_COUNTS if expected_counts is None else expected_counts
     record = json.loads(json_path.read_text(encoding="utf-8"))
     if (
-        record.get("schema") != SELECTION_SCHEMA
+        record.get("schema") != expected_schema
         or record.get("active_analyses") != ACTIVE_SELECTION_ANALYSES
         or set(record.get("manual_exclusions", {})) != set(ACTIVE_SELECTION_ANALYSES)
     ):
@@ -138,7 +144,7 @@ def load_selection(
             ):
                 raise ValueError("Manual exclusion pair/product mismatch")
             count = int(((subset[ADOPTION] == "する") & (subset["product"] == product)).sum())
-            if count != SELECTED_COUNTS[number][product]:
+            if count != expected_counts[number][product]:
                 raise ValueError("Frozen selected cohort count mismatch")
     frame["analysis_number"] = frame.analysis_number.astype(int)
     return frame
@@ -500,11 +506,26 @@ def write_table(path: Path, frame: pd.DataFrame) -> None:
         raise AssertionError("Written table failed shape readback")
 
 
-def render_groups(groups: pd.DataFrame, number: int) -> list[dict[str, Any]]:
+def figure_path(number: int, product: str, cohort: str) -> Path:
+    return (
+        BASE
+        / ANALYSES[number][2]
+        / product
+        / "GrandAverage"
+        / f"No{number}_{ANALYSES[number][0]}_IAFChange_{product}_{cohort}.png"
+    )
+
+
+def render_groups(
+    groups: pd.DataFrame,
+    number: int,
+    products: tuple[str, ...] = PRODUCTS,
+    cohorts: tuple[str, ...] = COHORTS,
+) -> list[dict[str, Any]]:
     from phase4_iaf_grand_average_figures import plot_grand_average, shared_y_limit
 
     outputs = []
-    for product in PRODUCTS:
+    for product in products:
         pp = groups.loc[groups["product"] == product]
         series = []
         arrays = {}
@@ -521,14 +542,8 @@ def render_groups(groups: pd.DataFrame, number: int) -> list[dict[str, Any]]:
                 arrays[cohort][f"{prefix}_sem_hz"] = sem
                 series.append((mean, sem))
         limit = shared_y_limit(series)
-        for cohort in COHORTS:
-            path = (
-                BASE
-                / ANALYSES[number][2]
-                / product
-                / "GrandAverage"
-                / (f"No{number}_{ANALYSES[number][0]}_IAFChange_{product}_{cohort}.png")
-            )
+        for cohort in cohorts:
+            path = figure_path(number, product, cohort)
             assert_output_path(path)
             path.parent.mkdir(parents=True, exist_ok=True)
             metadata = plot_grand_average(
@@ -568,6 +583,71 @@ def _verify_saved_tables(root: Path, tables: tuple[pd.DataFrame, ...]) -> dict[s
     return hashes
 
 
+def validate_scoped_tables(
+    old_tables: tuple[pd.DataFrame, ...],
+    new_tables: tuple[pd.DataFrame, ...],
+    products: tuple[str, ...],
+    cohorts: tuple[str, ...],
+) -> None:
+    """Reject any out-of-scope numerical change before overwriting current tables."""
+    for index, (old, new) in enumerate(zip(old_tables, new_tables, strict=True)):
+        if list(old.columns) != list(new.columns) or len(old) != len(new):
+            raise ValueError("Scoped update requires matching complete table shapes")
+        if index == 0:
+            # Selection flags may change, but saved IAF, baselines and differences never do.
+            flags = ["selected_participant", "included_selected_participants"]
+            pd.testing.assert_frame_equal(
+                old.drop(columns=flags),
+                new.drop(columns=flags),
+                check_dtype=False,
+                check_exact=False,
+                rtol=1e-12,
+                atol=1e-12,
+            )
+            keep = ~new["product"].isin(products)
+            if "SelectedParticipants" not in cohorts:
+                keep[:] = True
+        elif index == 1:
+            keep = ~(new["product"].isin(products) & new.cohort.isin(cohorts))
+        else:
+            # Global adoption/reason metadata can change on both cohort rows, not inclusion.
+            metadata = ["selected_participant", "final_selection_reason"]
+            keep = ~(new["product"].isin(products) & new.cohort.isin(cohorts))
+            pd.testing.assert_frame_equal(
+                old.loc[keep].drop(columns=metadata),
+                new.loc[keep].drop(columns=metadata),
+                check_dtype=False,
+                check_exact=False,
+                rtol=1e-12,
+                atol=1e-12,
+            )
+            keep = ~new["product"].isin(products)
+        pd.testing.assert_frame_equal(
+            old.loc[keep],
+            new.loc[keep],
+            check_dtype=False,
+            check_exact=False,
+            rtol=1e-12,
+            atol=1e-12,
+        )
+
+
+def scoped_protection(
+    analyses: list[int], products: tuple[str, ...], cohorts: tuple[str, ...]
+) -> dict[str, str]:
+    allowed = {figure_path(n, p, c) for n in analyses for p in products for c in cohorts} | {
+        BASE / ANALYSES[n][2] / "Sub/tables/GrandAverage" / name
+        for n in analyses
+        for name in TABLE_NAMES
+    }
+    protected = {}
+    for _, _, folder in ANALYSES.values():
+        for path in (BASE / folder).rglob("*"):
+            if path.is_file() and path not in allowed:
+                protected[str(path)] = sha256_file(path)
+    return protected
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -577,14 +657,41 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--production-batch", action="store_true", help="40-pair validation is always required"
     )
+    parser.add_argument("--product", choices=PRODUCTS, nargs="+", default=list(PRODUCTS))
+    parser.add_argument("--cohort", choices=COHORTS, nargs="+", default=list(COHORTS))
     modes = parser.add_mutually_exclusive_group(required=True)
     for flag in ("preflight-only", "all", "figures-only"):
         modes.add_argument(f"--{flag}", action="store_true")
     args = parser.parse_args(argv)
     if len(args.analysis) != len(set(args.analysis)):
         parser.error("Duplicate analysis numbers")
+    if len(args.product) != len(set(args.product)) or len(args.cohort) != len(set(args.cohort)):
+        parser.error("Duplicate product/cohort scope")
+    products, cohorts = tuple(args.product), tuple(args.cohort)
+    scoped = (
+        set(args.analysis) != set(ANALYSES)
+        or set(products) != set(PRODUCTS)
+        or set(cohorts) != set(COHORTS)
+    )
     frames, selection, fingerprints = preflight(BASE, DEFAULT_CACHE_ROOT, args.manifest)
     computed = {n: compute_tables(frames[n], selection, n) for n in args.analysis}
+    if scoped:
+        fingerprints.update(scoped_protection(args.analysis, products, cohorts))
+        for number, tables in computed.items():
+            previous = tuple(
+                pd.read_csv(
+                    BASE / ANALYSES[number][2] / "Sub/tables/GrandAverage" / name,
+                    dtype={
+                        "pair_id": str,
+                        "session_id": str,
+                        "interval_label": str,
+                        "baseline_interval": str,
+                    },
+                )
+                for name in TABLE_NAMES
+            )
+            previous[2]["exclusion_reason"] = previous[2].exclusion_reason.fillna("")
+            validate_scoped_tables(previous, tables, products, cohorts)
     summary = {
         str(n): [
             {"product": product, "cohort": cohort, "n_min": int(g.n.min()), "n_max": int(g.n.max())}
@@ -603,6 +710,9 @@ def main(argv: list[str] | None = None) -> int:
         "status": "running",
         "mode": "figures-only" if args.figures_only else "all",
         "analyses": args.analysis,
+        "products": list(products),
+        "cohorts": list(cohorts),
+        "scoped_output": scoped,
         "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "script_sha256": {
             p.name: sha256_file(p)
@@ -654,7 +764,7 @@ def main(argv: list[str] | None = None) -> int:
             run["outputs"].extend(
                 {"path": path, "sha256": digest} for path, digest in saved_hashes.items()
             )
-            run["outputs"].extend(render_groups(groups, number))
+            run["outputs"].extend(render_groups(groups, number, products, cohorts))
         assert_hashes(fingerprints)
         assert_hashes({item["path"]: item["sha256"] for item in run["outputs"]})
         run.update(
