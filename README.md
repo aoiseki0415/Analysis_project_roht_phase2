@@ -159,6 +159,7 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 No4・No5 Fz序盤PSD Change解析仕様](docs/Phase4_No4_No5_Fz序盤PSDChange_解析仕様.md)：Fzシータ・デルタの各Set序盤に着目する実施済み追加探索の計算方針、出力構造、検証記録、未確定事項
 - [Phase 4 No6・No7 Fz序盤絶対PSD解析仕様](docs/Phase4_No6_No7_Fz序盤絶対PSD_解析仕様.md)：Fzシータ・デルタの絶対PSDで各Set序盤と隣接Set境界を比較する追加探索の計算、図、出力、検証記録
 - [Phase 4 No8・No9 IAF共有用解析仕様](docs/Phase4_No8_No9_共有用解析仕様.md)：Pz・FzのSet全体IAF、局所ピーク、個人3パネル図、Set 1差分Grand-average、最新の単峰選別・固定軸、計算・保存・検証を含む唯一の現行仕様
+- [Phase 4 No4–9 結果フォルダとFigureの読み方](docs/Phase4_No4_No9_結果フォルダとFigureの読み方.md)：共有用の閲覧ガイド。各NoのOneDrive階層、時間推移・Set序盤・Set境界・IAFの軸と単位、線・点・色、通常版と除外／選別版、補助表の探し方を整理
 - [Phase 4 改番前仕様の保存版](docs/history/Phase4_No8-11_改番前仕様_20261110.md)：旧4解析・旧採用集合・旧図設定・過去検証の全文。履歴専用で実行や現行対象選定には使わない
 - [Phase 4 No8–11 旧方式と再設計記録](docs/history/Phase4_No8-11_旧方式と再設計記録.md)：廃止した方式と再設計の理由・整理記録。履歴専用で現行手順には使用しない
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
