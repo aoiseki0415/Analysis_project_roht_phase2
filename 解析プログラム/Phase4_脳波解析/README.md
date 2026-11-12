@@ -28,6 +28,15 @@ No2とNo3はNo1三解析と同じ実装エンジン・処理順・figure比率�
 
 2026-10-04にNo1_addを全40ペア・80セッションへ実行し、80件のFz TFM cache、476件の利用可能Set、既知欠測4 Set、2製品のGrand-average TFM、値・有効N・mask監査表・実行ログを検証しました。figureだけの変更では検証済みcacheを再計算しません。
 
+## No10・No10_sub：Fz low-alpha
+
+新しいNo10はFz・8–11 Hz（8、9、10、11 Hzを含む）のパワー解析です。旧IAF No10（現No9）とは別物です。`Phase4_No10_FzLowAlpha.py` はNo1と同じ全32ch PSD・mask・60点平滑化・未平滑定量化・topographyを使い、`Phase4_No10_sub_FzLowAlphaChange.py` はそのcacheからID/ch別Set 1基準の変化率を求めます。既存engineのソースは変更せず、独立プロセスで設定します。
+
+- No10は下記No1と同じ実行モード。subは `--preflight-only`、`--individual-only`、`--group-outputs-only`、`--set-quantification-only`、`--all`。
+- 全員共通のmanifestはNo10のOneDrive `Sub/tables/ParticipantManifest.csv`。新たな被験者選別はせず、既知欠測とsub baseline要件だけを継承します。
+- No10専用cache guardは数値設定hash・入力fingerprint・条件対応を再描画時にも確認します。描画だけの更新でPSDを再計算しません。
+- 出力・中間データ・配色・全パラメータ・再現コマンドは [No10統合仕様](../../docs/Phase4_No10_解析仕様.md)。実行結果は同書の結果節と各Noの `Sub/logs/` を参照してください。
+
 ## No1_addの実行モード
 
 - `--preflight-only`：入力、製品群、ID対応、既知欠測Setだけを検査する

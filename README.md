@@ -140,7 +140,7 @@ Grand-averageは**保存済みIAFから各条件自身のSet 1 IAFを引いたHz
 
 No10はFzを代表chとする**8–11 Hz（8・9・10・11 Hzを含む）**の絶対PSD、No10_subは各セッションID・ch自身のSet 1平均からのPSD Changeです。現在のNo1–3と同じ全32chの1秒PSD・1秒移動、Phase 1区間mask、帯域固有の全Set一括log3SD、時間変化だけ60秒平滑化、未平滑値による定量化・topography、平均±SEM、対応ありt検定を継承します。新たな被験者選別はせず、既知欠測とsubのSet 1 baseline要件だけを既存仕様に揃えます。IAF選別や過去の補足分析除外は適用しません。
 
-OneDriveに `No10_FzLowAlpha/` と `No10_sub_FzLowAlphaChange/`、ローカル許可領域に `No10_FzLowAlpha/PSDTimeSeries/` を使用します。subはNo10 cacheを読み、独立ローカルcacheを作りません。既存No2の8–15 Hz平均やIAF用PSDからの流用はしません。**明示的な開始指示後、実装・本番実行・検証を進めています。完了実績は検証後に記録します。** 詳細と新規配色は[No10統合仕様](docs/Phase4_No10_解析仕様.md)、経緯は[設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)へ分離します。旧IAF No10（現在のNo9）とは別解析です。
+OneDriveに `No10_FzLowAlpha/` と `No10_sub_FzLowAlphaChange/`、ローカル許可領域に `No10_FzLowAlpha/PSDTimeSeries/` を使用します。subはNo10 cacheを読み、独立ローカルcacheを作りません。既存No2の8–15 Hz平均やIAF用PSDからの流用はしません。**2026-11-12にNo10全40ペア／80セッション、sub39ペアの実行・検証を完了。80 HDF5、254 PNG、独立数値監査・329テストを確認済みです。** 詳細と新規配色は[No10統合仕様](docs/Phase4_No10_解析仕様.md)、実績は同書第12節、経緯は[設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)へ分離します。旧IAF No10（現在のNo9）とは別解析です。
 
 ## Phase 5相関解析の確定方針
 

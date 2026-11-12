@@ -1,6 +1,6 @@
 # Phase 4 No10・No10_sub：Fz low-alpha解析仕様
 
-更新日：2026-11-12。**設計確定・実装／検証中。本番解析の結果は未確認で、完了実績はまだ記載しない。**
+更新日：2026-11-12。**現行仕様確定・全対象の実装／実行／数値検証完了。方法は第1〜11節、実行結果は第12節、過程はhistoryに分離する。**
 
 本書は現行仕様。議論・準備の経緯は[設計決定記録](history/Phase4_No10_設計決定記録_20261112.md)へ分離する。既存No1–9の仕様・コード・結果は変更しない。
 
@@ -39,7 +39,7 @@ low-alpha 8–11 Hzは今回の操作的定義であり、普遍的な帯域定�
 - 既知の4欠測Set、共通対象外、分割記録の正本は[解析上の注意事項](解析上の注意事項.md)。本書に個人ID一覧を重複保存しない。
 - 個人時間変化：欠測条件のSetだけ線を描かず、対応する条件の実在Setは描く。
 - Grand-average・Set定量化・topography：片条件が既知欠測なら**同じペア・同じSetを両条件から外す**。全Set統合値も両条件共通の利用可能Setを使用する。
-- No10はSet 1欠測だけで被験者全体を除かない。No10_subはSet 1 baselineが必要なので、既知Set 1欠測ペアは全体を対象外とする（現行対応なら39ペアが予定母集団）。実使用Nは実行時に別途確認する。
+- No10はSet 1欠測だけで被験者全体を除かない。No10_subはSet 1 baselineが必要なので、既知Set 1欠測ペアは全体を対象外とする。今回の実使用Nは第12節に記載する。
 - 想定外の入力不足、ch不一致、非有限入力、計算不能baselineはpreflightで停止・記録し、個人別の独自除外や補完を追加しない。
 
 ## 4. No10：PSD計算と品質mask
@@ -136,7 +136,7 @@ No10専用cacheだけを読み取り専用で使用し、Welchを再計算しな
 | Eye Drop (C Cube) | `#637B22` | `#8B9D58` |
 | Eye Drop (V Rohto Premium) | `#91A63D` | `#ACBC6E` |
 
-既存のorange／pink／yellow、blue／cyan、青緑、赤、brown系と区別するオリーブ系。4つの新規hexは既存解析設定と重複させない。Controlは意図的な共通色。定量化は対応する線色を淡くし、同じ解析・製品の関係を保持する。実装後の描画で識別性を確認する。topographyは条件色ではなく共通の発散色 `RdBu_r`。
+既存のorange／pink／yellow、blue／cyan、青緑、赤、brown系と区別するオリーブ系。4つの新規hexは既存解析設定と重複させない。Controlは意図的な共通色。定量化は対応する線色を淡くし、同じ解析・製品の関係を保持する。描画した両製品・両解析の図で識別性を確認した。topographyは条件色ではなく共通の発散色 `RdBu_r`。
 
 ## 8. Figure仕様
 
@@ -206,6 +206,8 @@ No10は既存共通 `add_significance_bracket` の光学補正まで継承する
 解析プログラム/Phase4_脳波解析/
   Phase4_No10_FzLowAlpha.py
   Phase4_No10_sub_FzLowAlphaChange.py
+  phase4_no10_cache_guard.py
+  validate_phase4_no10_outputs.py
 ```
 
 No2／No3と同じ `phase4_band_variant_config.py` 経由で検証済みNo1／No1_sub engineを使用する。mainは `configure_band_engine`、subは `configure_change_engine` でNo10固有の帯域・代表ch・保存先・色を設定する。全被験者は同一コード・設定でループ処理する。No10固有設定の変更が他Noのdefault・出力先を変えないことを別プロセスのテストで確認する。既存No1–3 engineそのものは今回変更しない。
@@ -267,7 +269,7 @@ No10の計算から全出力までは、3つの生成モードの代わりに `-
 
 ## 10. OneDrive構造・結果の見方
 
-親は許可済み `実験本番_本解析/Phase4_脳波解析/`。その下に既存Noと並列に配置する。**以下は確定した出力構造であり、生成件数・完了実績は実行後の検証で別途記録する。**
+親は許可済み `実験本番_本解析/Phase4_脳波解析/`。その下に既存Noと並列に配置する。**以下は確定した出力構造。実生成件数・検証実績は第12節を参照する。**
 
 ```text
 No10_FzLowAlpha/
@@ -321,3 +323,63 @@ No10_sub_FzLowAlphaChange/
 5. 個人・群topography数値がch別未平滑定量差と一致する。Fz値も同じ定量値と照合する。
 6. 全図のArial、色、ラベル、軸比率、統計anchor、成果物場所を実画像で確認する。
 7. 既存No1–9と原本が不変。実行後のみ結果・実数N・検証成否を追記する。
+
+## 12. 実行結果・検証（2026-11-12）
+
+### 12.1 実行範囲と成果物
+
+生成コードはGit `057b27668e26c0e6bad8c08995948fdbf63ba9be`。同一40ペアmanifestで各入口の `--production-batch --all` を実行した。終了時刻はNo10が16:34:00、subが16:34:19（JST）。生成後の独立監査コード・結果文書は後続Git履歴に記録する。
+
+| 項目 | No10 | No10_sub |
+|---|---:|---:|
+| 対象ペア | 40（各製品20） | 39（C Cube20、V Rohto Premium19） |
+| 処理セッション／実在Set | 80／476 | No10 cacheを再利用 |
+| PSD HDF5 | 80（全32ch、8–11 Hz） | 新規保存なし |
+| PNG合計 | 168 | 86 |
+| 個人時間変化PNG | 40＋未平滑前40＋未平滑後40 | 39 |
+| 個人topography PNG | 40 | 39 |
+| 群図PNG | 8（2製品×4用途） | 8（2製品×4用途） |
+| CSV | 12（manifest含む） | 11 |
+
+群図4用途は時間変化、Set定量化、All Sets定量化、topography。既知の4欠測Setのみを想定どおり扱い、新たな定性的・空間的・低PSD基準による除外は追加していない。
+
+| 解析・製品 | Set 1〜6の対応ありN | All Sets N |
+|---|---|---:|
+| No10 C Cube | 20,20,20,20,20,19 | 20 |
+| No10 V Rohto Premium | 19,19,20,19,20,20 | 20 |
+| No10_sub C Cube | 20,20,20,20,20,19 | 20 |
+| No10_sub V Rohto Premium | 19,18,19,18,19,19 | 19 |
+
+subのSet 1は上記NでBaselineを描くが検定しない。実使用N・数値は補助CSVを正本とする。
+
+### 12.2 数値・表示・保存の確認
+
+- Google被験者リストと実験当日シートを照合し、40ペア・80セッションの点眼ID／製品対応が一致。個人名を保存せず、manifestと照合記録はNo10のSubに保存した。
+- 合成信号の独立SciPy Welch計算でµV単位、4 bin平均、全32ch、padding・端点・時刻・progress・maskを検証。全リポジトリ329テスト、新規7テストを含め合格。
+- 全80 cacheを読み戻し、元入力fingerprint・設定hash・条件対応・既知欠測、log3SD閾値とmaskを独立再計算で照合した。
+- 全315,166 PSD窓のうちPhase 1重なり基準による除外は20,568窓。残る9,427,136有効ch-cellに対し、log3SD追加除外は21,910 ch-cell（約0.232%）。窓数とch-cell数は分母が異なる。各cacheの数は監査JSONに保存した。
+- 保存PSDから定量値、All Sets、対応ありt検定・3補正、60点平滑化→100点補間→平均／SD／SEM、全32ch条件差topographyを独立再計算。21 CSVの数値・行集合が許容誤差 `rtol=atol=1e-8` 内で一致。subの2,496 baseline行とSet 1平均0を検証した。
+- 全4解析・製品組合せ、全Setでtopographyのch別finite paired Nと全32ch共通Nが一致し、部分的なch欠測による追加のペア除外はなかった。
+- 全254 PNGの名前集合・配置・画像読込が一致。全16群図と代表個人図（欠測Set、未平滑前後、subを含む）を実画像で確認し、ラベルの欠け・重なり、条件色、統計位置、軸比率に表示不具合を認めなかった。全254枚を1枚ずつ目視したという意味ではない。
+- Arial実体は `/System/Library/Fonts/Supplemental/Arial.ttf`。No1–9の共有engineソースは変更していない。既存兄弟結果1,410ファイルに実行開始以降のmtime更新はなかった（実行前後の全ファイルhash照合ではない）。原データへの書込み処理は実行していない。
+- OneDriveは**ローカル同期先への保存と読戻し**まで確認。クラウドサーバーへの同期完了を独立に確認したという意味ではない。
+
+### 12.3 観察結果と解釈の限界
+
+- 今回のFz定量化では、両製品・両解析とも、検定対象の全SetおよびAll Setsで未補正p≥.05。補正後も有意差はない。sub Set 1は検定対象外。
+- All Setsの未補正p：No10 C Cube=.1422、V Rohto Premium=.9085、sub C Cube=.1054、V Rohto Premium=.4077。
+- 個人差・一部大きな値や局所的なtopography色差は残る。今回は追加除外をせず保持した。この数値検証は信号がノイズフリーであること、製品の効果／無効果、領域特異性を証明するものではない。
+
+### 12.4 証跡と再検証
+
+No10 `Sub/logs/`：`ManifestSourceAudit_20261112.json`、`PreflightConsole_20261112.log`、`ProductionConsole_20261112.log`、`No10_FzLowAlpha_RunSummary.json`、`ValidationSummary_20261112.json`。sub `Sub/logs/`：`ProductionConsole_20261112.log`、`No10_sub_FzLowAlphaChange_RunSummary.json`。閾値・baseline・群系列・定量値・topography元値は各 `Sub/tables/`。
+
+監査スクリプトは元EEG／PSDを再計算せず、保存PSDから独立に下流計算を照合する。PSDそのものの検証は上記の独立Welchテストと入力・保存検査で行った。
+
+```sh
+.venv/bin/python 解析プログラム/Phase4_脳波解析/validate_phase4_no10_outputs.py \
+  --manifest "$no10_manifest" \
+  --report "${no10_manifest%/tables/ParticipantManifest.csv}/logs/ValidationSummary_20261112.json"
+```
+
+`no10_manifest` は第9.1節の明示的な保存先。監査reportはNo10またはsubの `Sub/logs/` 内に限定する。
