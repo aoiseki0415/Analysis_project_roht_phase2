@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
@@ -103,10 +104,112 @@ def run_stage(name: str, script: str, arguments: list[str], console: Path, recor
         raise RuntimeError(f"{name} exited with {returncode}")
 
 
+def complete_verification(review_path: Path) -> None:
+    """Record completed human/agent visual and document review without rerendering."""
+    record = json.loads(RECORD.read_text(encoding="utf-8"))
+    if record["status"] != "numerical_execution_and_output_audit_passed":
+        raise RuntimeError("Numerical production/audit must pass before final verification")
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    if review.get("status") != "passed" or review.get("tests_passed", 0) < 1:
+        raise RuntimeError("Completed review and test evidence are required")
+    test_report = Path(review["test_report"]["path"])
+    if digest(test_report) != review["test_report"]["sha256"]:
+        raise RuntimeError("Test report changed after review")
+    suites = ET.parse(test_report).getroot().iter("testsuite")
+    test_counts = {key: 0 for key in ("tests", "failures", "errors", "skipped")}
+    for suite in suites:
+        for key in test_counts:
+            test_counts[key] += int(suite.attrib.get(key, 0))
+    if test_counts != {"tests": review["tests_passed"], "failures": 0, "errors": 0, "skipped": 0}:
+        raise RuntimeError("Test report does not support the reported pass count")
+    documents = review["document_checks"]
+    if not documents or len(review["notion_checks"]) != 7:
+        raise RuntimeError("Document and seven Notion-page readbacks are required")
+    for item in [*documents, *review["notion_checks"]]:
+        if item.get("status") != "passed":
+            raise RuntimeError("A document or Notion readback has not passed")
+    for item in [*documents, *review["source_checks"]]:
+        path = Path(item["path"]).resolve()
+        if not path.is_relative_to(REPO) or item["sha256"] != digest(path):
+            raise RuntimeError("Reviewed repository file changed or is outside scope")
+        committed = subprocess.check_output(
+            ["git", "show", f"HEAD:{path.relative_to(REPO).as_posix()}"], cwd=REPO
+        )
+        if hashlib.sha256(committed).hexdigest() != item["sha256"]:
+            raise RuntimeError("Reviewed repository file differs from final commit")
+    entries = review["visual_checks"]
+    reviewed = {Path(item["path"]).resolve() for item in entries}
+    if len(entries) != 26 or len(reviewed) != 26:
+        raise RuntimeError("Exactly 26 distinct visual reviews are required")
+    group_pngs = {
+        path.resolve()
+        for root in (MAIN_ROOT, SUB_ROOT)
+        for path in root.rglob("*.png")
+        if not path.name.startswith("ID")
+    }
+    if len(group_pngs) != 22 or not group_pngs.issubset(reviewed):
+        raise RuntimeError("All 22 group PNGs must have an explicit visual review")
+    if sum(path.name.startswith("ID") for path in reviewed) != 4:
+        raise RuntimeError("Four representative individual PNG reviews are required")
+    for item in entries:
+        if item.get("status") != "passed":
+            raise RuntimeError("A figure review has not passed")
+        path = Path(item["path"]).resolve()
+        if not any(path.is_relative_to(root.resolve()) for root in (MAIN_ROOT, SUB_ROOT)):
+            raise RuntimeError("Review path outside No10 scope")
+        if item["sha256"] != digest(path):
+            raise RuntimeError(f"Figure changed after visual review: {path}")
+    if protected_inventory() != record["protected_inventory_before"]:
+        raise RuntimeError("Protected siblings changed before delivery")
+    if digest(MANIFEST) != record["manifest_sha256"]:
+        raise RuntimeError("Manifest changed before delivery")
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    remote = subprocess.check_output(
+        ["git", "ls-remote", "origin", "refs/heads/main"], cwd=REPO, text=True
+    ).split()[0]
+    if head != remote:
+        raise RuntimeError("Final Git commit is not verified on origin/main")
+    validation = LOG_ROOT / "ValidationSummary_20261112_8to10Hz.json"
+    if json.loads(validation.read_text(encoding="utf-8"))["status"] != "passed":
+        raise RuntimeError("Final numerical validation is not passed")
+    report = {
+        **review,
+        "completed_at": datetime.now().astimezone().isoformat(),
+        "git_commit": head,
+        "verified_remote_commit": remote,
+        "numerical_report": str(validation),
+        "numerical_report_sha256": digest(validation),
+        "test_report_xml": test_report.read_text(encoding="utf-8"),
+        "current_png_sha256": {
+            str(path): digest(path)
+            for root in (MAIN_ROOT, SUB_ROOT)
+            for path in sorted(root.rglob("*.png"))
+        },
+        "protected_inventory_unchanged": True,
+        "cloud_sync": record["cloud_sync"],
+    }
+    target = LOG_ROOT / "DeliveryVerification_20261112_8to10Hz.json"
+    target.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if json.loads(target.read_text(encoding="utf-8")) != report:
+        raise RuntimeError("Delivery verification readback mismatch")
+    record.update(
+        status="completed",
+        visual_and_document_checks="passed",
+        delivery_verification=str(target),
+        delivery_verification_sha256=digest(target),
+        final_git_commit=head,
+    )
+    save_record(record)
+    print(json.dumps({"status": "completed", "visual_pngs": len(entries), "git": head}))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--execute", action="store_true", required=True)
-    parser.add_argument("--manifest-source-audit", type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--execute", action="store_true")
+    mode.add_argument("--complete-verification", action="store_true")
+    parser.add_argument("--manifest-source-audit", type=Path)
+    parser.add_argument("--review-manifest", type=Path)
     args = parser.parse_args()
     actual_root = subprocess.check_output(
         ["git", "rev-parse", "--show-toplevel"], cwd=REPO, text=True
@@ -116,6 +219,13 @@ def main() -> int:
     )
     if Path(actual_root.strip()) != REPO or actual_origin.strip() != ORIGIN:
         raise RuntimeError("Repository boundary mismatch")
+    if args.complete_verification:
+        if not args.review_manifest:
+            parser.error("--complete-verification requires --review-manifest")
+        complete_verification(args.review_manifest)
+        return 0
+    if not args.manifest_source_audit:
+        parser.error("--execute requires --manifest-source-audit")
     if RECORD.exists():
         raise RuntimeError("Revision record already exists; inspect it before an explicit rerun")
     source_audit = json.loads(args.manifest_source_audit.read_text(encoding="utf-8"))

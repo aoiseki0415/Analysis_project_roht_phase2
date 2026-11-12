@@ -140,7 +140,7 @@ Grand-averageは**保存済みIAFから各条件自身のSet 1 IAFを引いたHz
 
 No10はFzを代表chとする**8–10 Hz（8・9・10 Hzの3 binを含む）**の絶対PSD、No10_subは各セッションID・ch自身のSet 1平均からのPSD Changeです。現在のNo1–3と同じ全32chの1秒PSD・1秒移動、Phase 1区間mask、帯域固有の全Set一括log3SD、時間変化だけ60秒平滑化、未平滑値による定量化・topography、平均±SEM、対応ありt検定を継承します。主結果は新たな被験者選別をせず、既知欠測とsubのSet 1 baseline要件を継承します。IAF選別や過去の補足分析除外は適用しません。
 
-OneDriveに `No10_FzLowAlpha/` と `No10_sub_FzLowAlphaChange/`、ローカル許可領域に `No10_FzLowAlpha/PSDTimeSeries/` を使用します。subはNo10 cacheを読み、独立ローカルcacheを作りません。変更前の帯域平均、既存No2の8–15 Hz平均、IAF用PSDからは流用せず、現行3 binのPSDとlog3SDを再計算します。**2026-11-12に帯域変更とsub追加感度分析を確定。現行8–10 Hzの再実行・検証は確認待ちです。** 旧実績は[履歴](docs/history/Phase4_No10_旧帯域実行結果_20261112.md)へ分離し、現行結果として扱いません。
+OneDriveに `No10_FzLowAlpha/` と `No10_sub_FzLowAlphaChange/`、ローカル許可領域に `No10_FzLowAlpha/PSDTimeSeries/` を使用します。subはNo10 cacheを読み、独立ローカルcacheを作りません。変更前の帯域平均、既存No2の8–15 Hz平均、IAF用PSDからは流用せず、現行3 binのPSDとlog3SDを再計算します。**2026-11-12に8–10 Hzへ全80 cacheを再計算し、No10 40ペア・sub 39ペア、追加版Cキューブ19／Vプレ17ペアを処理しました。全260 PNGの生成・読込、独立数値監査、全群図を含む26枚の目視を確認済みです。** 現行のN・mask・統計・検証範囲は[No10仕様第12節](docs/Phase4_No10_解析仕様.md#12-現行810-hzの実行結果検証)。旧実績は[履歴](docs/history/Phase4_No10_旧帯域実行結果_20261112.md)へ分離し、現行結果として扱いません。
 
 No10_subには主結果を保持したまま、利用者指定のVロートプレミアム2ペア・Cキューブ1ペアを両条件・全Setから除く `SpecifiedPairsExcluded` 版を追加します。対象はGrand-average、Set別・全Set統合定量化だけで、個人図・topography・No10本体には適用しません。対象一覧は[解析上の注意事項](docs/解析上の注意事項.md#phase-4-no10_sub指定ペア除外追加版2026-11-12確定)を正本とします。変更前の結果で持続的に大きな変化率を認めたことを契機とする事後・探索的解析であり、ノイズとの確定診断ではありません。詳細は[No10統合仕様](docs/Phase4_No10_解析仕様.md)、最新実績は同書第12節、経緯は[設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)へ分離します。旧IAF No10（現在のNo9）とは別解析です。
 

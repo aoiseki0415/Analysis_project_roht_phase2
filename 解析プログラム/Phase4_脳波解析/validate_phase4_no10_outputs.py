@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Independently audit No10/main + sub caches and numerical output tables.
 
-Read-only except for the explicitly requested JSON report. PSD generation is
-covered by the independent SciPy Welch unit test; this audit starts with every
-saved, unsmoothed, pre-exclusion 32-channel PSD cache. It never regenerates data.
+Read-only except for the explicitly requested JSON report. Audit every saved,
+unsmoothed, pre-exclusion 32-channel PSD cache and independently recalculate
+sampled source-EEG windows with SciPy Welch. No analysis cache is overwritten.
 """
 
 from __future__ import annotations
@@ -103,6 +103,8 @@ def read_cache(path: Path, sid: str, report: dict) -> dict:
                     indices = np.where(indices >= n_samples, 2 * n_samples - 2 - indices, indices)
                     unique, inverse = np.unique(indices, return_inverse=True)
                     window = source["signal/data"][unique, :][inverse].astype(float) * 1e6
+                    source_mask = source["qc/ica_training_excluded_mask"][unique][inverse]
+                    equal(overlap[s][row], np.mean(source_mask), f"{path}: source mask Set{s}")
                     frequencies, density = signal.welch(
                         window.T,
                         fs=256,
