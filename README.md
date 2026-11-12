@@ -136,11 +136,11 @@ Grand-averageは**保存済みIAFから各条件自身のSet 1 IAFを引いたHz
 
 2026-11-10の改番・初回再集計（8 PNG・6 CSV）の後、低PSDとIAF急変の所見に基づく利用者指定により、No8 Pz・Vプレの選別版から1ペアを追加除外しました。対象PNG1枚とNo8の補助3 CSVだけを更新し、現在のSet別Nは同選別版が10・10・10・9・10・10です。AllAvailable各群18–19、No8 Cキューブ選別11–12、新No9 Cキューブ選別10–11・Vプレ選別9–10は不変。元80 HDF5・80個人PNG・対象外7群図を保持し、全体960差分・960採否・96群集計行の独立照合、対象355ファイルのhash不変、更新図の目視確認を完了しました。低PSDの3件は要注意と記録し、指定の1ペア以外は今回除外していません。平均PSD<1という一般的な足切りは導入しません。**対象例外は[注意事項](docs/解析上の注意事項.md)、最新実績と再現手順は[共有仕様第15節](docs/Phase4_No8_No9_共有用解析仕様.md)。** 改番時の旧実績は同第14節の履歴です。No1–7、他フェーズ、原EEG、Phase 1は変更対象外です。
 
-### Phase 4 No10・No10_sub（Fz low-alpha・設計確定／未実装）
+### Phase 4 No10・No10_sub（Fz low-alpha）
 
 No10はFzを代表chとする**8–11 Hz（8・9・10・11 Hzを含む）**の絶対PSD、No10_subは各セッションID・ch自身のSet 1平均からのPSD Changeです。現在のNo1–3と同じ全32chの1秒PSD・1秒移動、Phase 1区間mask、帯域固有の全Set一括log3SD、時間変化だけ60秒平滑化、未平滑値による定量化・topography、平均±SEM、対応ありt検定を継承します。新たな被験者選別はせず、既知欠測とsubのSet 1 baseline要件だけを既存仕様に揃えます。IAF選別や過去の補足分析除外は適用しません。
 
-OneDriveに `No10_FzLowAlpha/` と `No10_sub_FzLowAlphaChange/`、ローカル許可領域に `No10_FzLowAlpha/PSDTimeSeries/` の空フォルダを準備しました。subはNo10 cacheを読み、独立ローカルcacheを作りません。既存No2の8–15 Hz平均やIAF用PSDからの流用はしません。**現在は文書・保存先の準備のみで、スクリプト・cache・figure・解析結果は未作成です。** 詳細と新規配色は[No10統合仕様](docs/Phase4_No10_解析仕様.md)、経緯は[設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)へ分離します。旧IAF No10（現在のNo9）とは別解析です。
+OneDriveに `No10_FzLowAlpha/` と `No10_sub_FzLowAlphaChange/`、ローカル許可領域に `No10_FzLowAlpha/PSDTimeSeries/` を使用します。subはNo10 cacheを読み、独立ローカルcacheを作りません。既存No2の8–15 Hz平均やIAF用PSDからの流用はしません。**明示的な開始指示後、実装・本番実行・検証を進めています。完了実績は検証後に記録します。** 詳細と新規配色は[No10統合仕様](docs/Phase4_No10_解析仕様.md)、経緯は[設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)へ分離します。旧IAF No10（現在のNo9）とは別解析です。
 
 ## Phase 5相関解析の確定方針
 
@@ -166,7 +166,7 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 No6・No7 Fz序盤絶対PSD解析仕様](docs/Phase4_No6_No7_Fz序盤絶対PSD_解析仕様.md)：Fzシータ・デルタの絶対PSDで各Set序盤と隣接Set境界を比較する追加探索の計算、図、出力、検証記録
 - [Phase 4 No8・No9 IAF共有用解析仕様](docs/Phase4_No8_No9_共有用解析仕様.md)：Pz・FzのSet全体IAF、局所ピーク、個人3パネル図、Set 1差分Grand-average、最新の単峰選別・固定軸、計算・保存・検証を含む唯一の現行仕様
 - [Phase 4 No4–9 結果フォルダとFigureの読み方](docs/Phase4_No4_No9_結果フォルダとFigureの読み方.md)：共有用の閲覧ガイド。各NoのOneDrive階層、時間推移・Set序盤・Set境界・IAFの軸と単位、線・点・色、通常版と除外／選別版、補助表の探し方を整理
-- [Phase 4 No10・No10_sub解析仕様](docs/Phase4_No10_解析仕様.md)：Fz low-alpha 8–11 Hzの絶対PSDとSet 1変化率。方法・全figure設定・保存構造・検証条件の現行正本。設計確定、未実装・未実行
+- [Phase 4 No10・No10_sub解析仕様](docs/Phase4_No10_解析仕様.md)：Fz low-alpha 8–11 Hzの絶対PSDとSet 1変化率。方法・全figure設定・保存構造・実行方法・検証の現行正本
 - [Phase 4 No10設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)：No1–3からの継承、旧IAF番号との区別、準備・検証の経緯。履歴用
 - [Phase 4 改番前仕様の保存版](docs/history/Phase4_No8-11_改番前仕様_20261110.md)：旧4解析・旧採用集合・旧図設定・過去検証の全文。履歴専用で実行や現行対象選定には使わない
 - [Phase 4 No8–11 旧方式と再設計記録](docs/history/Phase4_No8-11_旧方式と再設計記録.md)：廃止した方式と再設計の理由・整理記録。履歴専用で現行手順には使用しない
