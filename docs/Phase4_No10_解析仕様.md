@@ -1,6 +1,6 @@
 # Phase 4 No10・No10_sub：Fz low-alpha解析仕様
 
-更新日：2026-11-12。**現行仕様確定・全対象の実装／実行／数値検証完了。方法は第1〜11節、実行結果は第12節、過程はhistoryに分離する。**
+更新日：2026-11-12。**現行帯域は8–10 Hz（両端込み）。帯域変更とsubの指定ペア除外追加版を確定し、再実装・全対象再実行の検証待ち。方法は第1〜11節、最新実績は第12節、旧実績・過程はhistoryに分離する。**
 
 本書は現行仕様。議論・準備の経緯は[設計決定記録](history/Phase4_No10_設計決定記録_20261112.md)へ分離する。既存No1–9の仕様・コード・結果は変更しない。
 
@@ -12,20 +12,20 @@
 |---|---|---|
 | 解析名 | Fz low-alpha絶対PSD | Fz low-alpha PSD Change |
 | 正式stem | `No10_FzLowAlpha` | `No10_sub_FzLowAlphaChange` |
-| 帯域 | **8、9、10、11 Hzの4 binを含む** | 同左 |
+| 帯域 | **8、9、10 Hzの3 binを含む** | 同左 |
 | 代表ch | **Fz** | **Fz** |
 | 値 | 帯域内PSDの算術平均、µV²/Hz | 各ID・ch自身のSet 1平均に対する変化率、% |
 | 比較 | 製品群別に同じ被験者のEye DropとControl | 同左 |
 | 出力 | 個人時間変化、Grand-average、Set別・全Set統合定量化、個人・群topography | 同左 |
 
-low-alpha 8–11 Hzは今回の操作的定義であり、普遍的な帯域定義と断定しない。IAFや個人別帯域の推定はしない。No10_add／TFMは今回の範囲外。
+low-alpha 8–10 Hzは今回の操作的定義であり、普遍的な帯域定義と断定しない。IAFや個人別帯域の推定はしない。No10_add／TFMは今回の範囲外。帯域変更前の実績は[旧実績保存版](history/Phase4_No10_旧帯域実行結果_20261112.md)へ分離し、現行結果として使用しない。
 
 旧IAF No10は既にNo9へ改番済み。**新No10はlow-alphaパワーであり、旧No10のFz IAFではない。** 現行IAFは[No8・No9仕様](Phase4_No8_No9_共有用解析仕様.md)のみ。
 
 ## 2. 引き継ぐ仕様と参照元
 
 - 最新の[No1統合仕様](Phase4_No1_共有用解析仕様.md)の本体・subを基準とし、[No2](Phase4_No2_共有用解析仕様.md)・[No3](Phase4_No3_共有用解析仕様.md)の帯域変更方式と整合させる。
-- 変更点は帯域、代表ch、解析名・保存先・cache識別子、点眼色。計算・欠測・統計・描画の基本構造は維持する。
+- 変更点は帯域、代表ch、解析名・保存先・cache識別子、点眼色と、subの指定ペア除外感度分析。計算・欠測・統計・描画の基本構造は維持する。
 - No1の一時的な95% y軸、廃止済み30点平滑化足切り、固定y軸、探索用図は継承しない。
 - No1–3のtopography感度分析、No2のOz/Pz補助除外、No4–7の指定ペア除外、No8–9のIAF選別は継承しない。
 - 不明点は現行No1–3の正本と実装を照合し、未解決の矛盾があれば勝手に選ばず停止する。以下の平滑化点数・描画anchor等は既存実装を詳記したもので、No1–3の数値計算やデザインを変更しない。過去の実績や除外率をNo10の結果として転記しない。
@@ -41,6 +41,7 @@ low-alpha 8–11 Hzは今回の操作的定義であり、普遍的な帯域定�
 - Grand-average・Set定量化・topography：片条件が既知欠測なら**同じペア・同じSetを両条件から外す**。全Set統合値も両条件共通の利用可能Setを使用する。
 - No10はSet 1欠測だけで被験者全体を除かない。No10_subはSet 1 baselineが必要なので、既知Set 1欠測ペアは全体を対象外とする。今回の実使用Nは第12節に記載する。
 - 想定外の入力不足、ch不一致、非有限入力、計算不能baselineはpreflightで停止・記録し、個人別の独自除外や補完を追加しない。
+- 主結果は追加の被験者選別を行わない。No10_subの追加版だけに[注意事項の確定除外集合](解析上の注意事項.md#phase-4-no10_sub指定ペア除外追加版2026-11-12確定)を適用する。第6.4節で対象成果物と除外単位を定義する。
 
 ## 4. No10：PSD計算と品質mask
 
@@ -52,15 +53,15 @@ No1–3と同じ `mne.time_frequency.psd_array_welch` を使う。全被験者�
 |---|---|
 | 入力 | 1秒分のµV信号、末尾次元が時間。全32ch |
 | `sfreq` | 256.0 Hz |
-| `fmin`, `fmax` | **8.0, 11.0 Hz** |
+| `fmin`, `fmax` | **8.0, 10.0 Hz** |
 | `n_fft`, `n_per_seg` | 256, 256 |
 | `n_overlap` | 0 |
 | `window` | `hann` |
 | `average`, `output` | `mean`, `power` |
 | `remove_dc`, `verbose` | True, False |
 | 外側の移動幅 | 256 sample＝1秒 |
-| 周波数bin確認 | `[8., 9., 10., 11.]` と完全一致 |
-| 帯域値 | 4 binを算術平均。積分・総和・dB化はしない |
+| 周波数bin確認 | `[8., 9., 10.]` と完全一致 |
+| 帯域値 | 3 binを算術平均。積分・総和・dB化はしない |
 
 1秒窓内は1 Welch segment。複数時間窓のPSDを後で平均する処理と、Welch内部の平均は混同しない。
 
@@ -74,11 +75,11 @@ No1–3と同じ `mne.time_frequency.psd_array_welch` を使う。全被験者�
 
 1. Phase 1 `ica_training_excluded_mask` と1秒PSD窓の重なり率を求める。maskにも同じreflectを適用する。
 2. 重なり率 **1%以上** の窓は解析時に全32chをNaNにする。時刻を詰めない。
-3. その後、**セッションID×chごと**に利用可能な全Setの有限・正の未平滑8–11 Hz平均PSDをまとめる。
+3. その後、**セッションID×chごと**に利用可能な全Setの有限・正の未平滑8–10 Hz平均PSDをまとめる。
 4. `x=log10(PSD)`、`T=mean(x)+3×SD(x, ddof=1)`。`x>T` の窓だけ、そのchでNaNにする。Set別閾値、下側閾値、条件間で共通の閾値は使わない。
 5. 元PSDを上書きせず、log平均・SD・T・10^T・mask・Set/ch別の有効数／除外数／率を保持する。再描画でも両maskを必ず適用する。
 
-No1のthetaやNo2の8–15 Hzで算出した閾値・maskを転用しない。ICA学習用 `ica_channel_excluded_mask` は監査用に保存するが、PSDでのch除外には使わず32chを保持する。新たな低PSD足切り、被験者除外、空間外れ値除外は設けない。
+No1のtheta、No2の8–15 Hz、変更前のNo10帯域で算出した閾値・maskを転用しない。ICA学習用 `ica_channel_excluded_mask` は監査用に保存するが、PSDでのch除外には使わず32chを保持する。PSD計算・主結果へ新たな低PSD足切り、被験者除外、空間外れ値除外は設けない。subの事後感度分析は保存cacheに影響しない別工程とする。
 
 ### 4.3 時間変化と定量化の分岐
 
@@ -127,6 +128,16 @@ No10専用cacheだけを読み取り専用で使用し、Welchを再計算しな
 - No10の単位はµV²/Hz。No10_subは変化率同士の差で、数値的にはpercentage points（図は既存と同じ `%` 表記）。
 - 既知欠測は両条件対応で除外。既存No1–3の群topography実装では、**当該Setの条件差が全32chで有限なペア**を群平均に使用し、Setごとの `Valid_N` を保存する。chごとに異なる母集団を黙って混ぜない。
 - 実行監査ではch別の有限ペア数も照合し、全32ch共通Nとの一致／不一致を記録する。部分的に非有限なchがある場合は、上記のSet単位採用に及ぼす影響を別記する。補足分析の事後的ch除外は流用しない。
+
+### 6.4 No10_subのみ：指定ペア除外の追加感度分析
+
+- 主結果を保持し、`SpecifiedPairsExcluded` と識別する追加版を両製品で作る。対象の正本は[解析上の注意事項](解析上の注意事項.md#phase-4-no10_sub指定ペア除外追加版2026-11-12確定)。Vロートプレミアム2ペア、Cキューブ1ペアを指定する。
+- 除外するのは**指定ペアのEye Drop／Control両条件・全Set**。片条件・一部Setだけの除外ではない。既知欠測とbaseline要件を適用後、指定集合を群集計から外す。
+- 追加対象はFzの **Grand-average、Set別定量化、全Set統合定量化** と対応する数値表・統計・実行記録だけ。No10本体、subの個人図、主結果、topography、元PSD・mask・baselineを変更しない。感度版topographyは作らない。
+- 保存済み現行帯域cacheから通常のsub値を作り、対象集合だけを絞って同じ平均・SEM・対応ありt検定を再計算する。補正familyは追加版・製品ごとにSet 2–6の5検定、全Set統合は未補正の1検定。Set 1を全Set統合へ含める。
+- 縦軸・統計配置は除外後の値から第8節の同じ比率で再計算する。Grand-averageは追加版の両製品で共通軸とし、主結果の大きな上限を固定流用しない。
+- 選定理由は**帯域変更前の結果で持続的に大きな変化率を観察した利用者指定**。事後・探索的な感度分析であり、ノイズと確定した除外や一般的な品質閾値ではない。主結果と並べて影響を確認し、追加版のみで製品効果を確定しない。
+- 対象集合・理由、除外前後のペア数、Set別／全Set統合の実有効N、元cache識別子をSubへ記録する。対象者をmanifestから削除したり、再描画のたびに結果を見て再選別したりしない。
 
 ## 7. 配色（No10・No10_sub共通）
 
@@ -207,16 +218,18 @@ No10は既存共通 `add_significance_bracket` の光学補正まで継承する
   Phase4_No10_FzLowAlpha.py
   Phase4_No10_sub_FzLowAlphaChange.py
   phase4_no10_cache_guard.py
+  phase4_no10_sub_sensitivity.py
   validate_phase4_no10_outputs.py
+  run_phase4_no10_band_revision.py
 ```
 
 No2／No3と同じ `phase4_band_variant_config.py` 経由で検証済みNo1／No1_sub engineを使用する。mainは `configure_band_engine`、subは `configure_change_engine` でNo10固有の帯域・代表ch・保存先・色を設定する。全被験者は同一コード・設定でループ処理する。No10固有設定の変更が他Noのdefault・出力先を変えないことを別プロセスのテストで確認する。既存No1–3 engineそのものは今回変更しない。
 
 | 識別子 | 値 |
 |---|---|
-| No10 script version | `20261112_lowalpha_v1` |
-| No10 cache configuration version | `20261112_lowalpha_cache_v1` |
-| No10_sub script version | `20261112_lowalpha_change_v1` |
+| No10 script version | `20261112_lowalpha_8to10_v2` |
+| No10 cache configuration version | `20261112_lowalpha_8to10_cache_v2` |
+| No10_sub script version | `20261112_lowalpha_8to10_change_v2` |
 
 No10はPSD計算・保存、cache検証、個人図、Grand-average、定量化、topographyを独立実行できる。No10_subはcache読込から開始し、各出力工程を分離する。以下のCLIは再現手順であり、本番完了を示す実行記録ではない。
 
@@ -225,11 +238,12 @@ No10はPSD計算・保存、cache検証、個人図、Grand-average、定量化�
 | `--preflight-only` | manifest・Phase 1入力検査のみ | cache・条件対応・Set 1 baseline検査のみ |
 | `--compute-psd` | cache計算・保存・読み戻し検証のみ | なし |
 | `--individual-only` | cacheから3種の個人時間変化と個人topography | cacheから個人時間変化と個人topography |
-| `--group-outputs-only` | Grand-average・定量化・統計・群topography | 同左 |
-| `--set-quantification-only` | なし | 定量化・統計だけ |
-| `--all` | preflight→必要なcache計算→全出力 | preflight→全出力（PSD再計算なし） |
+| `--group-outputs-only` | Grand-average・定量化・統計・群topography | 同左＋本番全対象なら指定ペア除外追加版 |
+| `--set-quantification-only` | なし | 主結果の定量化・統計だけ |
+| `--sensitivity-only` | なし | 指定ペア除外のGrand-average・Set／全Set定量化・統計だけ |
+| `--all` | preflight→必要なcache計算→全出力 | preflight→主結果全出力＋本番全対象なら指定ペア除外追加版（PSD再計算なし） |
 
-本番では40ペアの同じmanifestと `--production-batch` を使う。subもmanifestから対象を手で削らず、仕様化されたSet 1欠測除外を実装内で適用する。manifestは以下の必須4列を持ち、氏名を含めず、Gitへ保存しない。
+本番では40ペアの同じmanifestと `--production-batch` を使う。subもmanifestから対象を手で削らず、仕様化されたSet 1欠測除外と、追加出力だけの指定ペア除外を実装内で適用する。manifestは以下の必須4列を持ち、氏名を含めず、Gitへ保存しない。
 
 ```text
 first_session_id,second_session_id,drops_session_id,product
@@ -250,6 +264,8 @@ no10_sub="$no10_repo/解析プログラム/Phase4_脳波解析/Phase4_No10_sub_F
 
 No10の計算から全出力までは、3つの生成モードの代わりに `--all` でも実行できる。同じ作業で両方を重複実行しない。既定input・cache・outputは許可済みの固定先を使い、他の保存先へfallbackしない。`--force-recompute` は不具合または合意済み計算変更時だけ使用し、図の調整では使わない。Grand-averageは既定の `--grand-y-target-fraction 0.75 --grand-y-basis mean_plus_sem` を変更しない。
 
+subの全対象 `--all`／`--group-outputs-only` は、baseline適格な39ペアの主結果に続けて感度版を自動生成する。少数ペアpilotではこの自動追加を省略する。感度版だけを再描画する場合は、同じ40ペアmanifestと `--production-batch --sensitivity-only` を指定し、cache・ID・製品・確定除外集合を再検証する。`--set-quantification-only` は主定量化だけであり、感度版も更新したい場合に代用しない。
+
 ### 9.2 キャッシュ
 
 ```text
@@ -261,11 +277,20 @@ No10の計算から全出力までは、3つの生成モードの代わりに `-
 
 - No1と同じHDF5構造（[No1仕様第7節](Phase4_No1_共有用解析仕様.md#7-psdキャッシュhdf5)）。未平滑・mask前の `sets/SetN/psd_band_mean` が原値正本。32ch、float32、窓×ch。
 - `log3sd_outlier_mask`、`ica_training_mask_fraction`、各中心時刻（float64）、Set/global progress、中心sample、ch名、ch mask、Set availability、QC閾値・数を保存する。
-- attrsには `script_version`、帯域8–11・実bin、fs、単位、ID/ペア/条件/製品、PSDパラメータ、mask方針、`configuration_hash`、`input_fingerprints_json`、作成時刻を保存する。Set datasetはgzip4・shuffleを用いる。
+- attrsには `script_version`、帯域8–10・実bin、fs、単位、ID/ペア/条件/製品、PSDパラメータ、mask方針、`configuration_hash`、`input_fingerprints_json`、作成時刻を保存する。Set datasetはgzip4・shuffleを用いる。
 - 専用のschema名・analysis stem・cache versionを独立attrsとして保存する方式ではない。**analysis stem・focus channel・cache configuration version・全計算設定と入力fingerprintを設定hashの生成内容に含める**。script versionは生成時の履歴として独立attrsに保存し、互換性判定はcache configuration versionを含むhashで行う。描画だけのscript version変更でPSD再計算を要求しない。
-- No2の8–15 Hz帯域平均cacheから8–11 Hzを逆算できない。No10はPhase 1から新規計算する。FzのみのTFM cacheやIAFの10秒窓・0.1 Hz PSDも使用しない。
-- 読み戻してshape・時刻・progress・ch順・設定・mask再現を検証。No10専用cache guardで8–11 Hzの全bin・設定hashの再計算一致・入力ファイルのサイズ／mtime・manifestのID／ペア／条件／製品を確認し、別帯域・旧数値設定・入力変更・条件不一致のcacheでは停止する。図だけの調整でPSDを再計算しない。
+- No2の8–15 Hzや変更前No10の帯域平均cacheから8–10 Hzを逆算できない。No10はPhase 1から現行3 binのPSDと専用log3SDを再計算する。FzのみのTFM cacheやIAFの10秒窓・0.1 Hz PSDも使用しない。
+- 読み戻してshape・時刻・progress・ch順・設定・mask再現を検証。No10専用cache guardで8–10 Hzの全bin・設定hashの再計算一致・入力ファイルのサイズ／mtime・manifestのID／ペア／条件／製品を確認し、別帯域・旧数値設定・入力変更・条件不一致のcacheでは停止する。旧cacheを現行として再利用しない。図だけの調整でPSDを再計算しない。
 - No10_sub用のローカルデータフォルダは作らない。
+
+### 9.3 今回の帯域置換・実行監査
+
+- `run_phase4_no10_band_revision.py` は今回の置換専用ラッパー。解析手法を別実装せず、同じ本番main／subスクリプトを40ペアmanifestで呼ぶ。
+- Googleの匿名化ID・製品・点眼回／セッション条件を照合し、照合済みmanifestのSHA-256を固定する。全80セッション入力をpreflightしてから更新を始める。
+- 旧CSV・JSON・LOGは各Noの `Sub/history/Before8to10Hz_20261112/` へ元相対パスで保存し、コピーhashを確認する。旧実行ログは現行logsから履歴へ移す。旧PNGは現行図へ置換し、表示用の旧版は残さない。
+- mainの `--all --force-recompute` → subの `--all` →独立監査を実行する。cache 80件のhash更新、全260 PNGの再生成、他Noの出力・cacheのパス／サイズ／mtime不変を検査する。これらの件数は予定値であり、完了実績は第12節による。
+- 独立監査は保存PSD・mask・baseline・定量・統計・GA・topographyを再構成する。さらに各実在Setの先頭／中央／末尾の1秒窓・全32chを元EEGからSciPy Welchで再計算し、8・9・10 Hz平均と保存値を照合する。全窓の元EEG再計算ではなく抜粋検証である。
+- コマンド・Git commit・時刻・終了コード・成果物hash・警告／失敗・数値検証は `Sub/logs/` へ保存する。数値監査と実画像確認は別の完了項目にする。OneDriveローカル同期フォルダへの保存を、サーバー側同期完了と同一視しない。
 
 ## 10. OneDrive構造・結果の見方
 
@@ -290,8 +315,9 @@ No10_FzLowAlpha/
 No10_sub_FzLowAlphaChange/
   CCube/                         # VRohtoPremium/も同じ構造
     Individual/                  # Set 1変化率・60秒平滑化
-    GrandAverage/
-    SetQuantification/
+    GrandAverage/                # 主結果＋SpecifiedPairsExcluded PNG
+    SetQuantification/           # 主結果PNG・統計CSV
+      SpecifiedPairsExcluded/    # 追加版Set別・全Set統合PNG・統計CSV
     Topography/{Individual,GrandAverage}/
   VRohtoPremium/
   Sub/
@@ -305,6 +331,8 @@ No10_sub_FzLowAlphaChange/
 - 群図：`<stem>_GrandAverage_<製品群>.png`。定量化：`<stem>_SetQuantification_<製品群>.png`／`<stem>_AllSetsQuantification_<製品群>.png`。
 - 頭皮図：`ID<初回>-<2回目>_<stem>_Topography.png`／`<stem>_Topography_GrandAverage_<製品群>.png`。
 - 統計CSV：`<stem>_SetQuantification_Statistics_<製品群>.csv` 等、No1と同じ用途別接尾辞。製品群文字列はCCube／VRohtoPremium。
+- sub追加Grand-averageは同じGrandAverage直下に `<stem>_GrandAverage_<製品群>_SpecifiedPairsExcluded.png`。追加定量化PNG・統計CSVは `SetQuantification/SpecifiedPairsExcluded/` へ置き、ファイル名にも `_SpecifiedPairsExcluded` を付ける。補助CSVも対応するSub/tables内で同じsuffixを用い、主結果を上書きしない。
+- 帯域変更後は現行ルートのPSD・PNG・数値表を新帯域の成果物へ置換する。旧帯域の図を現行結果に残さず、旧版の方法・実績はhistoryへ分離する。移行・再計算・置換の対象と完了はSub/logsで監査し、既存No1–9や原EEGへ範囲を広げない。
 - No10_sub時間変化の正値は自身のSet 1より高い方向。topographyの正値はEye Dropの値／変化率がControlより高い方向で、効果の良否を自動的に意味しない。
 
 ## 11. 記録と完了条件
@@ -317,69 +345,16 @@ No10_sub_FzLowAlphaChange/
 実装・実行時には少なくとも以下を検証する。
 
 1. 全対象manifestのID・条件・製品・既知欠測とPhase 1入力が一致する。
-2. fs、µV変換、4 bin、全32ch、padding・端点・1秒移動・progressが独立計算と一致する。
+2. fs、µV変換、3 bin（8・9・10 Hz）、全32ch、padding・端点・1秒移動・progressが独立計算と一致する。旧帯域cacheの誤使用を拒否する。
 3. Phase 1 mask→帯域固有log3SD、Setを跨ぐ閾値と跨がない平滑化、保存後のmask再現が一致する。
 4. subのID/ch別baseline、Set 1平均0、paired欠測、全Set統合、統計family・差方向が一致する。
 5. 個人・群topography数値がch別未平滑定量差と一致する。Fz値も同じ定量値と照合する。
 6. 全図のArial、色、ラベル、軸比率、統計anchor、成果物場所を実画像で確認する。
 7. 既存No1–9と原本が不変。実行後のみ結果・実数N・検証成否を追記する。
+8. sub追加版で指定集合だけを両条件・全Setから除き、主結果・個人・topographyを保持したことを照合する。追加の平均／SEM・Set／全Set統合値・対応あり統計・3補正・N・縦軸を独立検証し、実画像も確認する。
 
-## 12. 実行結果・検証（2026-11-12）
+## 12. 現行8–10 Hzの実行結果・検証
 
-### 12.1 実行範囲と成果物
+**再実行・検証待ち。** 第1〜11節の方法・出力構造は確定済みだが、現行帯域の成果物件数、mask数、実有効N、統計結果、指定ペア除外追加版の結果は、実行と独立検証の完了後に記録する。旧帯域の件数・p値を現行の確認結果として流用しない。
 
-生成コードはGit `057b27668e26c0e6bad8c08995948fdbf63ba9be`。同一40ペアmanifestで各入口の `--production-batch --all` を実行した。終了時刻はNo10が16:34:00、subが16:34:19（JST）。生成後の独立監査コード・結果文書は後続Git履歴に記録する。
-
-| 項目 | No10 | No10_sub |
-|---|---:|---:|
-| 対象ペア | 40（各製品20） | 39（C Cube20、V Rohto Premium19） |
-| 処理セッション／実在Set | 80／476 | No10 cacheを再利用 |
-| PSD HDF5 | 80（全32ch、8–11 Hz） | 新規保存なし |
-| PNG合計 | 168 | 86 |
-| 個人時間変化PNG | 40＋未平滑前40＋未平滑後40 | 39 |
-| 個人topography PNG | 40 | 39 |
-| 群図PNG | 8（2製品×4用途） | 8（2製品×4用途） |
-| CSV | 12（manifest含む） | 11 |
-
-群図4用途は時間変化、Set定量化、All Sets定量化、topography。既知の4欠測Setのみを想定どおり扱い、新たな定性的・空間的・低PSD基準による除外は追加していない。
-
-| 解析・製品 | Set 1〜6の対応ありN | All Sets N |
-|---|---|---:|
-| No10 C Cube | 20,20,20,20,20,19 | 20 |
-| No10 V Rohto Premium | 19,19,20,19,20,20 | 20 |
-| No10_sub C Cube | 20,20,20,20,20,19 | 20 |
-| No10_sub V Rohto Premium | 19,18,19,18,19,19 | 19 |
-
-subのSet 1は上記NでBaselineを描くが検定しない。実使用N・数値は補助CSVを正本とする。
-
-### 12.2 数値・表示・保存の確認
-
-- Google被験者リストと実験当日シートを照合し、40ペア・80セッションの点眼ID／製品対応が一致。個人名を保存せず、manifestと照合記録はNo10のSubに保存した。
-- 合成信号の独立SciPy Welch計算でµV単位、4 bin平均、全32ch、padding・端点・時刻・progress・maskを検証。全リポジトリ329テスト、新規7テストを含め合格。
-- 全80 cacheを読み戻し、元入力fingerprint・設定hash・条件対応・既知欠測、log3SD閾値とmaskを独立再計算で照合した。
-- 全315,166 PSD窓のうちPhase 1重なり基準による除外は20,568窓。残る9,427,136有効ch-cellに対し、log3SD追加除外は21,910 ch-cell（約0.232%）。窓数とch-cell数は分母が異なる。各cacheの数は監査JSONに保存した。
-- 保存PSDから定量値、All Sets、対応ありt検定・3補正、60点平滑化→100点補間→平均／SD／SEM、全32ch条件差topographyを独立再計算。21 CSVの数値・行集合が許容誤差 `rtol=atol=1e-8` 内で一致。subの2,496 baseline行とSet 1平均0を検証した。
-- 全4解析・製品組合せ、全Setでtopographyのch別finite paired Nと全32ch共通Nが一致し、部分的なch欠測による追加のペア除外はなかった。
-- 全254 PNGの名前集合・配置・画像読込が一致。全16群図と代表個人図（欠測Set、未平滑前後、subを含む）を実画像で確認し、ラベルの欠け・重なり、条件色、統計位置、軸比率に表示不具合を認めなかった。全254枚を1枚ずつ目視したという意味ではない。
-- Arial実体は `/System/Library/Fonts/Supplemental/Arial.ttf`。No1–9の共有engineソースは変更していない。既存兄弟結果1,410ファイルに実行開始以降のmtime更新はなかった（実行前後の全ファイルhash照合ではない）。原データへの書込み処理は実行していない。
-- OneDriveは**ローカル同期先への保存と読戻し**まで確認。クラウドサーバーへの同期完了を独立に確認したという意味ではない。
-
-### 12.3 観察結果と解釈の限界
-
-- 今回のFz定量化では、両製品・両解析とも、検定対象の全SetおよびAll Setsで未補正p≥.05。補正後も有意差はない。sub Set 1は検定対象外。
-- All Setsの未補正p：No10 C Cube=.1422、V Rohto Premium=.9085、sub C Cube=.1054、V Rohto Premium=.4077。
-- 個人差・一部大きな値や局所的なtopography色差は残る。今回は追加除外をせず保持した。この数値検証は信号がノイズフリーであること、製品の効果／無効果、領域特異性を証明するものではない。
-
-### 12.4 証跡と再検証
-
-No10 `Sub/logs/`：`ManifestSourceAudit_20261112.json`、`PreflightConsole_20261112.log`、`ProductionConsole_20261112.log`、`No10_FzLowAlpha_RunSummary.json`、`ValidationSummary_20261112.json`。sub `Sub/logs/`：`ProductionConsole_20261112.log`、`No10_sub_FzLowAlphaChange_RunSummary.json`。閾値・baseline・群系列・定量値・topography元値は各 `Sub/tables/`。
-
-監査スクリプトは元EEG／PSDを再計算せず、保存PSDから独立に下流計算を照合する。PSDそのものの検証は上記の独立Welchテストと入力・保存検査で行った。
-
-```sh
-.venv/bin/python 解析プログラム/Phase4_脳波解析/validate_phase4_no10_outputs.py \
-  --manifest "$no10_manifest" \
-  --report "${no10_manifest%/tables/ParticipantManifest.csv}/logs/ValidationSummary_20261112.json"
-```
-
-`no10_manifest` は第9.1節の明示的な保存先。監査reportはNo10またはsubの `Sub/logs/` 内に限定する。
+旧帯域の完了実績は[履歴専用の旧実行結果](history/Phase4_No10_旧帯域実行結果_20261112.md)に保存した。最新の計算・入力照合・置換・監査記録は各Noの `Sub/logs/`、数値は `Sub/tables/` を正本とし、方法、観察結果、解釈・限界を分けて追記する。

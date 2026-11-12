@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 4 No10: all-channel 8–11 Hz PSD, with Fz as the focus channel.
+"""Phase 4 No10: all-channel 8–10 Hz PSD, with Fz as the focus channel.
 
 Run this entry point in its own Python process: the shared No1 engine is
 configured in memory, without changing the established No1–9 source files.
@@ -16,9 +16,9 @@ configure_band_engine(
     analysis_stem="No10_FzLowAlpha",
     cache_file_tag="FzLowAlpha",
     focus_channel="Fz",
-    frequencies_hz=(8, 9, 10, 11),
-    script_version="20261112_lowalpha_v1",
-    cache_version="20261112_lowalpha_cache_v1",
+    frequencies_hz=(8, 9, 10),
+    script_version="20261112_lowalpha_8to10_v2",
+    cache_version="20261112_lowalpha_8to10_cache_v2",
     ccube_color="#637B22",
     ccube_quantification_color="#8B9D58",
     vrohto_color="#91A63D",

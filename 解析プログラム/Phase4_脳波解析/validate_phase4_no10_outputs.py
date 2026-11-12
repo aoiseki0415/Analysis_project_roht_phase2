@@ -20,12 +20,17 @@ import pandas as pd
 from matplotlib import font_manager
 from Phase4_No10_FzLowAlpha import engine
 from PIL import Image
-from scipy import stats
+from scipy import signal, stats
 from statsmodels.stats.multitest import multipletests
 
 SUB_STEM = "No10_sub_FzLowAlphaChange"
 CHANNELS = engine.EXPECTED_CHANNEL_NAMES
 FZ = CHANNELS.index("Fz")
+SENSITIVITY_SUFFIX = "SpecifiedPairsExcluded"
+SENSITIVITY_EXCLUSIONS = {
+    "CCube": {"120-220"},
+    "VRohtoPremium": {"131-231", "133-233"},
+}
 
 
 def equal(actual, expected, label: str) -> None:
@@ -53,7 +58,7 @@ def read_cache(path: Path, sid: str, report: dict) -> dict:
             "participant_id": sid,
             "sampling_frequency_hz": 256,
             "fmin_hz": 8,
-            "fmax_hz": 11,
+            "fmax_hz": 10,
             "step_samples": 256,
             "n_fft": 256,
             "n_per_seg": 256,
@@ -90,6 +95,27 @@ def read_cache(path: Path, sid: str, report: dict) -> dict:
             group = groups[s]
             centers = group["source_center_sample"][:]
             n_samples = int(group.attrs["source_n_samples"])
+            # Independently verify raw PSD at Set start/middle/end in real EEG.
+            with h5py.File(group.attrs["source_file"], "r") as source:
+                for row in sorted({0, len(centers) // 2, len(centers) - 1}):
+                    indices = np.arange(centers[row] - 128, centers[row] + 128)
+                    indices = np.where(indices < 0, -indices, indices)
+                    indices = np.where(indices >= n_samples, 2 * n_samples - 2 - indices, indices)
+                    unique, inverse = np.unique(indices, return_inverse=True)
+                    window = source["signal/data"][unique, :][inverse].astype(float) * 1e6
+                    frequencies, density = signal.welch(
+                        window.T,
+                        fs=256,
+                        window="hann",
+                        nperseg=256,
+                        noverlap=0,
+                        nfft=256,
+                        detrend="constant",
+                        scaling="density",
+                    )
+                    expected_psd = density[:, (frequencies >= 8) & (frequencies <= 10)].mean(axis=1)
+                    np.testing.assert_allclose(x[row], expected_psd, rtol=2e-6, atol=1e-7)
+                    report["independent_raw_psd_windows"] += 1
             expected_centers = np.unique(np.r_[np.arange(0, n_samples, 256), n_samples - 1])
             equal(centers, expected_centers, f"{path}: centers Set{s}")
             progress = centers / (n_samples - 1) * 100.0
@@ -185,12 +211,21 @@ def paired_test(eye: np.ndarray, control: np.ndarray) -> dict:
     }
 
 
-def audit_group(items: list, root: Path, product: str, change: bool, report: dict) -> None:
+def audit_group(
+    items: list,
+    root: Path,
+    product: str,
+    change: bool,
+    report: dict,
+    *,
+    sensitivity: bool = False,
+) -> None:
     stem, unit = root.name, "PSDChange_pct" if change else "PSD_uV2_per_Hz"
     selected = [
         (spec, sessions)
         for spec, sessions in items
         if engine.normalize_product(spec.product)[0] == product
+        and (not sensitivity or spec.pair_id not in SENSITIVITY_EXCLUSIONS[product])
     ]
     rows, topographies, grand = [], [], [[], []]
     for spec, sessions in selected:
@@ -230,10 +265,14 @@ def audit_group(items: list, root: Path, product: str, change: bool, report: dic
         for i in range(2):
             grand[i].append(curves[i].ravel())
     tables = root / "Sub" / "tables"
+    suffix = f"_{SENSITIVITY_SUFFIX}" if sensitivity else ""
+    quant_directory = root / product / "SetQuantification"
+    if sensitivity:
+        quant_directory /= SENSITIVITY_SUFFIX
     quant = pd.DataFrame(rows)
     tag = "Quantification" if change else "SetQuantification"
     compare_csv(
-        tables / "SetQuantification" / f"{stem}_{tag}_Values_{product}.csv",
+        tables / "SetQuantification" / f"{stem}_{tag}_Values_{product}{suffix}.csv",
         quant,
         ["PairID", "Set"],
         report,
@@ -261,13 +300,15 @@ def audit_group(items: list, root: Path, product: str, change: bool, report: dic
             statistics.loc[finite, "P_value_raw"], method=method
         )[1]
     compare_csv(
-        root / product / "SetQuantification" / f"{stem}_SetQuantification_Statistics_{product}.csv",
+        quant_directory / f"{stem}_SetQuantification_Statistics_{product}{suffix}.csv",
         statistics,
         ["Set"],
         report,
     )
     compare_csv(
-        tables / "SetQuantification" / f"{stem}_AllSetsQuantification_Statistics_{product}.csv",
+        tables
+        / "SetQuantification"
+        / f"{stem}_AllSetsQuantification_Statistics_{product}{suffix}.csv",
         overall,
         ["Set"],
         report,
@@ -286,11 +327,25 @@ def audit_group(items: list, root: Path, product: str, change: bool, report: dic
         ga[f"{name}_Mean_{unit}"], ga[f"{name}_SD_{unit}"] = mean, sd
         ga[f"{name}_SEM_{unit}"], ga[f"{name}_N"] = sd / np.sqrt(count), count
     compare_csv(
-        tables / "GrandAverage" / f"{stem}_GrandAverage_Values_{product}.csv",
+        tables / "GrandAverage" / f"{stem}_GrandAverage_Values_{product}{suffix}.csv",
         ga,
         ["Set", "SetProgressPercent"],
         report,
     )
+    if sensitivity:
+        report["groups"].append(
+            {
+                "analysis": stem,
+                "product": product,
+                "cohort": SENSITIVITY_SUFFIX,
+                "pairs": len(selected),
+                "set_paired_n": [int(item["Paired_N"]) for item in tested[:-1]],
+                "all_sets_paired_n": int(overall.iloc[0].Paired_N),
+                "all_sets_p_raw": float(overall.iloc[0].P_value_raw),
+                "topography": "not generated; full-cohort topography retained",
+            }
+        )
+        return
     topographies = np.stack(topographies)
     paired_valid = np.isfinite(topographies).all(axis=2)
     channel_n = np.isfinite(topographies).sum(axis=0)
@@ -314,6 +369,8 @@ def audit_group(items: list, root: Path, product: str, change: bool, report: dic
             "analysis": stem,
             "product": product,
             "pairs": len(selected),
+            "cohort": "AllAvailable",
+            "all_sets_p_raw": float(overall.iloc[0].P_value_raw),
             "topography_n_by_set": common_n.tolist(),
             "topography_channel_names": CHANNELS,
             "topography_channel_n_by_set": channel_n.tolist(),
@@ -382,6 +439,19 @@ def run(args, report: dict) -> None:
         expected_png = set()
         for product in sorted({engine.normalize_product(spec.product)[0] for spec, _ in cohort}):
             audit_group(cohort, root, product, change, report)
+            if change:
+                audit_group(cohort, root, product, True, report, sensitivity=True)
+                for folder, name in (
+                    ("GrandAverage", "GrandAverage"),
+                    (f"SetQuantification/{SENSITIVITY_SUFFIX}", "SetQuantification"),
+                    (f"SetQuantification/{SENSITIVITY_SUFFIX}", "AllSetsQuantification"),
+                ):
+                    expected_png.add(
+                        root
+                        / product
+                        / folder
+                        / f"{stem}_{name}_{product}_{SENSITIVITY_SUFFIX}.png"
+                    )
             for folder, name in (
                 ("GrandAverage", "GrandAverage"),
                 ("SetQuantification", "SetQuantification"),
@@ -413,6 +483,28 @@ def run(args, report: dict) -> None:
             with Image.open(path) as image:
                 image.verify()
         report["png_counts"][stem] = len(expected_png)
+    selection_path = (
+        subroot
+        / "Sub/tables/SetQuantification"
+        / f"{SUB_STEM}_CohortSelection_{SENSITIVITY_SUFFIX}.csv"
+    )
+    selection = pd.read_csv(selection_path, dtype={"PairID": str})
+    expected_selection = pd.DataFrame(
+        [
+            {
+                "PairID": spec.pair_id,
+                "Product": engine.normalize_product(spec.product)[0],
+                "Included": spec.pair_id
+                not in SENSITIVITY_EXCLUSIONS[engine.normalize_product(spec.product)[0]],
+            }
+            for spec, _ in changed
+        ]
+    )
+    pd.testing.assert_frame_equal(
+        selection[["PairID", "Product", "Included"]].sort_values("PairID").reset_index(drop=True),
+        expected_selection.sort_values("PairID").reset_index(drop=True),
+    )
+    report["sensitivity_selection"] = {"rows": len(selection), "status": "passed"}
     report["main_pairs"], report["sub_pairs"] = len(items), len(changed)
     report["cache_count"] = len(report["caches"])
     report["available_sets"] = sum(len(item["sets"]) for item in report["caches"])
@@ -420,7 +512,7 @@ def run(args, report: dict) -> None:
         font_manager.FontProperties(family="Arial"), fallback_to_default=False
     )
     phase_root = args.output_root / "Phase4_脳波解析"
-    console = phase_root / engine.ANALYSIS_STEM / "Sub/logs/ProductionConsole_20261112.log"
+    console = phase_root / engine.ANALYSIS_STEM / "Sub/logs/ProductionConsole_20261112_8to10Hz.log"
     started = console.stat().st_birthtime
     siblings = [
         path
@@ -460,13 +552,16 @@ def main() -> int:
         "created_at": datetime.now().astimezone().isoformat(),
         "manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
         "scope": (
-            "Independent saved-PSD numerical audit; "
-            "no raw EEG recomputation or visual interpretation"
+            "Independent saved-PSD numerical audit plus sampled source-EEG Welch "
+            "recalculation (first/middle/last window of every available Set, all channels); "
+            "no source edits or visual interpretation"
         ),
         "caches": [],
         "tables": [],
         "groups": [],
         "png_counts": {},
+        "included_frequencies_hz": [8, 9, 10],
+        "independent_raw_psd_windows": 0,
     }
     try:
         run(args, report)

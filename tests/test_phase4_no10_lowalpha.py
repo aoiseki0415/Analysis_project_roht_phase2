@@ -58,11 +58,11 @@ def test_main_configuration_is_lowalpha_all_channel_and_inherits_no1_method() ->
     assert actual["stem"] == "No10_FzLowAlpha"
     assert actual["tag"] == "FzLowAlpha"
     assert actual["focus"] == "Fz"
-    assert actual["version"] == "20261112_lowalpha_v1"
-    assert actual["cache_version"] == "20261112_lowalpha_cache_v1"
+    assert actual["version"] == "20261112_lowalpha_8to10_v2"
+    assert actual["cache_version"] == "20261112_lowalpha_8to10_cache_v2"
     assert str(actual["cache_root"]).endswith("No10_FzLowAlpha/PSDTimeSeries")
     configuration = actual["configuration"]
-    assert configuration["frequencies_hz"] == [8.0, 9.0, 10.0, 11.0]
+    assert configuration["frequencies_hz"] == [8.0, 9.0, 10.0]
     assert len(configuration["channel_names"]) == 32
     assert configuration["channel_names"][1] == "Fz"
     for key in ("sfreq", "window_samples", "step_samples", "n_fft", "n_per_seg"):
@@ -87,7 +87,7 @@ def test_main_configuration_is_lowalpha_all_channel_and_inherits_no1_method() ->
     assert actual["control"] == ["#402B5D", "#66547D"]
 
 
-def test_sub_configuration_reads_only_no10_cache_without_extra_exclusions() -> None:
+def test_sub_configuration_preserves_full_cohort_and_uses_no10_cache() -> None:
     actual = _run(
         CHANGE_MODULE,
         """
@@ -114,7 +114,7 @@ def test_sub_configuration_reads_only_no10_cache_without_extra_exclusions() -> N
     )
     assert actual["stem"] == "No10_sub_FzLowAlphaChange"
     assert actual["focus"] == "Fz"
-    assert actual["version"] == "20261112_lowalpha_change_v1"
+    assert actual["version"] == "20261112_lowalpha_8to10_change_v2"
     assert actual["parent_stem"] == "No10_FzLowAlpha"
     assert str(actual["cache_root"]).endswith("No10_FzLowAlpha/PSDTimeSeries")
     assert actual["smoothing"] == 60
@@ -162,8 +162,8 @@ def test_lowalpha_psd_matches_independent_scipy_welch_with_edges_and_progress() 
                 detrend="constant", return_onesided=True,
                 scaling="density", axis=-1, average="mean",
             )
-            bins = (freq >= 8) & (freq <= 11)
-            np.testing.assert_array_equal(freq[bins], [8, 9, 10, 11])
+            bins = (freq >= 8) & (freq <= 10)
+            np.testing.assert_array_equal(freq[bins], [8, 9, 10])
             reference.append(psd[:, bins].mean(axis=1))
             fraction.append(padded_mask[center:center + 256].mean())
         np.testing.assert_allclose(result.psd_band_mean, reference, rtol=1e-6, atol=1e-7)
@@ -342,10 +342,10 @@ def test_cache_guard_rejects_wrong_band_hash_manifest_and_stale_source() -> None
                 else:
                     raise AssertionError("invalid cache was accepted")
             with h5py.File(path, "r+") as handle:
-                handle.attrs["included_frequencies_hz"] = json.dumps([8, 9, 10, 11, 12])
+                handle.attrs["included_frequencies_hz"] = json.dumps([8, 9, 10, 11])
             must_fail("frequency band")
             with h5py.File(path, "r+") as handle:
-                handle.attrs["included_frequencies_hz"] = json.dumps([8, 9, 10, 11])
+                handle.attrs["included_frequencies_hz"] = json.dumps([8, 9, 10])
                 handle.attrs["configuration_hash"] = "invalid-configuration-hash"
             must_fail("configuration hash")
             with h5py.File(path, "r+") as handle:
@@ -359,6 +359,195 @@ def test_cache_guard_rejects_wrong_band_hash_manifest_and_stale_source() -> None
             assert engine.validate_cache(path)["ok"]
             source.write_bytes(b"changed synthetic source fingerprint")
             must_fail("source changed")
+        print(json.dumps({"ok": True}))
+        """,
+    )
+    assert actual["ok"] is True
+
+
+def test_previous_band_cache_hash_is_incompatible_even_if_frequency_attr_is_changed() -> None:
+    actual = _run(
+        MAIN_MODULE,
+        """
+        import numpy as np
+        original_hash = engine.configuration_hash([])
+        engine.INCLUDED_FREQUENCIES_HZ = np.array([8, 9, 10, 11], float)
+        engine.FMAX_HZ = 11.0
+        engine.CACHE_CONFIGURATION_VERSION = "20261112_lowalpha_cache_v1"
+        assert engine.configuration_hash([]) != original_hash
+        # Version alone prevents accepting a stale numerical schema.
+        engine.INCLUDED_FREQUENCIES_HZ = np.array([8, 9, 10], float)
+        engine.FMAX_HZ = 10.0
+        assert engine.configuration_hash([]) != original_hash
+        print(json.dumps({"ok": True}))
+        """,
+    )
+    assert actual["ok"] is True
+
+
+def test_sensitivity_removes_whole_pairs_and_preserves_input_objects() -> None:
+    actual = _run(
+        CHANGE_MODULE,
+        """
+        from types import SimpleNamespace
+        import phase4_no10_sub_sensitivity as sensitivity
+        items = []
+        for index, (product, excluded) in enumerate(sensitivity.EXCLUDED_PAIRS_BY_PRODUCT.items()):
+            for pair in [*sorted(excluded), f"retained-{index}"]:
+                items.append({"spec": SimpleNamespace(pair_id=pair), "product_dir": product,
+                              "eye_drop": object(), "control": object()})
+        before = [(id(item), id(item["eye_drop"]), id(item["control"])) for item in items]
+        selected, table = sensitivity.select_sensitivity_cohorts(items)
+        assert table.Included.sum() == 2
+        assert (~table.Included).sum() == 3
+        for product, cohort in selected.items():
+            assert len(cohort) == 1
+            assert cohort[0] in items
+            assert cohort[0]["spec"].pair_id not in sensitivity.EXCLUDED_PAIRS_BY_PRODUCT[product]
+        assert before == [(id(item), id(item["eye_drop"]), id(item["control"])) for item in items]
+        try:
+            sensitivity.select_sensitivity_cohorts(items[1:])
+        except ValueError as error:
+            assert "requires specified pair" in str(error)
+        else:
+            raise AssertionError("missing exclusion target accepted")
+        bad = [dict(item) for item in items]
+        bad[0]["product_dir"] = "OtherProduct"
+        try:
+            sensitivity.select_sensitivity_cohorts(bad)
+        except ValueError as error:
+            assert "product mismatch" in str(error)
+        else:
+            raise AssertionError("wrong product accepted")
+        print(json.dumps({"ok": True}))
+        """,
+    )
+    assert actual["ok"] is True
+
+
+def test_sensitivity_outputs_use_retained_curves_axes_and_paired_statistics_only() -> None:
+    actual = _run(
+        CHANGE_MODULE,
+        """
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        import numpy as np
+        import pandas as pd
+        from scipy.stats import ttest_rel
+        import phase4_no10_sub_sensitivity as sensitivity
+        parent = engine.no1
+        def item_for(pair, product, multiplier, extreme=False):
+            sessions = []
+            for condition in ["Eye Drop", "Control"]:
+                sets = {}
+                for number in range(1, 7):
+                    t = np.arange(70, dtype=float)
+                    values = np.ones((70, 32)) * (10 + number * multiplier)
+                    if condition == "Control":
+                        values *= 1 + .01 * number * multiplier
+                    if extreme and number > 1:
+                        values *= 1000
+                    if pair == "retained-0-0" and number == 4 and condition == "Control":
+                        continue
+                    sets[number] = parent.SetPSD(number, values, t, 1000 + t,
+                        t / 69 * 100, (number - 1) * 100 + t / 69 * 100,
+                        (t * 256).astype(int), np.zeros(len(t)))
+                source = parent.SessionPSD(condition, condition, pair, product,
+                                           parent.EXPECTED_CHANNEL_NAMES, sets, np.zeros(32, bool))
+                sessions.append(engine.make_change_session(source))
+            return {"spec": SimpleNamespace(pair_id=pair), "product_dir": product,
+                    "eye_drop": sessions[0], "control": sessions[1]}
+        items = []
+        for idx, (product, exclusions) in enumerate(sensitivity.EXCLUDED_PAIRS_BY_PRODUCT.items()):
+            items.extend(item_for(pair, product, 2, True) for pair in sorted(exclusions))
+            items.extend(item_for(f"retained-{idx}-{j}", product, j + 1) for j in range(3))
+        calls = []
+        def grand_plot(frame, product, path, **kwargs):
+            calls.append(("grand", product, kwargs["common_limit"]))
+            path.write_bytes(b"synthetic plot")
+        def quant_plot(frame, stats, product, path):
+            assert len(frame.PairID.unique()) == 3
+            calls.append(("quant", product, path.name))
+            path.write_bytes(b"synthetic plot")
+        engine.plot_grand_average = grand_plot
+        engine.plot_quantification = quant_plot
+        engine.plot_overall_quantification = quant_plot
+        engine.plot_topography = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("sensitivity must not draw topography"))
+        with tempfile.TemporaryDirectory(prefix="no10-sensitivity-test-") as tmp:
+            root = Path(tmp)
+            original = root / "original.png"
+            original.write_bytes(b"keep original")
+            result = sensitivity.write_sensitivity_group_outputs(engine, items, root)
+            assert original.read_bytes() == b"keep original"
+            selected, _ = sensitivity.select_sensitivity_cohorts(items)
+            expected_axis, _ = engine.grand_average_axis([
+                engine.build_grand_average(cohort, product)[0]
+                for product, cohort in selected.items()
+            ])
+            full_axis, _ = engine.grand_average_axis([
+                engine.build_grand_average(items, product)[0] for product in selected
+            ])
+            assert expected_axis < full_axis
+            assert [entry[2] for entry in calls if entry[0] == "grand"] == [expected_axis] * 2
+            assert len(list(root.rglob("*.png"))) == 7
+            assert len(list(root.rglob("*.csv"))) == 9
+            assert not list(root.rglob("Topography"))
+            for product, info in result["outputs"].items():
+                values = pd.read_csv(info["quantification_values"])
+                assert values.PairID.nunique() == 3
+                assert len(values) == 21
+                assert len(pd.read_csv(info["grand_average_values"])) == 600
+                stats = pd.read_csv(info["set_statistics"])
+                assert np.isnan(stats.loc[stats.Set == 1, "P_value_raw"]).all()
+                section = values.loc[values.Set == "2"]
+                check = ttest_rel(section.EyeDrop_PSDChange_pct, section.Control_PSDChange_pct)
+                np.testing.assert_allclose(stats.loc[stats.Set == 2, "P_value_raw"], check.pvalue)
+                assert {"P_value_Bonferroni", "P_value_Holm", "P_value_FDR_BH"} <= set(stats)
+                if product == "CCube":
+                    assert info["paired_n"]["4"] == 2
+                    assert info["paired_n"]["All Sets"] == 3
+        print(json.dumps({"ok": True}))
+        """,
+    )
+    assert actual["ok"] is True
+
+
+def test_full_group_mode_adds_sensitivity_but_pilot_preserves_original_scope() -> None:
+    actual = _run(
+        CHANGE_MODULE,
+        """
+        from pathlib import Path
+        from types import SimpleNamespace
+        import phase4_no10_sub_sensitivity as sensitivity
+        items = [
+            {"spec": SimpleNamespace(pair_id=pair), "product_dir": product}
+            for product, exclusions in sensitivity.EXCLUDED_PAIRS_BY_PRODUCT.items()
+            for pair in sorted(exclusions)
+        ]
+        for index in range(36):
+            items.append({"spec": SimpleNamespace(pair_id=f"retained-{index}"),
+                          "product_dir": "CCube" if index % 2 else "VRohtoPremium"})
+        calls = []
+        def original(data, root):
+            calls.append("original")
+            return {product: {"topography": "original"} for product in ["CCube", "VRohtoPremium"]}
+        def addition(configured, data, root):
+            calls.append("sensitivity")
+            return {"outputs": {product: {"new": True} for product in ["CCube", "VRohtoPremium"]}}
+        fake = SimpleNamespace(no1=SimpleNamespace(PRODUCTION_PARTICIPANT_COUNT=40),
+                               write_group=original)
+        sensitivity.write_sensitivity_group_outputs = addition
+        sensitivity.install_sensitivity_group_outputs(fake)
+        full = fake.write_group(items, Path("/tmp/no10-not-written"))
+        assert calls == ["original", "sensitivity"]
+        assert full["CCube"]["topography"] == "original"
+        assert full["CCube"]["specified_pair_sensitivity"] == {"new": True}
+        calls.clear()
+        pilot = fake.write_group(items[:1], Path("/tmp/no10-not-written"))
+        assert calls == ["original"]
+        assert "specified_pair_sensitivity" not in pilot["CCube"]
         print(json.dumps({"ok": True}))
         """,
     )
