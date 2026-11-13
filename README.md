@@ -138,6 +138,8 @@ Grand-averageは**保存済みIAFから各条件自身のSet 1 IAFを引いたHz
 
 ### Phase 4 No10・No10_sub（Fz low-alpha）
 
+2026-11-13追加：[No10_sub topography感度分析](docs/Phase4_No10_sub_Topography感度分析.md)は、従来の条件別・双方向QC閾値を用いる**ペア×ch×Set除外**の独立した追加版です。主要結果・個人図を保持し、既存のFz指定3ペア除外とは混ぜません。確定方法と実行結果は同文書、検討過程は[専用履歴](docs/history/Phase4_No10_sub_Topography感度分析_20261113.md)へ分離します。
+
 No10はFzを代表chとする**8–10 Hz（8・9・10 Hzの3 binを含む）**の絶対PSD、No10_subは各セッションID・ch自身のSet 1平均からのPSD Changeです。現在のNo1–3と同じ全32chの1秒PSD・1秒移動、Phase 1区間mask、帯域固有の全Set一括log3SD、時間変化だけ60秒平滑化、未平滑値による定量化・topography、平均±SEM、対応ありt検定を継承します。主結果は新たな被験者選別をせず、既知欠測とsubのSet 1 baseline要件を継承します。IAF選別や過去の補足分析除外は適用しません。
 
 OneDriveに `No10_FzLowAlpha/` と `No10_sub_FzLowAlphaChange/`、ローカル許可領域に `No10_FzLowAlpha/PSDTimeSeries/` を使用します。subはNo10 cacheを読み、独立ローカルcacheを作りません。変更前の帯域平均、既存No2の8–15 Hz平均、IAF用PSDからは流用せず、現行3 binのPSDとlog3SDを再計算します。**2026-11-12に8–10 Hzへ全80 cacheを再計算し、No10 40ペア・sub 39ペア、追加版Cキューブ19／Vプレ17ペアを処理しました。全260 PNGの生成・読込、独立数値監査、全群図を含む26枚の目視を確認済みです。** 現行のN・mask・統計・検証範囲は[No10仕様第12節](docs/Phase4_No10_解析仕様.md#12-現行810-hzの実行結果検証)。旧実績は[履歴](docs/history/Phase4_No10_旧帯域実行結果_20261112.md)へ分離し、現行結果として扱いません。

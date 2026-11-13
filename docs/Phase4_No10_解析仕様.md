@@ -1,6 +1,6 @@
 # Phase 4 No10・No10_sub：Fz low-alpha解析仕様
 
-更新日：2026-11-12。**現行帯域は8–10 Hz（両端込み）。全対象の再計算、subの指定ペア除外追加版、独立数値監査と画像確認を完了。方法は第1〜11節、最新実績は第12節、旧実績・過程はhistoryに分離する。**
+更新日：2026-11-13。**現行帯域は8–10 Hz（両端込み）。本体・sub主結果と指定ペア除外版の2026-11-12実績は第12節。新しいtopography限定のch×Set除外感度分析は第6.5節と専用補足文書に分離する。旧実績・過程はhistoryに分離する。**
 
 本書は現行仕様。議論・準備の経緯は[設計決定記録](history/Phase4_No10_設計決定記録_20261112.md)へ分離する。既存No1–9の仕様・コード・結果は変更しない。
 
@@ -27,7 +27,7 @@ low-alpha 8–10 Hzは今回の操作的定義であり、普遍的な帯域定�
 - 最新の[No1統合仕様](Phase4_No1_共有用解析仕様.md)の本体・subを基準とし、[No2](Phase4_No2_共有用解析仕様.md)・[No3](Phase4_No3_共有用解析仕様.md)の帯域変更方式と整合させる。
 - 変更点は帯域、代表ch、解析名・保存先・cache識別子、点眼色と、subの指定ペア除外感度分析。計算・欠測・統計・描画の基本構造は維持する。
 - No1の一時的な95% y軸、廃止済み30点平滑化足切り、固定y軸、探索用図は継承しない。
-- No1–3のtopography感度分析、No2のOz/Pz補助除外、No4–7の指定ペア除外、No8–9のIAF選別は継承しない。
+- 主結果にNo1–3のtopography感度分析、No2のOz/Pz補助除外、No4–7の指定ペア除外、No8–9のIAF選別は継承しない。No10_subのtopography限定追加版だけは第6.5節の独立仕様で扱う。
 - 不明点は現行No1–3の正本と実装を照合し、未解決の矛盾があれば勝手に選ばず停止する。以下の平滑化点数・描画anchor等は既存実装を詳記したもので、No1–3の数値計算やデザインを変更しない。過去の実績や除外率をNo10の結果として転記しない。
 
 ## 3. 入力・対象・欠測
@@ -133,11 +133,19 @@ No10専用cacheだけを読み取り専用で使用し、Welchを再計算しな
 
 - 主結果を保持し、`SpecifiedPairsExcluded` と識別する追加版を両製品で作る。対象の正本は[解析上の注意事項](解析上の注意事項.md#phase-4-no10_sub指定ペア除外追加版2026-11-12確定)。Vロートプレミアム2ペア、Cキューブ1ペアを指定する。
 - 除外するのは**指定ペアのEye Drop／Control両条件・全Set**。片条件・一部Setだけの除外ではない。既知欠測とbaseline要件を適用後、指定集合を群集計から外す。
-- 追加対象はFzの **Grand-average、Set別定量化、全Set統合定量化** と対応する数値表・統計・実行記録だけ。この追加除外によってNo10本体、subの個人図、主結果、topography、元PSD・mask・baselineは変更しない。帯域変更ではこれらも8–10 Hzで再計算・再生成する。感度版topographyは作らない。
+- 追加対象はFzの **Grand-average、Set別定量化、全Set統合定量化** と対応する数値表・統計・実行記録だけ。この指定ペア除外によってNo10本体、subの個人図、主結果、topography、元PSD・mask・baselineは変更しない。topographyの追加版は指定ペア除外とは別に第6.5節で扱う。
 - 保存済み現行帯域cacheから通常のsub値を作り、対象集合だけを絞って同じ平均・SEM・対応ありt検定を再計算する。補正familyは追加版・製品ごとにSet 2–6の5検定、全Set統合は未補正の1検定。Set 1を全Set統合へ含める。
 - 縦軸・統計配置は除外後の値から第8節の同じ比率で再計算する。Grand-averageは追加版の両製品で共通軸とし、主結果の大きな上限を固定流用しない。
 - 選定理由は**帯域変更前の結果で持続的に大きな変化率を観察した利用者指定**。事後・探索的な感度分析であり、ノイズと確定した除外や一般的な品質閾値ではない。主結果と並べて影響を確認し、追加版のみで製品効果を確定しない。
 - 対象集合・理由、除外前後のペア数、Set別／全Set統合の実有効N、元cache識別子をSubへ記録する。対象者をmanifestから削除したり、再描画のたびに結果を見て再選別したりしない。
+
+### 6.5 No10_subのみ：topographyの条件別ch×Set除外追加版
+
+2026-11-13、[topography感度分析の現行補足仕様](Phase4_No10_sub_Topography感度分析.md)を追加した。以前のNo1_sub–No3_subと同じ数値閾値で、条件別のSet 1絶対PSD高値・持続上昇・絶対低値を伴う持続低下を判定し、paired ORで同じペア×ch×Setを両条件から除く。元の39ペアから開始し、第6.4節の指定3ペア除外とは混ぜない。
+
+QCはSet 1中央値に対する60秒block中央値比、図のChangeは既存のSet 1算術平均基準。両者は目的が異なる。追加群topographyはch別の有限被験者差を平均し、Nもch別に保存する。元の主要topography（全32ch有限ペア方式）は変更しない。±800という個人図の表示範囲は対象確認の目安だけで、直接の足切りには使わない。
+
+専用 `Phase4_No10_sub_TopographySensitivity.py` で保存済み現行cacheを検証・再利用し、2製品の追加群topographyとBefore/After比較コピー、監査表・ログだけを生成する。主スクリプトの `--all`／`--sensitivity-only` にこの新感度分析を黙って混ぜない。完全な閾値、実行方法、保存構造、除外率・N・限界は補足文書を正本とする。
 
 ## 7. 配色（No10・No10_sub共通）
 
@@ -295,7 +303,7 @@ subの全対象 `--all`／`--group-outputs-only` は、baseline適格な39ペア
 
 ## 10. OneDrive構造・結果の見方
 
-親は許可済み `実験本番_本解析/Phase4_脳波解析/`。その下に既存Noと並列に配置する。**以下は確定した出力構造。実生成件数・検証実績は第12節を参照する。**
+親は許可済み `実験本番_本解析/Phase4_脳波解析/`。その下に既存Noと並列に配置する。**以下は確定した出力構造。帯域更新時の実績は第12節、topography補足の最新実績は第6.5節のリンク先を参照する。**
 
 ```text
 No10_FzLowAlpha/
@@ -319,11 +327,13 @@ No10_sub_FzLowAlphaChange/
     GrandAverage/                # 主結果＋SpecifiedPairsExcluded PNG
     SetQuantification/           # 主結果PNG・統計CSV
       SpecifiedPairsExcluded/    # 追加版Set別・全Set統合PNG・統計CSV
-    Topography/{Individual,GrandAverage}/
+    Topography/{Individual,GrandAverage}/ # GrandAverageは原図＋ch×Set除外追加図
   VRohtoPremium/
   Sub/
-    tables/{Set1Baseline,GrandAverage,SetQuantification,Topography}/
+    tables/{Set1Baseline,GrandAverage,SetQuantification,Topography,TopographySensitivity}/
     logs/
+補足分析（被験者除外あり）/No10_sub_FzLowAlphaChange/
+  {CCube,VRohtoPremium}/GrandAverage/ # Before/After比較コピー
 ```
 
 - `{A,B}` は2つの独立フォルダを示す省略表記。被験者別フォルダは作らない。
