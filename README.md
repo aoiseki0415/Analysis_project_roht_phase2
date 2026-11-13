@@ -146,6 +146,14 @@ OneDriveに `No10_FzLowAlpha/` と `No10_sub_FzLowAlphaChange/`、ローカル�
 
 No10_subには主結果を保持したまま、利用者指定のVロートプレミアム2ペア・Cキューブ1ペアを両条件・全Setから除く `SpecifiedPairsExcluded` 版を追加します。対象はGrand-average、Set別・全Set統合定量化だけで、個人図・topography・No10本体には適用しません。対象一覧は[解析上の注意事項](docs/解析上の注意事項.md#phase-4-no10_sub指定ペア除外追加版2026-11-12確定)を正本とします。変更前の結果で持続的に大きな変化率を認めたことを契機とする事後・探索的解析であり、ノイズとの確定診断ではありません。詳細は[No10統合仕様](docs/Phase4_No10_解析仕様.md)、最新実績は同書第12節、経緯は[設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)へ分離します。旧IAF No10（現在のNo9）とは別解析です。
 
+### Phase 4 No11・No11_sub（Pz low-alpha）
+
+No11は**Pz・8–10 Hz（8・9・10 Hz）**の絶対PSD、No11_subは各条件自身のSet 1平均からのPSD Changeです。No10の検証済み全32ch cacheを読み取り専用で使用し、生成元のNo10設定hashを検証してからPzを名前で選びます。新たなPSD cacheは作らず、No10の主要解析と同じ計算・欠測・統計・Figure規則を適用します。
+
+確定ブルーグレー配色で個人時間変化・Grand-average・Set別／全Set統合定量化を専用2ルートへ出力します。**Topography・TFM・指定被験者除外版は作りません。** 旧IAF No11とは別解析です。現行の方法と実行状態は[No11統合仕様](docs/Phase4_No11_解析仕様.md)、判断過程は[履歴](docs/history/Phase4_No11_意思決定.md)を参照してください。既存No10関連の結果・除外仕様は変更しません。
+
+2026-11-13に絶対PSD40ペア・変化率39ペアを実行し、計171 PNG、80 cache・17表の独立数値照合、360テスト、全群図と代表個人図の目視を確認しました。既存cache・他解析は保持しています。結果と表示上の注意点は統合仕様第11節へ分離しています。
+
 ## Phase 5相関解析の確定方針
 
 Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解析です。DEQSは問1〜15の程度得点を0〜100点へ換算し、問16は使用しません。RTはPhase 2 No1の主解析 `AllTrials` のSet 1・Set 6平均値を使用し、Phase 2保存値とのID・条件・Set・有効試行数・数値一致を全件確認してから解析します。`Eye Drop Effect = (Control Set6 / Control Set1) − (Eye Drop Set6 / Eye Drop Set1)` とし、正値を点眼によってRT増加率が抑えられた方向と定義します。比率同士の差であるため単位はなく、Figureでは `[a.u.]` と表示します。Cキューブ群とVロートプレミアム群を分け、製品別にPearsonの積率相関係数を算出します。検定は両側、p値は未補正です。ID109–209はSet 1、ID120–220はSet 6欠測のため本指標を算出しません。Figureは点と `r; p` の注記を基本とし、信頼帯と0の水平線は表示せず、回帰線は未補正両側 `p < 0.05` の場合だけ表示します。横軸は `DEQS Score [a.u.]` の0〜85、縦軸は `Eye Drop Effect [a.u.]` とします。Figure、表、照合記録、出力構造、完了条件は[Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)を正本とします。2026年10月5日に比率差の確定式で40被験者ペアを再実行し、Phase 2保存済み240行との完全一致、製品別有効人数19名、指定OneDrive成果物の読戻しを確認済みです。
@@ -173,6 +181,8 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 No10・No10_sub解析仕様](docs/Phase4_No10_解析仕様.md)：Fz low-alpha 8–10 Hzの絶対PSDとSet 1変化率、sub指定ペア除外追加版。方法・全figure設定・保存構造・実行方法・検証の現行正本
 - [Phase 4 No10設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)：No1–3からの継承、旧IAF番号との区別、準備・検証の経緯。履歴用
 - [Phase 4 No10旧帯域実行結果](docs/history/Phase4_No10_旧帯域実行結果_20261112.md)：帯域変更前の実績・統計・検証の保存版。現行結果へ流用しない
+- [Phase 4 No11・No11_sub解析仕様](docs/Phase4_No11_解析仕様.md)：Pz low-alpha 8–10 Hzの絶対PSD・Set 1変化率。No10 cache再利用、主要全員解析、Figure・保存・検証の現行正本
+- [Phase 4 No11意思決定](docs/history/Phase4_No11_意思決定.md)：対象ch変更、配色・cache再利用・topography省略の判断履歴
 - [Phase 4 改番前仕様の保存版](docs/history/Phase4_No8-11_改番前仕様_20261110.md)：旧4解析・旧採用集合・旧図設定・過去検証の全文。履歴専用で実行や現行対象選定には使わない
 - [Phase 4 No8–11 旧方式と再設計記録](docs/history/Phase4_No8-11_旧方式と再設計記録.md)：廃止した方式と再設計の理由・整理記録。履歴専用で現行手順には使用しない
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
