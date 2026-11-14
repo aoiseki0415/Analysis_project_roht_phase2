@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Additional No10_sub topographies using the prior condition-wise QC rule.
+"""Additional No10_sub topographies using approved spatial/temporal QC v2.
 
 Run in a dedicated process. Existing No10 outputs and 8--10 Hz caches are
 read-only; only this supplementary analysis and comparison copies are written.
@@ -15,18 +15,20 @@ import json
 import shutil
 import subprocess
 import sys
-import warnings
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import phase4_no10_topography_spatiotemporal as qc
 import Phase4_PSDChangeConditionwiseBidirectionalOutlierTopography as prior
 from Phase4_No10_sub_FzLowAlphaChange import engine
 from PIL import Image
 
-VERSION = "20261113_no10_topography_conditionwise_sensitivity_v1"
+VERSION = "20261114_no10_topography_spatiotemporal_sensitivity_v2"
+APPROVED_MASK_SHA256 = "0a85ed2933cc3c3207b349e1cc1a3075bfe00c2526404e6c6ddf1f8114360248"
+APPROVED_MASK_COUNT = 215
 REPOSITORY = Path(__file__).resolve().parents[2]
 EXPECTED_REPOSITORY = Path("/Users/aoiseki/GitHub/Analysis_project_roht_phase2")
 EXPECTED_ORIGIN = "https://github.com/aoiseki0415/Analysis_project_roht_phase2.git"
@@ -38,6 +40,15 @@ CACHE_ROOT = PARENT.DEFAULT_CACHE_ROOT
 MANIFEST = MAIN_ROOT / "Sub/tables/ParticipantManifest.csv"
 TABLE_ROOT = SUB_ROOT / "Sub/tables/TopographySensitivity"
 LOG_PATH = SUB_ROOT / "Sub/logs/No10_sub_FzLowAlphaChange_TopographySensitivity_RunSummary.json"
+REVIEW_PATH = SUB_ROOT / "Sub/logs/No10_sub_TopographySensitivity_Review_20261114_v2.json"
+HISTORY_ROOT = SUB_ROOT / "Sub/history/BeforeTopographySpatialTemporalV2_20261114"
+TABLE_NAMES = (
+    "session_flags",
+    "excluded_cells",
+    "group_audit",
+    "all_condition_metrics",
+    "large_scale_individual_benchmark",
+)
 CONFIG = prior.common.AnalysisConfig(
     "No10", "Fz low-alpha (8-10 Hz)", "No10_FzLowAlpha", "No10_sub_FzLowAlphaChange"
 )
@@ -62,100 +73,16 @@ def verify_repository() -> str:
     return git("rev-parse", "HEAD")
 
 
-def collect_condition_metrics(
-    items: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Prior metrics verbatim, but using manifest-validated No10 input items.
+def electrode_geometry() -> tuple[np.ndarray, np.ndarray]:
+    info = PARENT._topomap_info()
+    if list(info["ch_names"]) != list(PARENT.EXPECTED_CHANNEL_NAMES):
+        raise ValueError("Montage channel order differs from PSD channels")
+    positions = np.array([channel["loc"][:3] for channel in info["chs"]])
+    return positions, qc.nearest_four(positions)
 
-    QC uses Set-1 MEDIANS, unlike the arithmetic MEAN used by PSD Change.
-    Historical block occupancy includes missing blocks as False. Preserve that
-    rule here; a NaN block also interrupts a run. Last partial blocks count once.
-    """
-    set1_rows: list[dict[str, Any]] = []
-    set_rows: list[dict[str, Any]] = []
-    for item in items:
-        for condition, change_session in (
-            ("Eye Drop", item["eye_drop"]),
-            ("Control", item["control"]),
-        ):
-            session = change_session.source
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                baseline = np.nanmedian(session.sets[1].psd_band_mean, axis=0)
-            common = {
-                "pair_id": item["spec"].pair_id,
-                "session_id": session.session_id,
-                "condition": condition,
-                "product": item["product_dir"],
-            }
-            set1_rows.append(
-                {
-                    **common,
-                    "absolute": baseline,
-                    "neighbor_factor": prior.neighbor_factors(baseline),
-                }
-            )
-            for number in range(2, PARENT.N_SETS + 1):
-                data = session.sets.get(number)
-                if data is None:
-                    continue
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)
-                    absolute = np.nanmedian(data.psd_band_mean, axis=0)
-                    ratios = prior.block_medians(data) / baseline[None, :]
-                    median_ratio = np.nanmedian(ratios, axis=0)
-                    q75_ratio = np.nanpercentile(ratios, 75, axis=0)
-                positive = ratios >= 2.0
-                negative = ratios <= prior.NEGATIVE_BLOCK_RATIO
-                set_rows.append(
-                    {
-                        **common,
-                        "set": number,
-                        "absolute": absolute,
-                        "neighbor_factor": prior.neighbor_factors(absolute),
-                        "median_ratio": median_ratio,
-                        "q75_ratio": q75_ratio,
-                        "fraction_ge2": np.nanmean(positive, axis=0),
-                        "longest_ge2": np.asarray(
-                            [prior.longest_run(positive[:, i]) for i in range(positive.shape[1])]
-                        ),
-                        "fraction_low": np.nanmean(negative, axis=0),
-                        "longest_low": np.asarray(
-                            [prior.longest_run(negative[:, i]) for i in range(negative.shape[1])]
-                        ),
-                        "block_count": np.full(ratios.shape[1], ratios.shape[0]),
-                        "finite_block_count": np.isfinite(ratios).sum(axis=0),
-                    }
-                )
 
-    if not set1_rows:
-        raise ValueError("No eligible sessions")
-    matrix = np.stack([row["absolute"] for row in set1_rows])
-    median = np.nanmedian(matrix, axis=0)
-    for channel in range(matrix.shape[1]):
-        scores = prior.robust_z(matrix[:, channel], log10=True)
-        for index, row in enumerate(set1_rows):
-            row.setdefault("absolute_z", np.full(matrix.shape[1], np.nan))[channel] = scores[index]
-            row.setdefault("cohort_factor", np.full(matrix.shape[1], np.nan))[channel] = (
-                row["absolute"][channel] / median[channel]
-            )
-    for number in range(2, PARENT.N_SETS + 1):
-        selected = [row for row in set_rows if row["set"] == number]
-        if not selected:
-            continue
-        for key in ("absolute", "median_ratio", "q75_ratio"):
-            matrix = np.stack([row[key] for row in selected])
-            median = np.nanmedian(matrix, axis=0)
-            for channel in range(matrix.shape[1]):
-                scores = prior.robust_z(matrix[:, channel], log10=True)
-                for index, row in enumerate(selected):
-                    row.setdefault(f"{key}_z", np.full(matrix.shape[1], np.nan))[channel] = scores[
-                        index
-                    ]
-                    row.setdefault(f"{key}_factor", np.full(matrix.shape[1], np.nan))[channel] = (
-                        matrix[index, channel] / median[channel]
-                    )
-    return set1_rows, set_rows
+def collect_condition_metrics(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return qc.collect_condition_metrics(items, electrode_geometry()[1])
 
 
 def independent_pair_values(item: dict[str, Any]) -> np.ndarray:
@@ -258,7 +185,7 @@ def benchmark_rows(items: list[dict[str, Any]], applied: set[tuple]) -> list[dic
     return rows
 
 
-def flattened_metrics(rows: list[dict[str, Any]], *, set1: bool) -> list[dict[str, Any]]:
+def flattened_metrics(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output = []
     for row in rows:
         scalars = {key: value for key, value in row.items() if not isinstance(value, np.ndarray)}
@@ -266,9 +193,7 @@ def flattened_metrics(rows: list[dict[str, Any]], *, set1: bool) -> list[dict[st
             output.append(
                 {
                     **scalars,
-                    "set": 1 if set1 else row["set"],
                     "channel": name,
-                    "qc_stage": "Set1" if set1 else "Set2-6",
                     **{
                         key: value[channel].item()
                         for key, value in row.items()
@@ -283,10 +208,15 @@ def original_path(product: str) -> Path:
     return prior.unexcluded_output_path(PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, product)
 
 
+def output_path(product: str) -> Path:
+    original = original_path(product)
+    return original.with_stem(original.stem + "_ExploratorySpatialTemporalExcluded")
+
+
 def supplement_paths() -> list[Path]:
     paths = []
     for product in PRODUCTS:
-        paths.append(prior.output_paths(PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, product))
+        paths.append(output_path(product))
         paths.extend(
             prior.supplemental_output_path(PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, product, stage)
             for stage in ("Before", "After")
@@ -308,9 +238,12 @@ def inventory(root: Path, *, hashes: bool, excluded: set[Path] | None = None) ->
 
 
 def protected_inventory() -> dict:
-    writable = set(supplement_paths()) | {LOG_PATH}
-    writable.update(TABLE_ROOT.glob("*.csv"))
-    writable.update(TABLE_ROOT.glob("*.json"))
+    writable = set(supplement_paths()) | {LOG_PATH, REVIEW_PATH}
+    writable.update(prior.output_paths(PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, p) for p in PRODUCTS)
+    writable.update(TABLE_ROOT / f"{name}.csv" for name in TABLE_NAMES)
+    writable.add(TABLE_ROOT / "ProtectedInputOutputInventory.json")
+    # Only this explicit migration archive is separately protected by its manifest.
+    writable.update(path for path in HISTORY_ROOT.rglob("*") if path.is_file())
     own = {}
     own.update(inventory(MAIN_ROOT, hashes=True))
     own.update(inventory(SUB_ROOT, hashes=True, excluded=writable))
@@ -329,6 +262,90 @@ def protected_inventory() -> dict:
     }
 
 
+def archive_prior_records() -> dict:
+    """Copy exact v1 audit records once; keep history immutable on reruns."""
+    manifest = HISTORY_ROOT / "ArchiveManifest.json"
+    if manifest.is_file():
+        return verify_archive()
+    if not LOG_PATH.is_file():
+        raise FileNotFoundError("Previous sensitivity log is required for v1 migration")
+    old = json.loads(LOG_PATH.read_text(encoding="utf-8"))
+    if old.get("script_version") == VERSION:
+        raise ValueError("v2 output exists without the required v1 migration archive")
+    candidates = {LOG_PATH, TABLE_ROOT / "ProtectedInputOutputInventory.json"}
+    candidates.update(TABLE_ROOT / f"{name}.csv" for name in TABLE_NAMES)
+    for name in (old.get("review_record_path"), (old.get("source_review") or {}).get("path")):
+        if name:
+            candidate = Path(name)
+            if candidate.is_relative_to(SUB_ROOT) and candidate.is_file():
+                candidates.add(candidate)
+    records = []
+    for source in sorted(candidates):
+        if not source.is_file():
+            raise FileNotFoundError(f"Expected v1 audit file is absent: {source}")
+        if source.suffix not in {".csv", ".json", ".log"}:
+            raise ValueError("Only non-PNG audit records may enter the migration archive")
+        relative = source.relative_to(SUB_ROOT)
+        destination = HISTORY_ROOT / relative
+        checksum = digest(source)
+        if destination.exists() and digest(destination) != checksum:
+            raise ValueError("Existing history must not be overwritten")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if not destination.exists():
+            shutil.copy2(source, destination)
+        if digest(destination) != checksum:
+            raise RuntimeError("History copy checksum mismatch")
+        records.append({"source_relative_path": str(relative), "sha256": checksum})
+    write_json(
+        manifest,
+        {
+            "status": "obsolete_v1_history_only",
+            "source_version": old.get("script_version"),
+            "replacement_version": VERSION,
+            "created_at": datetime.now().astimezone().isoformat(),
+            "files": records,
+        },
+    )
+    return verify_archive()
+
+
+def verify_archive() -> dict:
+    manifest = HISTORY_ROOT / "ArchiveManifest.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    expected = {manifest}
+    for record in payload["files"]:
+        path = HISTORY_ROOT / record["source_relative_path"]
+        if not path.is_relative_to(HISTORY_ROOT) or ".." in path.parts:
+            raise ValueError("Invalid history path")
+        if digest(path) != record["sha256"]:
+            raise ValueError("A preserved v1 audit record changed")
+        expected.add(path)
+    actual = {p for p in HISTORY_ROOT.rglob("*") if p.is_file() and p.name != ".DS_Store"}
+    if actual != expected:
+        raise ValueError("Unexpected file in exact v1 migration archive")
+    return {
+        "manifest_path": str(manifest),
+        "manifest_sha256": digest(manifest),
+        "files": len(payload["files"]),
+        "verified": True,
+    }
+
+
+def approved_mask_check(applied: set[tuple]) -> dict:
+    cells = sorted(
+        [str(pair), int(number), PARENT.EXPECTED_CHANNEL_NAMES[channel]]
+        for pair, number, channel in applied
+    )
+    checksum = hashlib.sha256(
+        json.dumps(cells, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if len(cells) != APPROVED_MASK_COUNT or checksum != APPROVED_MASK_SHA256:
+        raise ValueError(
+            f"Approved simulation mask mismatch: {len(cells)} cells, SHA256 {checksum}"
+        )
+    return {"cells": len(cells), "sha256": checksum, "exact_approved_set_match": True}
+
+
 def validate_source_audit(path: Path | None) -> dict:
     if path is None:
         raise ValueError("--execute requires --source-audit from the current Notion review")
@@ -345,6 +362,7 @@ def validate_source_audit(path: Path | None) -> dict:
 def source_hashes() -> dict[str, str]:
     files = [
         Path(__file__),
+        Path(qc.__file__),
         Path(prior.__file__),
         Path(prior.common.__file__),
         Path(engine.__file__),
@@ -389,8 +407,9 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         raise ValueError("Expected exactly 80 No10 session caches")
     if any(not original_path(product).is_file() for product in PRODUCTS):
         raise FileNotFoundError("Original Grand-average topography is required")
-    set1_rows, set_rows = collect_condition_metrics(items)
-    flags, causes = prior.evaluate_flags(CONFIG, set1_rows, set_rows)
+    positions, neighbors = electrode_geometry()
+    metric_rows = qc.collect_condition_metrics(items, neighbors)
+    flags, causes = qc.evaluate_flags(metric_rows, list(PARENT.EXPECTED_CHANNEL_NAMES))
     before, eligible_before, _, _, _ = prior.group_topographies(CONFIG, items, {})
     products, eligible, excluded, group_audit, applied = prior.group_topographies(
         CONFIG, items, causes
@@ -399,6 +418,7 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         raise AssertionError("Exclusion changed the original eligible denominator")
     original_check = check_original_group_values(items, before)
     verify_excluded_group(items, causes, products)
+    simulation_check = approved_mask_check(applied)
     for row in group_audit:
         product, number = row["product"], row["set"] - 1
         channel = PARENT.EXPECTED_CHANNEL_NAMES.index(row["channel"])
@@ -415,6 +435,10 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
             "trigger_conditions": ";".join(sorted({entry["condition"] for entry in entries})),
             "trigger_sessions": ";".join(sorted({entry["session_id"] for entry in entries})),
             "reasons": ";".join(sorted({entry["reason"] for entry in entries})),
+            "trigger_source_sets": ";".join(
+                str(n) for n in sorted({entry["source_set"] for entry in entries})
+            ),
+            "baseline_propagated": any(entry["baseline_propagated"] for entry in entries),
             "paired_or_applied": True,
             "applied_to_original_finite_cell": (pair, number, channel) in applied,
         }
@@ -448,7 +472,7 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         }
     summary = {
         "script_version": VERSION,
-        "prior_method_version": prior.SCRIPT_VERSION,
+        "aggregation_helper_version": prior.SCRIPT_VERSION,
         "repository_commit": revision,
         "source_sha256": source_hashes(),
         "command": [sys.executable, *sys.argv],
@@ -460,23 +484,34 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         "manifest_path": str(MANIFEST),
         "manifest_sha256": digest(MANIFEST),
         "preflight": preflight,
-        "parameters": asdict(prior.PARAMETERS),
-        "method": "unchanged_prior_conditionwise_set1_absolute_and_bidirectional_sustained_change",
+        "parameters": asdict(qc.PARAMETERS),
+        "method": "conditionwise_spatial_isolation_OR_temporal_concentration_paired_OR_v2",
+        "approved_simulation_check": simulation_check,
+        "electrode_geometry": {
+            "montage": "colin27_1020",
+            "coordinate_frame": "MNE Info head coordinates",
+            "distance": "3D Euclidean; nearest four excluding self",
+            "channels": list(PARENT.EXPECTED_CHANNEL_NAMES),
+            "positions_m": positions.tolist(),
+            "neighbor_indices": neighbors.tolist(),
+            "neighbor_names": [
+                [PARENT.EXPECTED_CHANNEL_NAMES[i] for i in row] for row in neighbors
+            ],
+        },
         "method_notes": {
-            "qc_baseline": "post-mask unsmoothed Set 1 median, session x channel",
+            "qc_baseline": "post-mask unsmoothed Set 1 arithmetic mean, session x channel",
             "change_baseline": "post-mask unsmoothed Set 1 arithmetic mean, session x channel",
             "reference_pool": (
                 "all eligible sessions across both products and conditions; "
                 "channel-specific; later metrics also Set-specific"
             ),
-            "occupancy": (
-                "all chronological blocks in denominator; unavailable block compares False "
-                "and interrupts runs, as in prior implementation"
-            ),
-            "partial_block": "last partial 60-second block has one equal block weight",
+            "spatial": "log2 ratio/median local residual; within-row and same-Set/ch cohort z",
+            "strict_neighbors": "greater than twofold in one direction from at least 3/4 neighbors",
+            "temporal": "top ceil(10% finite windows) share >=0.5 AND mean/median >=3 AND z>=3.5",
+            "no_sustained_block_rule": True,
             "paired_or": "either condition flags same pair x channel x Set in both conditions",
             "set1_propagation": (
-                "Set 1 high absolute PSD removes same pair x channel in Sets 2-6; "
+                "Set 1 spatial absolute or temporal flag removes same pair x channel in Sets 2-6; "
                 "baseline map retained"
             ),
             "benchmark": (
@@ -505,11 +540,14 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
             "established by exclusion."
         ),
         "warnings": {
-            "missing_block_channel_cells": int(
-                sum(np.sum(row["block_count"] - row["finite_block_count"]) for row in set_rows)
+            "nonfinite_condition_metric_cells": int(
+                sum(
+                    np.sum(~np.isfinite(row["ratio"]) | ~np.isfinite(row["median"]))
+                    for row in metric_rows
+                )
             ),
-            "missing_block_handling": (
-                "False occupancy and interrupted run, unchanged from prior method"
+            "missing_handling": (
+                "No imputation; original missing cells do not count as new exclusions"
             ),
             "statistical_inference": (
                 "No statistical test of anatomical specificity or product effect"
@@ -520,9 +558,10 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         return summary
 
     protected = protected_inventory()
+    archive = archive_prior_records()
     generated = []
     for product in PRODUCTS:
-        after = prior.output_paths(PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, product)
+        after = output_path(product)
         engine.plot_topography(products[product]["group"], after)
         for stage, source in (("Before", original_path(product)), ("After", after)):
             destination = prior.supplemental_output_path(
@@ -537,12 +576,32 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
     for path in generated:
         with Image.open(path) as image:
             image.verify()
+    # Only the explicitly superseded PNGs are removed, after all replacements read back.
+    removed_legacy = []
+    for product in PRODUCTS:
+        old = prior.output_paths(PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, product)
+        if old.is_file():
+            removed_legacy.append({"path": str(old), "sha256": digest(old)})
+            old.unlink()
+        expected = {original_path(product), output_path(product)}
+        if set(output_path(product).parent.glob("*.png")) != expected:
+            raise RuntimeError(
+                "Topography folder must contain original plus latest sensitivity only"
+            )
+        comparison = prior.supplemental_output_path(
+            PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, product, "Before"
+        ).parent
+        expected_copies = {
+            prior.supplemental_output_path(PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, product, stage)
+            for stage in ("Before", "After")
+        }
+        if set(comparison.glob("*.png")) != expected_copies:
+            raise RuntimeError("Comparison folder must contain only current Before/After")
     tables = {
         "session_flags": flags,
         "excluded_cells": exclusion_rows,
         "group_audit": group_audit,
-        "all_condition_metrics": flattened_metrics(set1_rows, set1=True)
-        + flattened_metrics(set_rows, set1=False),
+        "all_condition_metrics": flattened_metrics(metric_rows),
         "large_scale_individual_benchmark": benchmark,
     }
     table_paths = {}
@@ -554,6 +613,8 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
     current = protected_inventory()
     if current != protected:
         raise RuntimeError("A protected original/cache/other-analysis file changed")
+    if verify_archive() != archive:
+        raise RuntimeError("Archived v1 evidence changed during execution")
     protection_path = TABLE_ROOT / "ProtectedInputOutputInventory.json"
     write_json(protection_path, protected)
     summary.update(
@@ -562,6 +623,8 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
             "completed_at": datetime.now().astimezone().isoformat(),
             "outputs": [{"path": str(path), "sha256": digest(path)} for path in generated],
             "tables": table_paths,
+            "v1_history": archive,
+            "removed_legacy_pngs": removed_legacy,
             "protection": {
                 "no10_original_files_hash_checked": len(protected["existing_no10_files"]),
                 "no10_caches_hash_checked": len(protected["no10_cache_hashes"]),
@@ -615,6 +678,8 @@ def record_review(path: Path) -> dict:
     )
     if protection != protected_inventory():
         raise ValueError("Protected original files differ since execution")
+    if verify_archive() != summary["v1_history"]:
+        raise ValueError("Archived v1 evidence changed since execution")
     summary.update(
         {
             "status": "delivery_verified",

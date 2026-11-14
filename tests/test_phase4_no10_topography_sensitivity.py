@@ -42,18 +42,25 @@ def item(pair, product='CCube', eye_factor=1.0, control_factor=1.0,
             'control': session(b, control_factor, control_missing)}}
 
 def row(set_number=2):
-    fields = ('absolute', 'neighbor_factor', 'median_ratio', 'q75_ratio', 'fraction_ge2',
-              'longest_ge2', 'fraction_low', 'longest_low', 'absolute_z', 'cohort_factor',
-              'median_ratio_z', 'q75_ratio_z', 'absolute_factor')
-    result = {{key: np.ones(32) for key in fields}}
+    fields = ('ratio_residual_log2', 'ratio_spatial_z', 'ratio_residual_log2_cohort_z',
+              'ratio_support', 'median_residual_log2', 'median_spatial_z',
+              'median_residual_log2_cohort_z', 'median_cohort_z', 'median_support',
+              'top_share', 'mean_median', 'mean_median_cohort_z')
+    result = {{key: np.zeros(32) for key in fields}}
+    for key in ('ratio_strict_neighbor_isolation', 'median_strict_neighbor_isolation'):
+        result[key] = np.zeros(32, dtype=bool)
     result.update(pair_id='900-901', session_id='900', condition='Eye Drop',
                   product='CCube', set=set_number)
-    result['absolute_z'][:] = 0
-    result['median_ratio_z'][:] = 0
-    result['q75_ratio_z'][:] = 0
-    result['fraction_ge2'][:] = 0
-    result['fraction_low'][:] = 0
     return result
+
+def spatial(r, ch, kind='ratio', sign=1):
+    r[kind+'_residual_log2'][ch] = sign*3
+    r[kind+'_spatial_z'][ch] = sign*5
+    r[kind+'_residual_log2_cohort_z'][ch] = sign*5
+    r[kind+'_support'][ch] = 3
+    r[kind+'_strict_neighbor_isolation'][ch] = True
+    if kind == 'median':
+        r['median_cohort_z'][ch] = sign*5
 """
     completed = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(setup) + textwrap.dedent(body)],
@@ -67,74 +74,95 @@ def row(set_number=2):
     return json.loads(completed.stdout)
 
 
-def test_no10_context_and_unchanged_prior_thresholds() -> None:
+def test_no10_context_current_parameters_and_scoped_paths() -> None:
     actual = run_code("""
 print(json.dumps({'frequencies': m.PARENT.INCLUDED_FREQUENCIES_HZ.tolist(),
-    'stem': m.engine.ANALYSIS_STEM, 'parameters': m.asdict(m.prior.PARAMETERS),
+    'stem': m.engine.ANALYSIS_STEM, 'parameters': m.asdict(m.qc.PARAMETERS),
     'alternate': m.engine.ALTERNATE_GROUP_EXCLUSIONS,
     'paths': [str(p) for p in m.supplement_paths()]}))
 """)
     assert actual["frequencies"] == [8.0, 9.0, 10.0]
     assert actual["stem"] == "No10_sub_FzLowAlphaChange"
     assert actual["alternate"] == {}
-    parameters = actual["parameters"]
-    assert parameters["set1_log_robust_z"] == 4.5
-    assert parameters["positive_log_robust_z"] == 3.5
-    assert parameters["negative_absolute_log_robust_z"] == -4.0
-    assert parameters["positive_median_ratio"] == 2.5
-    assert parameters["negative_median_ratio"] == 0.30
+    assert actual["parameters"]["scaled_mad_floor"] == 0.15
+    assert actual["parameters"]["change_spatial_z"] == 4.5
+    assert actual["parameters"]["absolute_level_z"] == 4.0
     assert len(set(actual["paths"])) == 6
-    assert all("No10_sub_FzLowAlphaChange" in path for path in actual["paths"])
-    assert sum("BeforeOutlierExclusion" in path for path in actual["paths"]) == 2
+    assert sum("ExploratorySpatialTemporalExcluded" in p for p in actual["paths"]) == 2
+    assert sum("BeforeOutlierExclusion" in p for p in actual["paths"]) == 2
 
 
-def test_set1_high_propagates_only_same_pair_channel_sets2_6() -> None:
+def test_scaled_mad_floor_and_nan_reference() -> None:
+    actual = run_code("""
+a = m.qc.robust_z(np.array([0., .01, .02, np.nan]))
+b = m.qc.robust_z(np.array([0., 1., 2.]))
+print(json.dumps({'a': a[:3].tolist(), 'missing': bool(np.isnan(a[3])), 'b': b.tolist()}))
+""")
+    assert actual["a"] == [-0.01 / 0.15, 0.0, 0.01 / 0.15]
+    assert actual["missing"] is True
+    assert abs(actual["b"][0] + 1 / 1.4826) < 1e-12
+
+
+def test_strict_twofold_and_three_of_four_support() -> None:
+    actual = run_code("""
+neighbors = np.array([[1,2,3,4]])
+def flag(v):
+    return bool(m.qc.strict_neighbor_isolation(np.array(v), neighbors)[0])
+print(json.dumps({'equal_high': flag([2,1,1,1,8]), 'above': flag([2.01,1,1,1,8]),
+ 'equal_low': flag([.5,.1,1,1,1]), 'below': flag([.49,.1,1,1,1]),
+ 'two_only': flag([4,1,1,4,4])}))
+""")
+    assert actual == dict(equal_high=False, above=True, equal_low=False, below=True, two_only=False)
+
+
+def test_set1_absolute_or_temporal_propagates_but_change_cannot() -> None:
     actual = run_code("""
 r = row(1)
-r['absolute_z'][4] = 4.5001
-r['cohort_factor'][4] = 2.5
-r['neighbor_factor'][4] = 2.0
-flags, causes = m.prior.evaluate_flags(m.CONFIG, [r], [])
-print(json.dumps({'flags': len(flags), 'keys': [list(k) for k in causes]}))
+spatial(r, 4, 'median', -1)
+spatial(r, 5)
+r['top_share'][6] = .5
+r['mean_median'][6] = 3
+r['mean_median_cohort_z'][6] = 3.5
+flags, causes = m.qc.evaluate_flags([r], m.PARENT.EXPECTED_CHANNEL_NAMES)
+print(json.dumps({'flags': len(flags), 'keys': sorted([list(k) for k in causes]),
+ 'propagated': all(e['baseline_propagated'] for es in causes.values() for e in es)}))
 """)
-    assert actual["flags"] == 1
-    assert actual["keys"] == [["900-901", number, 4] for number in range(2, 7)]
+    assert actual["flags"] == 2
+    assert actual["keys"] == [["900-901", n, ch] for n in range(2, 7) for ch in (4, 6)]
+    assert actual["propagated"]
 
 
-def test_paired_or_counts_cell_once_and_does_not_remove_other_channels() -> None:
+def test_paired_or_counts_once_no_other_channels() -> None:
     actual = run_code("""
 r = row(4)
-for key, value in [('median_ratio_z', 4), ('median_ratio', 3),
-                   ('fraction_ge2', .6), ('longest_ge2', 2)]:
-    r[key][5] = value
+spatial(r, 5)
 c = {**r, 'session_id': '901', 'condition': 'Control'}
-flags, causes = m.prior.evaluate_flags(m.CONFIG, [], [r, c])
+flags, causes = m.qc.evaluate_flags([r, c], m.PARENT.EXPECTED_CHANNEL_NAMES)
 items = [item('900-901', eye_factor=2), item('902-903'), item('904-905', 'VRohtoPremium')]
 products, eligible, excluded, _, applied = m.prior.group_topographies(m.CONFIG, items, causes)
 m.verify_excluded_group(items, causes, products)
 print(json.dumps({'flags': len(flags), 'keys': [list(k) for k in causes],
-    'excluded': excluded, 'eligible': eligible,
-    'n_affected': int(products['CCube']['valid_n'][3, 5]),
-    'n_other': int(products['CCube']['valid_n'][3, 6]),
-    'n_baseline': int(products['CCube']['valid_n'][0, 5])}))
+ 'excluded': excluded, 'eligible': eligible, 'n_affected': int(products['CCube']['valid_n'][3,5]),
+ 'n_other': int(products['CCube']['valid_n'][3,6]),
+ 'n_base': int(products['CCube']['valid_n'][0,5])}))
 """)
     assert actual["flags"] == 2
     assert actual["keys"] == [["900-901", 4, 5]]
     assert actual["excluded"] == 1
     assert actual["eligible"] == 3 * 5 * 32
     assert actual["n_affected"] == 1
-    assert actual["n_other"] == actual["n_baseline"] == 2
+    assert actual["n_other"] == actual["n_base"] == 2
 
 
-def test_known_missing_set_not_new_exclusion_and_no_whole_pair_drop() -> None:
+def test_known_missing_set_not_new_exclusion_or_whole_pair_drop() -> None:
     actual = run_code("""
 items = [item('900-901', eye_factor=2, eye_missing=(6,)), item('902-903'),
-         item('904-905', 'VRohtoPremium')]
+ item('904-905', 'VRohtoPremium')]
 causes = {('900-901', 6, 3): [{'reason': 'example'}]}
 products, eligible, excluded, _, applied = m.prior.group_topographies(m.CONFIG, items, causes)
 print(json.dumps({'eligible': eligible, 'excluded': excluded, 'applied': len(applied),
-    'n_set5': int(products['CCube']['valid_n'][4, 3]),
-    'n_set6': int(products['CCube']['valid_n'][5, 3])}))
+ 'n_set5': int(products['CCube']['valid_n'][4,3]),
+ 'n_set6': int(products['CCube']['valid_n'][5,3])}))
 """)
     assert actual["eligible"] == 3 * 5 * 32 - 32
     assert actual["excluded"] == actual["applied"] == 0
@@ -142,38 +170,68 @@ print(json.dumps({'eligible': eligible, 'excluded': excluded, 'applied': len(app
     assert actual["n_set6"] == 1
 
 
-def test_metrics_keep_median_qc_separate_from_mean_change_and_nan_occupancy() -> None:
+def test_mean_baseline_finite_top_ceil_and_both_conditions_reference() -> None:
     actual = run_code("""
 x = item('900-901')
 source = x['eye_drop'].source
 source.sets[1].psd_band_mean[:60] = 4
-# Set-1 median=1 and mean=2. Set2 finite blocks=4,NaN,4.
 source.sets[2].psd_band_mean[:] = 4
 source.sets[2].psd_band_mean[60:120] = np.nan
-x['eye_drop'] = m.engine.make_change_session(source)
-first, later = m.collect_condition_metrics([x])
-r = next(r for r in later if r['condition']=='Eye Drop' and r['set']==2)
-print(json.dumps({'qc_baseline': float(first[0]['absolute'][0]),
-    'change_baseline': float(x['eye_drop'].baseline_by_channel[0]),
-    'ratio': float(r['median_ratio'][0]), 'occupancy': float(r['fraction_ge2'][0]),
-    'run': int(r['longest_ge2'][0]), 'blocks': int(r['block_count'][0]),
-    'finite_blocks': int(r['finite_block_count'][0])}))
+rows = m.collect_condition_metrics([x])
+r = next(r for r in rows if r['condition']=='Eye Drop' and r['set']==2)
+small = np.arange(1.,12.)[:,None]
+metric = m.qc.power_metrics(small, np.ones(1))
+print(json.dumps({'baseline': float(r['baseline_mean'][0]), 'ratio': float(r['ratio'][0]),
+ 'count': int(r['finite_count'][0]), 'top': int(metric['top_count'][0]),
+ 'share': float(metric['top_share'][0]), 'rows': len(rows)}))
 """)
-    assert actual["qc_baseline"] == 1.0
-    assert actual["change_baseline"] == 2.0
-    assert actual["ratio"] == 4.0
-    assert actual["occupancy"] == 2 / 3
-    assert actual["run"] == 1
-    assert actual["blocks"] == 3
-    assert actual["finite_blocks"] == 2
+    assert actual["baseline"] == 2.0
+    assert actual["ratio"] == 2.0
+    assert actual["count"] == 120
+    assert actual["top"] == 2
+    assert actual["share"] == 21 / 66
+    assert actual["rows"] == 12
 
 
-def test_large_scale_benchmark_is_only_audit_and_uses_nice_colour_range() -> None:
+def test_positive_and_negative_spatial_paths_need_final_neighbor_gate() -> None:
+    actual = run_code("""
+r = row(3)
+spatial(r, 3, sign=1)
+spatial(r, 4, sign=-1)
+spatial(r, 5, 'median', sign=-1)
+spatial(r, 6)
+r['ratio_support'][6] = 2
+spatial(r, 7)
+r['ratio_strict_neighbor_isolation'][7] = False
+flags, causes = m.qc.evaluate_flags([r], m.PARENT.EXPECTED_CHANNEL_NAMES)
+print(json.dumps({'channels': [k[2] for k in causes]}))
+""")
+    assert actual["channels"] == [3, 4, 5]
+
+
+def test_temporal_independent_of_spatial_and_broad_change_not_flagged() -> None:
+    actual = run_code("""
+items = [item('900-901', eye_factor=50), item('902-903', 'VRohtoPremium')]
+rows = m.collect_condition_metrics(items)
+flags, causes = m.qc.evaluate_flags(rows, m.PARENT.EXPECTED_CHANNEL_NAMES)
+r = row(3)
+r['top_share'][1]=.5
+r['mean_median'][1]=3
+r['mean_median_cohort_z'][1]=3.5
+temporal, selected = m.qc.evaluate_flags([r], m.PARENT.EXPECTED_CHANNEL_NAMES)
+print(json.dumps({'broad': len(flags), 'temporal': len(temporal),
+ 'keys': [list(k) for k in selected]}))
+""")
+    assert actual["broad"] == 0
+    assert actual["temporal"] == 1
+    assert actual["keys"] == [["900-901", 3, 1]]
+
+
+def test_large_colour_scale_benchmark_is_only_audit() -> None:
     actual = run_code("""
 items = [item('900-901', eye_factor=6.2), item('902-903', 'VRohtoPremium')]
-rows = m.benchmark_rows(items, set())
-value = float(m.engine.pair_topography_values(items[0])[1,0])
-print(json.dumps({'rows': rows, 'source_value': value}))
+print(json.dumps({'rows': m.benchmark_rows(items, set()),
+ 'source_value': float(m.engine.pair_topography_values(items[0])[1,0])}))
 """)
     assert len(actual["rows"]) == 1
     assert actual["rows"][0]["original_colour_limit"] == 800.0
@@ -181,46 +239,36 @@ print(json.dumps({'rows': rows, 'source_value': value}))
     assert abs(actual["source_value"] - 520.0) < 1e-8
 
 
-def test_negative_change_alone_is_not_excluded_without_absolute_low_support() -> None:
-    actual = run_code("""
-r = row(3)
-r['median_ratio'][3] = .2
-r['fraction_low'][3] = 1
-r['longest_low'][3] = 3
-flags0, _ = m.prior.evaluate_flags(m.CONFIG, [], [r])
-r['absolute_z'][3] = -4.01
-r['absolute_factor'][3] = .35
-r['neighbor_factor'][3] = .45
-flags1, causes = m.prior.evaluate_flags(m.CONFIG, [], [r])
-print(json.dumps({'before': len(flags0), 'after': len(flags1), 'keys': [list(k) for k in causes]}))
-""")
-    assert actual["before"] == 0
-    assert actual["after"] == 1
-    assert actual["keys"] == [["900-901", 3, 3]]
-
-
-def test_unexcluded_values_match_independent_original_mean_formula() -> None:
+def test_independent_mean_formula_and_montage_geometry() -> None:
     actual = run_code("""
 x = item('900-901', eye_factor=2.3, control_factor=1.2)
 v = m.independent_pair_values(x)
 np.testing.assert_allclose(v, m.engine.pair_topography_values(x), atol=1e-8)
-print(json.dumps({'baseline_max': float(np.abs(v[0]).max()), 'later': float(v[1,0])}))
+positions, neighbors = m.electrode_geometry()
+assert neighbors.shape == (32,4)
+for i, row_indices in enumerate(neighbors):
+    assert i not in row_indices
+print(json.dumps({'baseline': float(np.abs(v[0]).max()), 'later': float(v[1,0])}))
 """)
-    assert actual["baseline_max"] == 0.0
-    assert abs(actual["later"] - 110.0) < 1e-8
+    assert actual["baseline"] == 0
+    assert abs(actual["later"] - 110) < 1e-8
 
 
-def test_execute_requires_matching_live_source_audit_before_writes() -> None:
+def test_source_audit_and_approved_set_gate_before_writes() -> None:
     actual = run_code("""
-try:
-    m.validate_source_audit(None)
-except ValueError as exc:
-    print(json.dumps({'message': str(exc)}))
+messages = []
+for action in (lambda:m.validate_source_audit(None),lambda:m.approved_mask_check(set())):
+    try:
+        action()
+    except ValueError as exc:
+        messages.append(str(exc))
+print(json.dumps({'messages':messages}))
 """)
-    assert "--source-audit" in actual["message"]
+    assert "--source-audit" in actual["messages"][0]
+    assert "simulation mask mismatch" in actual["messages"][1]
 
 
-def test_zero_remaining_channel_is_rejected_instead_of_silent_missing_figure() -> None:
+def test_zero_remaining_channel_rejected() -> None:
     actual = run_code("""
 items = [item('900-901'), item('904-905', 'VRohtoPremium')]
 causes = {('900-901', 2, 0): [{'reason': 'example'}]}
@@ -231,3 +279,29 @@ except ValueError as exc:
     print(json.dumps({'message': str(exc)}))
 """)
     assert "no remaining paired" in actual["message"]
+
+
+def test_archive_idempotent_and_hash_protected() -> None:
+    actual = run_code("""
+import tempfile
+with tempfile.TemporaryDirectory() as td:
+    m.SUB_ROOT=Path(td)
+    m.TABLE_ROOT=m.SUB_ROOT/'Sub/tables/TopographySensitivity'
+    m.LOG_PATH=m.SUB_ROOT/'Sub/logs/old.json'
+    m.HISTORY_ROOT=m.SUB_ROOT/'Sub/history/v1'
+    m.write_json(m.LOG_PATH, {'script_version':'v1'})
+    m.write_json(m.TABLE_ROOT/'ProtectedInputOutputInventory.json', {})
+    for name in m.TABLE_NAMES:
+        m.write_csv(m.TABLE_ROOT/(name+'.csv'),[{'synthetic':1}])
+    first=m.archive_prior_records()
+    m.write_json(m.LOG_PATH, {'script_version':m.VERSION})
+    second=m.archive_prior_records()
+    assert first==second
+    m.write_json(m.HISTORY_ROOT/'Sub/logs/old.json', {'script_version':'changed'})
+    try:
+        m.verify_archive()
+    except ValueError as exc:
+        print(json.dumps({'files':first['files'],'message':str(exc)}))
+""")
+    assert actual["files"] == 7
+    assert "preserved v1" in actual["message"]
