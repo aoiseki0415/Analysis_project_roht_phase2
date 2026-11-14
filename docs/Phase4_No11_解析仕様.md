@@ -1,6 +1,6 @@
 # Phase 4 No11・No11_sub：Pz low-alpha解析仕様
 
-更新日：2026-11-13。**現行定義はPz・8–10 Hz（8・9・10 Hzを含む）。No11は絶対PSD、No11_subは各条件自身のSet 1からの変化率。** 本書は方法・Figure・保存構造の現行正本。実行結果は第11節、意思決定の経緯は[専用履歴](history/Phase4_No11_意思決定.md)へ分離する。
+更新日：2026-11-14。**現行定義はPz・8–10 Hz（8・9・10 Hzを含む）。No11は絶対PSD、No11_subは各条件自身のSet 1からの変化率。** 全利用可能データの主結果に、利用者指定ペア除外版を追加する。本書は方法・Figure・保存構造の現行正本。実行結果は第11節、意思決定の経緯は[専用履歴](history/Phase4_No11_意思決定.md)へ分離する。
 
 旧IAF No11（Fz前後半）は廃止済みの別解析であり、その方法・cache・結果・選別を今回へ流用しない。現行IAFはNo8=Pz／No9=Fz。本書のNo11はIAFではなく**low-alphaの帯域平均パワー**を扱う。
 
@@ -17,7 +17,7 @@
 | 元データ | 検証済みNo10全32ch・8–10 Hz PSD cache | 同じcache |
 
 - 最新の[No10・No10_sub仕様](Phase4_No10_解析仕様.md)の主要解析を継承し、代表chをFzからPzへ変更する。元となる計算・Figure規則は[No1統合仕様](Phase4_No1_共有用解析仕様.md)と同じ。
-- 新たな被験者除外・定性的選別は行わない。No10_subの`SpecifiedPairsExcluded`、topography感度分析、IAF選別、他Noの指定除外は継承しない。
+- 主結果には新たな被験者除外・定性的選別を加えない。2026-11-14指定の追加版だけには第5.4節のNo11専用集合を適用する。No10_subの除外集合、topography感度分析、IAF選別、他Noの指定除外は継承しない。
 - **Topographyは作らない。** 帯域・全32ch入力・条件差定義はNo10と同じで、代表chを変えても全頭mapは重複するため。TFM／No11_addも今回の範囲外。
 - No10のcache・Figure・表・除外規則は変更しない。No10_subの除外基準に関する未合意の検討・シミュレーションとも独立して扱う。
 - 8–10 Hzは本プロジェクトの操作的なlow-alpha定義。個人別alpha帯やIAFは推定しない。
@@ -144,6 +144,16 @@ No11_subでは**個人別・条件別baseline変換を済ませてから**上記
 - 補正familyは解析・製品ごと。No11は6 Setの6検定、No11_subはSet 2–6の5検定。sub Set 1はBaseline表示で検定しない。
 - 全Set統合は1検定で、多重比較補正を行わない。探索的な複数の比較であり、未補正の有意差だけを確証と扱わない。
 
+### 5.4 指定ペア除外の追加感度分析（2026-11-14）
+
+- 呼称：`SpecifiedPairsExcluded`。**No11とNo11_subの両方**に追加する。指定集合は[解析上の注意事項のNo11節](解析上の注意事項.md#phase-4-no11no11_subpz-low-alpha)が正本。Vプレ1ペア・Cキューブ3ペアを、ペア単位で両条件・全Setから外す。
+- 利用者による個人結果確認後の指定であり、事後・探索的な感度分析と位置付ける。新しい自動ノイズ閾値ではなく、指定対象が生理的に無効であることや製品効果を証明するものではない。結果の有意性に応じて除外集合を変更しない。
+- 40ペアのmanifest・元PSDは保持する。群集計用cohortだけを絞り、主要全員版と個人図・既存CSV／ログを上書きしない。指定除外後も既知欠測Setのpaired処理とsubのSet 1 baseline要件を維持する。
+- 対象数の事前期待：No11はCキューブ17／Vプレ19、subはCキューブ17／Vプレ18。subの既知Set 1欠測による1ペア対象外は、指定4ペアとは別理由。各SetのNは残存欠測に応じて減るため、実数は出力表で確認する。
+- 元cacheのPz値から既存の処理を再現する。Grand-averageは60点平滑化・各Set100 progress点の平均±SEM、定量化は両mask後・未平滑のSet別／全Set統合値。baseline・mask・平滑化・補間・検定・補正familyは主解析と同じ。
+- **除外後の数値でy軸を再設定**する。No11群図はmean+SEMの最大値／.75、sub群図は平均線の最大絶対値／.70、いずれも従来の丸め・2製品共通化を維持。定量化のM・統計・Set名・上下限も残存個人値から第7.2節どおり決める。
+- 追加は各Noで2製品×（Grand-average、Set別定量化、全Set統合定量化）＝6 PNG、合計12 PNG。統計・個人値・群値・採否・保護対象hashも保存する。Topography、TFM、個人除外版、PSD再計算は行わない。
+
 ## 6. 配色（No11・No11_sub共通）
 
 | 条件・製品 | 時間変化・Grand-average | 定量化バー・点 |
@@ -233,6 +243,12 @@ No11の実アスタリスク中心は`1.17M−.018×(y上限−y下限)`。n.s.�
 - 最終確定：`run_phase4_no11.py --complete-verification --review-manifest <目視・文書・テスト確認JSON>`。全12群図・少なくとも4個人図の実画像確認、数値監査、文書読み戻し、GitHubのcommit SHA一致を確認して完了記録を保存する。
 - runtimeはrepository `.venv/bin/python`。実行コマンド・時刻・console・cache SHA・出力hash・失敗履歴はNo11の`Sub/logs/`に保存する。少人数試行は全員処理で現行の群図・表を置き換え、試行のconsoleは過程記録として区別する。
 
+指定ペア除外版は専用入口 `run_phase4_no11_sensitivity.py` から、全対象へ同じNo11 engine・固定除外集合を適用する。主要解析の`--all`を再実行して置き換える方式ではない。最新対応表照合→cache読込とcohort確認→追加図／表→独立監査→全追加図の目視→文書／Notion／Git確認を行う。独立監査は `validate_phase4_no11_sensitivity_outputs.py`。具体的な実行・検証記録は第11節へ分離する。
+
+- 実行：`run_phase4_no11_sensitivity.py --execute --manifest-source-audit <当日の対応表照合JSON>`。再生成は明示的な`--replace-existing`付きに限り、追加版だけを上書きする。
+- 独立監査：`validate_phase4_no11_sensitivity_outputs.py --manifest <主要版ParticipantManifest.csv> --execution-report <追加版Execution.json> --report <追加版IndependentValidation.json>`。
+- 完了確定：`run_phase4_no11_sensitivity.py --complete-verification --review-manifest <確認JSON>`。全12実画像・独立監査・JUnit・文書／Notion・remote一致を要求し、数値とhashを再確認して証跡を保存する。
+
 ## 9. 保存先・フォルダの読み方
 
 親は許可済みOneDrive `実験本番_本解析/Phase4_脳波解析/`。次の2ルートを既存Noと並列に置く。
@@ -244,8 +260,9 @@ No11_PzLowAlpha/
       Unsmoothed/
         BeforeThresholdExclusion/ # Phase 1 mask後・log3SD前
         AfterThresholdExclusion/  # 両mask後、未平滑
-    GrandAverage/                # 平均±SEM、PNGのみ
-    SetQuantification/           # 6 Set別＋全Set統合PNG、統計CSV
+    GrandAverage/                # 主結果＋指定除外版の平均±SEM、PNGのみ
+    SetQuantification/           # 主結果6 Set別＋全Set統合PNG、統計CSV
+      SpecifiedPairsExcluded/    # 追加版2 PNG＋Set別統計CSV
   VRohtoPremium/
   Sub/
     tables/
@@ -256,8 +273,9 @@ No11_PzLowAlpha/
 No11_sub_PzLowAlphaChange/
   CCube/                         # VRohtoPremium/も同じ
     Individual/                  # Set 1変化率・60秒平滑化
-    GrandAverage/                # 平均±SEM、PNGのみ
-    SetQuantification/           # 6 Set別＋全Set統合PNG、統計CSV
+    GrandAverage/                # 主結果＋指定除外版の平均±SEM、PNGのみ
+    SetQuantification/           # 主結果6 Set別＋全Set統合PNG、統計CSV
+      SpecifiedPairsExcluded/    # 追加版2 PNG＋Set別統計CSV
   VRohtoPremium/
   Sub/
     tables/
@@ -268,13 +286,15 @@ No11_sub_PzLowAlphaChange/
 ```
 
 - 被験者別の下位フォルダは作らず、個人PNGを並べる。定量化の統計CSV以外の補助表・manifest・ログはSubへ分離する。
-- `Topography`、`SpecifiedPairsExcluded`、TFMのフォルダは作らない。
+- `Topography`、TFMのフォルダは作らない。
 - 個人：`ID<初回>-<2回目>_<stem>_Individual.png`。未平滑は`_Unsmoothed_BeforeThresholdExclusion`／`_Unsmoothed_AfterThresholdExclusion`を追加する。
 - 群：`<stem>_GrandAverage_<製品>.png`。
 - 定量化：`<stem>_SetQuantification_<製品>.png`／`<stem>_AllSetsQuantification_<製品>.png`。
 - 統計CSV・被験者値・群値は用途別suffixで区別する。製品文字列は`CCube`／`VRohtoPremium`。
 - `SetQuantification_Statistics`は製品別PNGと同じフォルダ。`AllSetsQuantification_Statistics`と個人`Values`は`Sub/tables/SetQuantification/`、群値は`Sub/tables/GrandAverage/`に保存する（No10と同じ配置）。
 - cache原値・maskはNo10ローカルHDF5が正本。No11のSubに元cacheパス・設定hash・検証結果を記録して再現性を確保し、PSDそのものを二重保存しない。
+- 指定除外版PNG・CSVには末尾`_SpecifiedPairsExcluded`を付ける。Grand-average PNGは既存製品別`GrandAverage/`、その数値は`Sub/tables/GrandAverage/`。定量化PNGとSet統計は製品別`SetQuantification/SpecifiedPairsExcluded/`、個人定量値・全Set統計は`Sub/tables/SetQuantification/SpecifiedPairsExcluded/`。採否監査・実行ログはSubの専用ファイルとし、初回主要解析の記録を置き換えない。
+- `Sub/tables/<stem>_SpecifiedPairsExcluded_CohortSelection.csv`は元の40ペアを残す。`PrimaryAnalysisEligible`（元解析で利用可能か）、`SpecifiedPairExcluded`（今回の指定）、`Included`（追加版で採用するか）と理由を分け、subのbaseline欠測を指定除外と混同しない。
 
 ## 10. 記録・検証・完了条件
 
@@ -325,3 +345,24 @@ sub Set 1のNはbaseline有効人数であり、検定Nではない。欠測Set�
 - 全80元cacheのSHA-256と、既存Phase 4成果物・処理データのファイルサイズ／更新時刻一覧が実行前後で不変。元EEGのWelch再計算監査は今回の対象外。
 - 実行・検証の正本はNo11 `Sub/logs/No11_ExecutionAndVerification.json`、`No11_IndependentValidation.json`、`No11_DeliveryVerification.json`。後者には最終テスト、実画像、文書・Notion、Git remote SHA確認をまとめる。各解析RunSummaryにも元cacheと対象設定を分けて記録する。
 - OneDriveは許可されたローカル同期フォルダへの保存・読戻しを確認。サーバー側の同期完了は独立検証していない。
+
+### 11.4 2026-11-14指定ペア除外版：結果・検証
+
+主要版171 PNGと既存表・ログを保持し、**12 PNGを追加**した。現在はNo11が132 PNG（主要126＋追加6）、subが51 PNG（主要45＋追加6）、計183 PNG。追加図は第9節の`SpecifiedPairsExcluded`で識別する。新しい個人図・topography・TFM・PSD cacheは生成していない。
+
+| 追加解析／製品 | ペア数 | Set 1→6のpaired N | 全Set統合N | 全Set統合の未補正p |
+|---|---:|---|---:|---:|
+| No11／Cキューブ | 17 | 17,17,17,17,17,16 | 17 | 0.190259 |
+| No11／Vプレ | 19 | 18,18,19,18,19,19 | 19 | 0.830762 |
+| sub／Cキューブ | 17 | 17,17,17,17,17,16 | 17 | 0.082947 |
+| sub／Vプレ | 18 | 18,17,18,17,18,18 | 18 | 0.466042 |
+
+sub Set 1はbaseline有効人数であり検定しない。指定除外と、既知欠測によるSet別N減少・subのbaseline対象外を分離して確認した。
+
+**観察**：No11は両製品の全Setで未補正p≥.05。subはCキューブSet 4のみ未補正p=.045163、Eye Drop−Control=−35.301ポイント（Bonferroni／Holm=.225815、BH-FDR=.139971）。CキューブSet 3はp=.061907、その他とVプレもp≥.05。全Set統合はいずれもp≥.05。これは事後指定による感度分析で、製品効果や対象データのノイズを確定する結果ではない。
+
+**表示**：残存データから既定比率で再計算したGrand-average軸は、両製品共通でNo11が0–25 µV²/Hz、subが−150～150%。今回の追加版では4図ともSEM範囲全体が軸内。定量化は各製品の残存個人値からM・統計位置・Set名・上限を再計算した。
+
+**検証**：40ペア・80セッションのlive対応表との不一致0。80 cacheからPz・mask・baseline・平滑化・群値・対応あり統計／補正を独立再構成し、数値16 CSV＋採否2 CSVと一致。追加12 PNGは全件実画像で色、Arial、軸・目盛、Set／統計マーク・ラベルの非重複を確認。全テスト391件・Ruff・差分検査を通過した。全80 cacheと主要No11／subファイルのSHA-256、他解析の保護対象一覧が実行前後で不変。
+
+証跡の正本はNo11 `Sub/logs/No11_SpecifiedPairsExcluded_Execution.json`、`No11_SpecifiedPairsExcluded_IndependentValidation.json`、`No11_SpecifiedPairsExcluded_DeliveryVerification.json`、`No11_SpecifiedPairsExcluded_Tests.xml`。最終完了時には独立数値照合を再実行し、全追加図・実行コード・文書のhashとGitHub remote SHA一致を確認してDelivery記録を確定する。各解析の`<stem>_SpecifiedPairsExcluded_RunSummary.json`は生成時点の記録で、最終完了判定はDeliveryを参照する。OneDriveサーバー側の同期完了は独立検証していない。

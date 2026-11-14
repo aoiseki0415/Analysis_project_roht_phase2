@@ -45,6 +45,29 @@ def test_png_inventory_has_no_topography_or_sensitivity():
     assert not any("Excluded" in str(path) for path in main_paths | sub_paths)
 
 
+def test_primary_audit_recognizes_only_complete_named_supplement(tmp_path):
+    root = tmp_path / audit.MAIN_STEM
+    main = root / "CCube/GrandAverage/main.png"
+    main.parent.mkdir(parents=True)
+    main.touch()
+    assert audit.primary_png_inventory(root) == ({main}, set())
+    additional = audit.additional_png_paths(root)
+    assert len(additional) == 6
+    first, *remaining = sorted(additional)
+    first.parent.mkdir(parents=True, exist_ok=True)
+    first.touch()
+    with pytest.raises(ValueError, match="incomplete"):
+        audit.primary_png_inventory(root)
+    for path in remaining:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    assert audit.primary_png_inventory(root) == ({main}, additional)
+    unexpected = root / "UnknownExcluded.png"
+    unexpected.touch()
+    primary, _ = audit.primary_png_inventory(root)
+    assert unexpected in primary  # Full audit must still reject this unknown output.
+
+
 def _items():
     result = []
     for person in range(3):

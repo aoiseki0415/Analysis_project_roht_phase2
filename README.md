@@ -150,9 +150,11 @@ No10_subには主結果を保持したまま、利用者指定のVロートプ�
 
 No11は**Pz・8–10 Hz（8・9・10 Hz）**の絶対PSD、No11_subは各条件自身のSet 1平均からのPSD Changeです。No10の検証済み全32ch cacheを読み取り専用で使用し、生成元のNo10設定hashを検証してからPzを名前で選びます。新たなPSD cacheは作らず、No10の主要解析と同じ計算・欠測・統計・Figure規則を適用します。
 
-確定ブルーグレー配色で個人時間変化・Grand-average・Set別／全Set統合定量化を専用2ルートへ出力します。**Topography・TFM・指定被験者除外版は作りません。** 旧IAF No11とは別解析です。現行の方法と実行状態は[No11統合仕様](docs/Phase4_No11_解析仕様.md)、判断過程は[履歴](docs/history/Phase4_No11_意思決定.md)を参照してください。既存No10関連の結果・除外仕様は変更しません。
+確定ブルーグレー配色で個人時間変化・Grand-average・Set別／全Set統合定量化を専用2ルートへ出力します。**Topography・TFMは作りません。** 全利用可能データの主結果を保持し、2026-11-14の指定に基づく両解析の `SpecifiedPairsExcluded` 追加版をGrand-averageとSet別／全Set統合定量化だけに設けます。対象は[解析上の注意事項](docs/解析上の注意事項.md)のNo11専用集合で、No10やIAFの集合を流用しません。旧IAF No11とは別解析です。現行の方法と実行状態は[No11統合仕様](docs/Phase4_No11_解析仕様.md)、判断過程は[履歴](docs/history/Phase4_No11_意思決定.md)を参照してください。既存No10関連の結果・除外仕様は変更しません。
 
 2026-11-13に絶対PSD40ペア・変化率39ペアを実行し、計171 PNG、80 cache・17表の独立数値照合、360テスト、全群図と代表個人図の目視を確認しました。既存cache・他解析は保持しています。結果と表示上の注意点は統合仕様第11節へ分離しています。
+
+2026-11-14の指定除外版は絶対PSD36ペア・変化率35ペアで12 PNGを追加し、計183 PNGになりました。元171 PNG・既存表・80 cacheは不変。追加18 CSVの独立照合、全12追加図の実画像確認、391テストを通過しています。実数N・統計と主要版／追加版の違いは同仕様第11.4節、保存場所は第9節を参照してください。
 
 ## Phase 5相関解析の確定方針
 
@@ -181,7 +183,7 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 No10・No10_sub解析仕様](docs/Phase4_No10_解析仕様.md)：Fz low-alpha 8–10 Hzの絶対PSDとSet 1変化率、sub指定ペア除外追加版。方法・全figure設定・保存構造・実行方法・検証の現行正本
 - [Phase 4 No10設計決定記録](docs/history/Phase4_No10_設計決定記録_20261112.md)：No1–3からの継承、旧IAF番号との区別、準備・検証の経緯。履歴用
 - [Phase 4 No10旧帯域実行結果](docs/history/Phase4_No10_旧帯域実行結果_20261112.md)：帯域変更前の実績・統計・検証の保存版。現行結果へ流用しない
-- [Phase 4 No11・No11_sub解析仕様](docs/Phase4_No11_解析仕様.md)：Pz low-alpha 8–10 Hzの絶対PSD・Set 1変化率。No10 cache再利用、主要全員解析、Figure・保存・検証の現行正本
+- [Phase 4 No11・No11_sub解析仕様](docs/Phase4_No11_解析仕様.md)：Pz low-alpha 8–10 Hzの絶対PSD・Set 1変化率。No10 cache再利用、主要全員解析・指定除外追加版、Figure・保存・検証の現行正本
 - [Phase 4 No11意思決定](docs/history/Phase4_No11_意思決定.md)：対象ch変更、配色・cache再利用・topography省略の判断履歴
 - [Phase 4 改番前仕様の保存版](docs/history/Phase4_No8-11_改番前仕様_20261110.md)：旧4解析・旧採用集合・旧図設定・過去検証の全文。履歴専用で実行や現行対象選定には使わない
 - [Phase 4 No8–11 旧方式と再設計記録](docs/history/Phase4_No8-11_旧方式と再設計記録.md)：廃止した方式と再設計の理由・整理記録。履歴専用で現行手順には使用しない

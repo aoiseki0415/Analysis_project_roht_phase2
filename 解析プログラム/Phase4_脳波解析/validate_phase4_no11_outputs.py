@@ -282,15 +282,42 @@ def expected_png_paths(root: Path, cohort: list, change: bool) -> set[Path]:
     return expected
 
 
+def additional_png_paths(root: Path) -> set[Path]:
+    """Only the explicitly authorized 2026-11-14 supplement may coexist.
+
+    Its numerical validation belongs to the separate sensitivity validator;
+    these paths are never counted as part of the original 171 primary PNGs.
+    """
+    return {
+        root / product / folder
+        / f"{root.name}_{name}_{product}_SpecifiedPairsExcluded.png"
+        for product in PRODUCTS
+        for folder, name in (
+            ("GrandAverage", "GrandAverage"),
+            ("SetQuantification/SpecifiedPairsExcluded", "SetQuantification"),
+            ("SetQuantification/SpecifiedPairsExcluded", "AllSetsQuantification"),
+        )
+    }
+
+
+def primary_png_inventory(root: Path) -> tuple[set[Path], set[Path]]:
+    actual = set(root.rglob("*.png"))
+    authorized = additional_png_paths(root)
+    supplement = actual & authorized
+    if supplement and supplement != authorized:
+        raise ValueError(f"{root.name}: incomplete specified-pair supplement")
+    return actual - supplement, supplement
+
+
 def audit_pngs(root: Path, cohort: list, change: bool, report: dict) -> None:
     expected = expected_png_paths(root, cohort, change)
-    actual = set(root.rglob("*.png"))
+    actual, supplement = primary_png_inventory(root)
     if actual != expected:
         raise ValueError(
             f"{root.name}: PNG inventory mismatch; missing={sorted(expected - actual)}; "
             f"unexpected={sorted(actual - expected)}"
         )
-    forbidden = {"Topography", "SpecifiedPairsExcluded"}
+    forbidden = {"Topography"}
     forbidden_paths = [
         str(path) for path in root.rglob("*") if path.is_dir() and path.name in forbidden
     ]
@@ -312,6 +339,7 @@ def audit_pngs(root: Path, cohort: list, change: bool, report: dict) -> None:
         )
     report["images"].extend(image_rows)
     report["png_counts"][root.name] = len(expected)
+    report.setdefault("additional_png_counts_not_validated_here", {})[root.name] = len(supplement)
 
 
 def run(args, report: dict) -> None:
