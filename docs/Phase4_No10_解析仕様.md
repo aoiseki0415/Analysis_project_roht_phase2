@@ -1,6 +1,6 @@
 # Phase 4 No10・No10_sub：Fz low-alpha解析仕様
 
-更新日：2026-11-14。**現行帯域は8–10 Hz（両端込み）。本体・sub主結果と指定ペア除外版の2026-11-12実績は第12節。topography限定のch×Set除外は2026-11-14確定v2を第6.5節と専用補足文書へ分離する。旧実績・過程はhistoryに分離する。**
+更新日：2026-11-15。**現行帯域は8–10 Hz（両端込み）。本体・sub主結果と指定ペア除外版の2026-11-12実績は第12節。topography限定のch×Set除外は2026-11-15確定v3を第6.5節と専用補足文書へ分離する。旧実績・過程はhistoryに分離する。**
 
 本書は現行仕様。議論・準備の経緯は[設計決定記録](history/Phase4_No10_設計決定記録_20261112.md)へ分離する。既存No1–9の仕様・コード・結果は変更しない。
 
@@ -141,11 +141,13 @@ No10専用cacheだけを読み取り専用で使用し、Welchを再計算しな
 
 ### 6.5 No10_subのみ：topographyの条件別ch×Set除外追加版
 
-2026-11-14、[topography感度分析の現行補足仕様](Phase4_No10_sub_Topography感度分析.md)を**v2へ置換**する。条件別の空間的孤立（Set平均のbaseline比・絶対PSD中央値）と時間的集中（上位10%窓のパワー占有率・平均／中央値）を並列判定し、paired ORで同じペア×ch×Setを両条件から除く。元の39ペアから開始し、第6.4節の指定3ペア除外やNo11の指定除外とは混ぜない。
+2026-11-15、[topography感度分析の現行補足仕様](Phase4_No10_sub_Topography感度分析.md)を**v3へ更新**する。条件別の空間的孤立（Set平均のbaseline比・絶対PSD中央値）と時間的集中（上位10%窓のパワー占有率・平均／中央値）を並列判定し、paired ORで同じペア×ch×Setを両条件から除く。元の39ペアから開始し、第6.4節の指定3ペア除外やNo11の指定除外とは混ぜない。
 
-Changeの空間指標と描画値はいずれも**同条件・同chのSet 1算術平均**を基準とする。絶対PSD空間指標はSet中央値で、baselineの定義を置換するものではない。4近傍中3ch以上に対して同方向の**2倍超／1/2未満**となる厳格な条件を空間経路へ追加し、中央部に広がる変化を大きさだけで除外しない。時間経路は独立にORで使う。Set 1の異常は同じchのSet 2–6へ展開する。追加群topographyはch別の有限被験者差を平均し、Nもch別に保存する。元の主要topography（全32ch有限ペア方式）は変更しない。±800という個人図の表示範囲は確認の目安だけで直接の足切りではない。
+Changeの空間指標と描画値はいずれも**同条件・同chのSet 1算術平均**を基準とする。絶対PSD空間指標はSet中央値で、baselineの定義を置換するものではない。旧v2の3経路と厳格な空間3/4近傍2倍超条件を維持する。その上で、Set 2–6の比Rについて「自身のR>2またはR<0.5、同方向3/4近傍1.8倍超、cohort局所残差zの絶対値≥6、かつ空間残差zの絶対値≥3または同方向3/4近傍3倍超」をANDとする追加Change経路をORで加える。参照poolは元適格集合で固定し、旧v2全適用セルの保持を検証する。特定ID/ch専用の例外は加えない。
 
-専用 `Phase4_No10_sub_TopographySensitivity.py` で保存済み現行cacheを検証・再利用し、2製品の追加群topographyとBefore/After比較コピー、監査表・ログだけを更新する。最新追加図名は`ExploratorySpatialTemporalExcluded`。旧追加PNGは新版確認後に除き、各製品で原図＋最新追加図の2枚だけとする。旧非PNG監査はSub/historyへ隔離する。旧v1の60秒block持続規則・177セルの実績は[旧版保存](history/Phase4_No10_sub_Topography感度分析_旧v1仕様結果_20261114.md)だけに残し、No1–3の既存規則は変更しない。主スクリプトの `--all`／`--sensitivity-only` にこのtopography感度分析を黙って混ぜない。完全な閾値、再実行結果、検証、限界は補足文書の各別節を正本とする。
+Set 1の既存絶対PSD／時間経路の異常は同じchのSet 2–6へ展開し、新経路はSet 1には適用しない。追加群topographyはch別の有限被験者差を平均し、Nもch別に保存する。元の主要topography（全32ch有限ペア方式）は変更しない。±800という個人図の表示範囲は確認の目安だけで直接の足切りではない。
+
+専用 `Phase4_No10_sub_TopographySensitivity.py` で保存済み現行cacheを検証・再利用し、2製品の追加群topographyとBefore/After比較コピー、監査表・ログだけを更新する。最新追加図名は`ExploratorySpatialTemporalExcluded`。v2追加PNGと比較Afterを同名のv3へ置換し、原図・Beforeは保持する。旧非PNG監査はSub/historyへ隔離する。旧v2の方法・実績は[旧版保存](history/Phase4_No10_sub_Topography感度分析_旧v2仕様結果_20261115.md)、新しい議論は[v3決定記録](history/Phase4_No10_sub_Topography感度分析_20261115.md)へ分離し、No1–3の既存規則は変更しない。主スクリプトの `--all`／`--sensitivity-only` にこのtopography感度分析を黙って混ぜない。完全な閾値、試算、本番結果、検証、限界は補足文書の各別節を正本とする。
 
 ## 7. 配色（No10・No10_sub共通）
 

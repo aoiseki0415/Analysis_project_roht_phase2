@@ -1,4 +1,4 @@
-"""Pure, condition-wise No10_sub v2 QC; no file writes or mutable engine imports."""
+"""Pure, condition-wise No10_sub v3 QC; no file writes or mutable engine imports."""
 
 from __future__ import annotations
 
@@ -29,6 +29,11 @@ class Parameters:
     temporal_share: float = 0.50
     temporal_mean_median: float = 3.0
     temporal_cohort_z: float = 3.5
+    change_extension_own_ratio_factor: float = 2.0
+    change_extension_neighbor_factor: float = 1.8
+    change_extension_cohort_z: float = 6.0
+    change_extension_spatial_z: float = 3.0
+    change_extension_strong_neighbor_factor: float = 3.0
 
 
 PARAMETERS = Parameters()
@@ -74,6 +79,25 @@ def strict_neighbor_isolation(values: np.ndarray, neighbors: np.ndarray) -> np.n
     return (values > PARAMETERS.strict_neighbor_factor * nearby[:, -2]) | (
         values < nearby[:, 1] / PARAMETERS.strict_neighbor_factor
     )
+
+
+def strict_neighbor_isolation_at_factor(
+    values: np.ndarray, neighbors: np.ndarray, factor: float
+) -> np.ndarray:
+    """Require >factor (or <1/factor) against three valid neighbors, one direction.
+
+    This is the sorted-neighbor v2 rule for finite positive data, generalized to
+    a fixed factor. Missing/nonpositive values cannot supply a supporting vote.
+    The legacy helper remains unchanged for an exact v2-only mask audit.
+    """
+    if not np.isfinite(factor) or factor <= 1:
+        raise ValueError("A finite strict-neighbor factor greater than one is required")
+    center = np.asarray(values, dtype=float)[:, None]
+    nearby = np.asarray(values, dtype=float)[neighbors]
+    valid = np.isfinite(center) & (center > 0) & np.isfinite(nearby) & (nearby > 0)
+    high = (valid & (center > factor * nearby)).sum(axis=1)
+    low = (valid & (center < nearby / factor)).sum(axis=1)
+    return (high >= PARAMETERS.minimum_support) | (low >= PARAMETERS.minimum_support)
 
 
 def spatial_metrics(values: np.ndarray, neighbors: np.ndarray, factor: float) -> dict:
@@ -144,6 +168,14 @@ def collect_condition_metrics(items: list[dict[str, Any]], neighbors: np.ndarray
                             for name, value in spatial_metrics(row[key], neighbors, factor).items()
                         }
                     )
+                row["ratio_extension_neighbor_isolation"] = strict_neighbor_isolation_at_factor(
+                    row["ratio"], neighbors, PARAMETERS.change_extension_neighbor_factor
+                )
+                row["ratio_extension_strong_neighbor_isolation"] = (
+                    strict_neighbor_isolation_at_factor(
+                        row["ratio"], neighbors, PARAMETERS.change_extension_strong_neighbor_factor
+                    )
+                )
                 rows.append(row)
     if not rows:
         raise ValueError("No eligible condition metrics")
@@ -163,7 +195,8 @@ def collect_condition_metrics(items: list[dict[str, Any]], neighbors: np.ndarray
     return rows
 
 
-def pathway_masks(row: dict) -> dict[str, np.ndarray]:
+def pathway_masks_v2(row: dict) -> dict[str, np.ndarray]:
+    """The three original routes, retained without threshold or logic changes."""
     p = PARAMETERS
     change = (
         (row["set"] > 1)
@@ -189,26 +222,65 @@ def pathway_masks(row: dict) -> dict[str, np.ndarray]:
     return {"spatial_change": change, "spatial_absolute": absolute, "temporal": temporal}
 
 
-def evaluate_flags(rows: list[dict], channels: list[str]) -> tuple[list[dict], dict]:
+def pathway_masks(row: dict, *, include_change_extension: bool = True) -> dict[str, np.ndarray]:
+    """Union the v2 routes with the independent Set 2–6 Change-spatial route."""
+    masks = pathway_masks_v2(row)
+    if include_change_extension:
+        p = PARAMETERS
+        own_ratio = row["ratio"]
+        outside_baseline_range = np.isfinite(own_ratio) & (own_ratio > 0) & (
+            (own_ratio > p.change_extension_own_ratio_factor)
+            | (own_ratio < 1 / p.change_extension_own_ratio_factor)
+        )
+        masks["spatial_change_extension"] = (
+            (row["set"] > 1)
+            & outside_baseline_range
+            & row["ratio_extension_neighbor_isolation"]
+            & (np.abs(row["ratio_residual_log2_cohort_z"]) >= p.change_extension_cohort_z)
+            & (
+                (np.abs(row["ratio_spatial_z"]) >= p.change_extension_spatial_z)
+                | row["ratio_extension_strong_neighbor_isolation"]
+            )
+        )
+    return masks
+
+
+def evaluate_flags(
+    rows: list[dict],
+    channels: list[str],
+    *,
+    include_change_extension: bool = True,
+    annotate_rows: bool = True,
+) -> tuple[list[dict], dict]:
+    """Evaluate flags with optional nonmutating v2-only preservation audit.
+
+    Reference metrics are never recomputed here. With annotate_rows=False, even
+    previously attached v3 flags are ignored when generating a v2-only audit.
+    """
     flags = []
     causes = defaultdict(list)
     for row in rows:
-        masks = pathway_masks(row)
-        for name, mask in masks.items():
-            row[f"flag_{name}"] = mask
+        masks = pathway_masks(row, include_change_extension=include_change_extension)
+        flag_fields = {f"flag_{name}": mask for name, mask in masks.items()}
+        if annotate_rows:
+            row.update(flag_fields)
         for channel, name in enumerate(channels):
             reasons = [reason for reason, mask in masks.items() if mask[channel]]
             if not reasons:
                 continue
-            flag = {key: value for key, value in row.items() if not isinstance(value, np.ndarray)}
+            flag = {
+                key: value for key, value in row.items()
+                if not isinstance(value, np.ndarray) and not key.startswith("flag_")
+            }
             flag.update(channel=name, reason="+".join(sorted(reasons)))
             flag.update(
                 {
                     key: value[channel].item()
                     for key, value in row.items()
-                    if isinstance(value, np.ndarray)
+                    if isinstance(value, np.ndarray) and not key.startswith("flag_")
                 }
             )
+            flag.update({key: value[channel].item() for key, value in flag_fields.items()})
             flags.append(flag)
             numbers = range(2, 7) if row["set"] == 1 else (row["set"],)
             for number in numbers:

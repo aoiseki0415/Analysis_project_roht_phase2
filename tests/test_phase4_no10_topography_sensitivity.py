@@ -42,12 +42,13 @@ def item(pair, product='CCube', eye_factor=1.0, control_factor=1.0,
             'control': session(b, control_factor, control_missing)}}
 
 def row(set_number=2):
-    fields = ('ratio_residual_log2', 'ratio_spatial_z', 'ratio_residual_log2_cohort_z',
+    fields = ('ratio', 'ratio_residual_log2', 'ratio_spatial_z', 'ratio_residual_log2_cohort_z',
               'ratio_support', 'median_residual_log2', 'median_spatial_z',
               'median_residual_log2_cohort_z', 'median_cohort_z', 'median_support',
               'top_share', 'mean_median', 'mean_median_cohort_z')
     result = {{key: np.zeros(32) for key in fields}}
-    for key in ('ratio_strict_neighbor_isolation', 'median_strict_neighbor_isolation'):
+    for key in ('ratio_strict_neighbor_isolation', 'median_strict_neighbor_isolation',
+                'ratio_extension_neighbor_isolation', 'ratio_extension_strong_neighbor_isolation'):
         result[key] = np.zeros(32, dtype=bool)
     result.update(pair_id='900-901', session_id='900', condition='Eye Drop',
                   product='CCube', set=set_number)
@@ -87,6 +88,11 @@ print(json.dumps({'frequencies': m.PARENT.INCLUDED_FREQUENCIES_HZ.tolist(),
     assert actual["parameters"]["scaled_mad_floor"] == 0.15
     assert actual["parameters"]["change_spatial_z"] == 4.5
     assert actual["parameters"]["absolute_level_z"] == 4.0
+    assert actual["parameters"]["change_extension_own_ratio_factor"] == 2.0
+    assert actual["parameters"]["change_extension_neighbor_factor"] == 1.8
+    assert actual["parameters"]["change_extension_cohort_z"] == 6.0
+    assert actual["parameters"]["change_extension_spatial_z"] == 3.0
+    assert actual["parameters"]["change_extension_strong_neighbor_factor"] == 3.0
     assert len(set(actual["paths"])) == 6
     assert sum("ExploratorySpatialTemporalExcluded" in p for p in actual["paths"]) == 2
     assert sum("BeforeOutlierExclusion" in p for p in actual["paths"]) == 2
@@ -304,4 +310,124 @@ with tempfile.TemporaryDirectory() as td:
         print(json.dumps({'files':first['files'],'message':str(exc)}))
 """)
     assert actual["files"] == 7
-    assert "preserved v1" in actual["message"]
+    assert "preserved prior" in actual["message"]
+
+
+def test_extension_strict_factor_boundaries_support_and_missing_neighbors() -> None:
+    actual = run_code("""
+neighbors = np.tile(np.array([[1,2,3,4]]), (5,1))
+def flag(v, factor):
+    return bool(m.qc.strict_neighbor_isolation_at_factor(np.array(v), neighbors, factor)[0])
+records = {}
+for factor in (1.8,3.0):
+    records[str(factor)] = {
+      'equal_high':flag([factor,1,1,1,10],factor),
+      'above_high':flag([np.nextafter(factor,np.inf),1,1,1,10],factor),
+      'equal_low':flag([1/factor,.1,1,1,1],factor),
+      'below_low':flag([np.nextafter(1/factor,-np.inf),.1,1,1,1],factor),
+      'two_only':flag([10,1,1,10,10],factor),
+      'missing_center':flag([np.nan,1,1,1,1],factor),
+      'two_finite':flag([.01,1,1,np.nan,np.nan],factor),
+      'three_finite':flag([10,1,1,1,np.nan],factor),
+      'zero_not_support':flag([10,0,1,1,10],factor)}
+print(json.dumps(records))
+""")
+    expected = dict(equal_high=False, above_high=True, equal_low=False, below_low=True,
+                    two_only=False, missing_center=False, two_finite=False, three_finite=True,
+                    zero_not_support=False)
+    assert actual == {"1.8": expected, "3.0": expected}
+
+
+def test_extension_own_ratio_strict_and_z_inclusive_boundaries() -> None:
+    actual = run_code("""
+r=row(2)
+r['ratio'][:12]=[2,.5,np.nextafter(2,np.inf),np.nextafter(.5,-np.inf),
+                 3,.3,3,.3,3,.3,np.nan,0]
+r['ratio_extension_neighbor_isolation'][:12]=True
+r['ratio_residual_log2_cohort_z'][:12]=6
+r['ratio_spatial_z'][:12]=3
+r['ratio_residual_log2_cohort_z'][4]=np.nextafter(6,-np.inf)
+r['ratio_residual_log2_cohort_z'][5]=-6
+r['ratio_spatial_z'][6]=np.nextafter(3,-np.inf)
+r['ratio_spatial_z'][7]=-3
+r['ratio_extension_neighbor_isolation'][8]=False
+r['ratio_residual_log2_cohort_z'][9]=np.nan
+masks=m.qc.pathway_masks(r)
+r['set']=1
+print(json.dumps({'selected':np.flatnonzero(masks['spatial_change_extension']).tolist(),
+ 'set1_selected':int(m.qc.pathway_masks(r)['spatial_change_extension'].sum())}))
+""")
+    assert actual["selected"] == [2, 3, 5, 7]
+    assert actual["set1_selected"] == 0
+
+
+def test_extension_strong_neighbors_bypass_spatial_z_not_cohort_or_own_ratio() -> None:
+    actual = run_code("""
+r=row(6)
+r['ratio'][:5]=[3,.3,3,.3,1]
+r['ratio_extension_neighbor_isolation'][:5]=True
+r['ratio_extension_strong_neighbor_isolation'][:5]=True
+r['ratio_residual_log2_cohort_z'][:5]=[6,-6,5.99,-5.99,6]
+r['ratio_spatial_z'][:5]=[.1,-.1,100,-100,100]
+print(json.dumps({'selected':np.flatnonzero(
+ m.qc.pathway_masks(r)['spatial_change_extension']).tolist()}))
+""")
+    assert actual["selected"] == [0, 1]
+
+
+def test_v3_is_union_and_v2_audit_is_nonmutating_and_independent_of_stale_flags() -> None:
+    actual = run_code("""
+import copy
+r=row(4)
+spatial(r,1)
+spatial(r,2,'median',-1)
+r['top_share'][3]=.5
+r['mean_median'][3]=3
+r['mean_median_cohort_z'][3]=3.5
+r['ratio'][4]=3
+r['ratio_extension_neighbor_isolation'][4]=True
+r['ratio_residual_log2_cohort_z'][4]=6
+r['ratio_spatial_z'][4]=3
+old_masks=m.qc.pathway_masks_v2(r)
+new_masks=m.qc.pathway_masks(r)
+for key in old_masks:
+    np.testing.assert_array_equal(old_masks[key],new_masks[key])
+new_flags,new_causes=m.qc.evaluate_flags([r],m.PARENT.EXPECTED_CHANNEL_NAMES)
+snapshot=copy.deepcopy(r)
+old_flags,old_causes=m.qc.evaluate_flags([r],m.PARENT.EXPECTED_CHANNEL_NAMES,
+ include_change_extension=False,annotate_rows=False)
+assert r.keys()==snapshot.keys()
+for key in r:
+    if isinstance(r[key],np.ndarray):
+        np.testing.assert_array_equal(r[key],snapshot[key])
+    else:
+        assert r[key]==snapshot[key]
+print(json.dumps({'new':sorted(k[2] for k in new_causes),
+ 'old':sorted(k[2] for k in old_causes),'old_retained':set(old_causes)<=set(new_causes),
+ 'new_reason':next(f['reason'] for f in new_flags
+                   if f['channel']==m.PARENT.EXPECTED_CHANNEL_NAMES[4]),
+ 'no_stale_flag':all('flag_spatial_change_extension' not in f for f in old_flags)}))
+""")
+    assert actual == dict(new=[1, 2, 3, 4], old=[1, 2, 3], old_retained=True,
+                         new_reason="spatial_change_extension", no_stale_flag=True)
+
+
+def test_collects_extension_metrics_without_changing_frozen_cohort_references() -> None:
+    actual = run_code("""
+items=[item('900-901'),item('902-903','VRohtoPremium')]
+items[0]['eye_drop'].source.sets[2].psd_band_mean[:,0]=20
+rows=m.collect_condition_metrics(items)
+_,neighbors=m.electrode_geometry()
+snapshot=[{k:v.copy() for k,v in r.items() if isinstance(v,np.ndarray)} for r in rows]
+for r in rows:
+    np.testing.assert_array_equal(r['ratio_extension_neighbor_isolation'],
+      m.qc.strict_neighbor_isolation_at_factor(r['ratio'],neighbors,1.8))
+    np.testing.assert_array_equal(r['ratio_extension_strong_neighbor_isolation'],
+      m.qc.strict_neighbor_isolation_at_factor(r['ratio'],neighbors,3.0))
+m.qc.evaluate_flags(rows,m.PARENT.EXPECTED_CHANNEL_NAMES)
+for r,original in zip(rows,snapshot,strict=True):
+    for key,value in original.items():
+        np.testing.assert_array_equal(r[key],value)
+print(json.dumps({'unchanged':True,'rows':len(rows)}))
+""")
+    assert actual == {"unchanged": True, "rows": 24}

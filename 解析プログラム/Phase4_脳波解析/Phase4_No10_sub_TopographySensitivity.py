@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Additional No10_sub topographies using approved spatial/temporal QC v2.
+"""Additional No10_sub topographies using approved spatial/temporal QC v3.
 
 Run in a dedicated process. Existing No10 outputs and 8--10 Hz caches are
 read-only; only this supplementary analysis and comparison copies are written.
@@ -26,9 +26,11 @@ import Phase4_PSDChangeConditionwiseBidirectionalOutlierTopography as prior
 from Phase4_No10_sub_FzLowAlphaChange import engine
 from PIL import Image
 
-VERSION = "20261114_no10_topography_spatiotemporal_sensitivity_v2"
-APPROVED_MASK_SHA256 = "0a85ed2933cc3c3207b349e1cc1a3075bfe00c2526404e6c6ddf1f8114360248"
-APPROVED_MASK_COUNT = 215
+VERSION = "20261115_no10_topography_spatiotemporal_sensitivity_v3"
+APPROVED_MASK_SHA256 = "42d0bee1d419a786494c8edab630f8db87a3ed175623a9e64cd6500b323ad446"
+APPROVED_MASK_COUNT = 247
+V2_MASK_SHA256 = "0a85ed2933cc3c3207b349e1cc1a3075bfe00c2526404e6c6ddf1f8114360248"
+V2_MASK_COUNT = 215
 REPOSITORY = Path(__file__).resolve().parents[2]
 EXPECTED_REPOSITORY = Path("/Users/aoiseki/GitHub/Analysis_project_roht_phase2")
 EXPECTED_ORIGIN = "https://github.com/aoiseki0415/Analysis_project_roht_phase2.git"
@@ -40,14 +42,17 @@ CACHE_ROOT = PARENT.DEFAULT_CACHE_ROOT
 MANIFEST = MAIN_ROOT / "Sub/tables/ParticipantManifest.csv"
 TABLE_ROOT = SUB_ROOT / "Sub/tables/TopographySensitivity"
 LOG_PATH = SUB_ROOT / "Sub/logs/No10_sub_FzLowAlphaChange_TopographySensitivity_RunSummary.json"
-REVIEW_PATH = SUB_ROOT / "Sub/logs/No10_sub_TopographySensitivity_Review_20261114_v2.json"
-HISTORY_ROOT = SUB_ROOT / "Sub/history/BeforeTopographySpatialTemporalV2_20261114"
+REVIEW_PATH = SUB_ROOT / "Sub/logs/No10_sub_TopographySensitivity_Review_20261115_v3.json"
+PRIOR_REVIEW_PATH = SUB_ROOT / "Sub/logs/No10_sub_TopographySensitivity_Review_20261114_v2.json"
+PRIOR_SOURCE_AUDIT_PATH = TABLE_ROOT / "SourceAudit_20261114_v2.json"
+HISTORY_ROOT = SUB_ROOT / "Sub/history/BeforeTopographySpatialTemporalV3_20261115"
 TABLE_NAMES = (
     "session_flags",
     "excluded_cells",
     "group_audit",
     "all_condition_metrics",
     "large_scale_individual_benchmark",
+    "v2_exclusion_comparison",
 )
 CONFIG = prior.common.AnalysisConfig(
     "No10", "Fz low-alpha (8-10 Hz)", "No10_FzLowAlpha", "No10_sub_FzLowAlphaChange"
@@ -238,7 +243,9 @@ def inventory(root: Path, *, hashes: bool, excluded: set[Path] | None = None) ->
 
 
 def protected_inventory() -> dict:
-    writable = set(supplement_paths()) | {LOG_PATH, REVIEW_PATH}
+    writable = set(supplement_paths()) | {
+        LOG_PATH, REVIEW_PATH, PRIOR_REVIEW_PATH, PRIOR_SOURCE_AUDIT_PATH
+    }
     writable.update(prior.output_paths(PARENT.DEFAULT_OUTPUT_ROOT, CONFIG, p) for p in PRODUCTS)
     writable.update(TABLE_ROOT / f"{name}.csv" for name in TABLE_NAMES)
     writable.add(TABLE_ROOT / "ProtectedInputOutputInventory.json")
@@ -263,17 +270,17 @@ def protected_inventory() -> dict:
 
 
 def archive_prior_records() -> dict:
-    """Copy exact v1 audit records once; keep history immutable on reruns."""
+    """Copy exact previous audit records once; keep history immutable on reruns."""
     manifest = HISTORY_ROOT / "ArchiveManifest.json"
     if manifest.is_file():
         return verify_archive()
     if not LOG_PATH.is_file():
-        raise FileNotFoundError("Previous sensitivity log is required for v1 migration")
+        raise FileNotFoundError("Previous sensitivity log is required for migration")
     old = json.loads(LOG_PATH.read_text(encoding="utf-8"))
     if old.get("script_version") == VERSION:
-        raise ValueError("v2 output exists without the required v1 migration archive")
+        raise ValueError("Current output exists without the required migration archive")
     candidates = {LOG_PATH, TABLE_ROOT / "ProtectedInputOutputInventory.json"}
-    candidates.update(TABLE_ROOT / f"{name}.csv" for name in TABLE_NAMES)
+    candidates.update(TABLE_ROOT / f"{name}.csv" for name in TABLE_NAMES[:5])
     for name in (old.get("review_record_path"), (old.get("source_review") or {}).get("path")):
         if name:
             candidate = Path(name)
@@ -282,7 +289,7 @@ def archive_prior_records() -> dict:
     records = []
     for source in sorted(candidates):
         if not source.is_file():
-            raise FileNotFoundError(f"Expected v1 audit file is absent: {source}")
+            raise FileNotFoundError(f"Expected prior audit file is absent: {source}")
         if source.suffix not in {".csv", ".json", ".log"}:
             raise ValueError("Only non-PNG audit records may enter the migration archive")
         relative = source.relative_to(SUB_ROOT)
@@ -299,7 +306,7 @@ def archive_prior_records() -> dict:
     write_json(
         manifest,
         {
-            "status": "obsolete_v1_history_only",
+            "status": "obsolete_v2_history_only",
             "source_version": old.get("script_version"),
             "replacement_version": VERSION,
             "created_at": datetime.now().astimezone().isoformat(),
@@ -318,11 +325,11 @@ def verify_archive() -> dict:
         if not path.is_relative_to(HISTORY_ROOT) or ".." in path.parts:
             raise ValueError("Invalid history path")
         if digest(path) != record["sha256"]:
-            raise ValueError("A preserved v1 audit record changed")
+            raise ValueError("A preserved prior audit record changed")
         expected.add(path)
     actual = {p for p in HISTORY_ROOT.rglob("*") if p.is_file() and p.name != ".DS_Store"}
     if actual != expected:
-        raise ValueError("Unexpected file in exact v1 migration archive")
+        raise ValueError("Unexpected file in exact migration archive")
     return {
         "manifest_path": str(manifest),
         "manifest_sha256": digest(manifest),
@@ -331,19 +338,48 @@ def verify_archive() -> dict:
     }
 
 
-def approved_mask_check(applied: set[tuple]) -> dict:
+def mask_digest(applied: set[tuple]) -> str:
     cells = sorted(
         [str(pair), int(number), PARENT.EXPECTED_CHANNEL_NAMES[channel]]
         for pair, number, channel in applied
     )
-    checksum = hashlib.sha256(
+    return hashlib.sha256(
         json.dumps(cells, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    if len(cells) != APPROVED_MASK_COUNT or checksum != APPROVED_MASK_SHA256:
+
+
+def approved_mask_check(applied: set[tuple]) -> dict:
+    checksum = mask_digest(applied)
+    if len(applied) != APPROVED_MASK_COUNT or checksum != APPROVED_MASK_SHA256:
         raise ValueError(
-            f"Approved simulation mask mismatch: {len(cells)} cells, SHA256 {checksum}"
+            f"Approved simulation mask mismatch: {len(applied)} cells, SHA256 {checksum}"
         )
-    return {"cells": len(cells), "sha256": checksum, "exact_approved_set_match": True}
+    return {"cells": len(applied), "sha256": checksum, "exact_approved_set_match": True}
+
+
+def verify_v2_retention(previous: set[tuple], applied: set[tuple]) -> dict:
+    """Require the exact old mask, not merely the same exclusion count."""
+    checksum = mask_digest(previous)
+    if len(previous) != V2_MASK_COUNT or checksum != V2_MASK_SHA256:
+        raise ValueError("Frozen v2 mask could not be reproduced")
+    if previous - applied:
+        raise ValueError("v3 must retain every v2 exclusion")
+    source = HISTORY_ROOT / "Sub/tables/TopographySensitivity/excluded_cells.csv"
+    if not source.is_file():
+        source = TABLE_ROOT / "excluded_cells.csv"
+    with source.open(encoding="utf-8-sig", newline="") as stream:
+        recorded = {
+            (row["pair_id"], int(row["set"]), PARENT.EXPECTED_CHANNEL_NAMES.index(row["channel"]))
+            for row in csv.DictReader(stream)
+            if row["applied_to_original_finite_cell"].lower() == "true"
+        }
+    if recorded != previous:
+        raise ValueError("Reconstructed v2 differs from its saved exclusion table")
+    return {
+        "v2_cells": len(previous), "v2_sha256": checksum,
+        "v2_table_path": str(source), "v2_table_sha256": digest(source),
+        "all_v2_retained": True, "newly_added_cells": len(applied - previous),
+    }
 
 
 def validate_source_audit(path: Path | None) -> dict:
@@ -409,6 +445,11 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         raise FileNotFoundError("Original Grand-average topography is required")
     positions, neighbors = electrode_geometry()
     metric_rows = qc.collect_condition_metrics(items, neighbors)
+    _, v2_causes = qc.evaluate_flags(
+        metric_rows, list(PARENT.EXPECTED_CHANNEL_NAMES),
+        include_change_extension=False, annotate_rows=False,
+    )
+    v2_products, _, _, _, v2_applied = prior.group_topographies(CONFIG, items, v2_causes)
     flags, causes = qc.evaluate_flags(metric_rows, list(PARENT.EXPECTED_CHANNEL_NAMES))
     before, eligible_before, _, _, _ = prior.group_topographies(CONFIG, items, {})
     products, eligible, excluded, group_audit, applied = prior.group_topographies(
@@ -419,12 +460,15 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
     original_check = check_original_group_values(items, before)
     verify_excluded_group(items, causes, products)
     simulation_check = approved_mask_check(applied)
+    retention_check = verify_v2_retention(v2_applied, applied)
     for row in group_audit:
         product, number = row["product"], row["set"] - 1
         channel = PARENT.EXPECTED_CHANNEL_NAMES.index(row["channel"])
         row["before_difference_pp"] = float(before[product]["group"][number, channel])
         row["before_valid_n"] = int(before[product]["valid_n"][number, channel])
         row["removed_paired_cells"] = row["before_valid_n"] - row["valid_n"]
+        row["v2_difference_pp"] = float(v2_products[product]["group"][number, channel])
+        row["v2_valid_n"] = int(v2_products[product]["valid_n"][number, channel])
     pair_products = {item["spec"].pair_id: item["product_dir"] for item in items}
     exclusion_rows = [
         {
@@ -445,6 +489,15 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         for (pair, number, channel), entries in sorted(causes.items())
     ]
     benchmark = benchmark_rows(items, applied)
+    comparison_rows = [
+        {"pair_id": pair, "product": pair_products[pair], "set": number,
+         "channel": PARENT.EXPECTED_CHANNEL_NAMES[channel],
+         "excluded_v2": (pair, number, channel) in v2_causes,
+         "excluded_v3": True,
+         "status": "retained_v2" if (pair, number, channel) in v2_causes else "added_v3",
+         "applied_to_original_finite_cell": (pair, number, channel) in applied}
+        for pair, number, channel in sorted(causes)
+    ]
     ranges = {}
     for product in PRODUCTS:
         selected = [item for item in items if item["product_dir"] == product]
@@ -485,8 +538,9 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         "manifest_sha256": digest(MANIFEST),
         "preflight": preflight,
         "parameters": asdict(qc.PARAMETERS),
-        "method": "conditionwise_spatial_isolation_OR_temporal_concentration_paired_OR_v2",
+        "method": "conditionwise_v2_OR_guarded_change_spatial_extension_paired_OR_v3",
         "approved_simulation_check": simulation_check,
+        "v2_retention_check": retention_check,
         "electrode_geometry": {
             "montage": "colin27_1020",
             "coordinate_frame": "MNE Info head coordinates",
@@ -507,6 +561,11 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
             ),
             "spatial": "log2 ratio/median local residual; within-row and same-Set/ch cohort z",
             "strict_neighbors": "greater than twofold in one direction from at least 3/4 neighbors",
+            "change_extension": (
+                "Sets 2-6 only: (R>2 OR R<0.5) AND strict 3/4 neighbors >1.8-fold "
+                "AND abs(cohort local-residual z)>=6 AND (abs(spatial z)>=3 "
+                "OR strict 3/4 neighbors >3-fold); OR with unchanged v2 pathways"
+            ),
             "temporal": "top ceil(10% finite windows) share >=0.5 AND mean/median >=3 AND z>=3.5",
             "no_sustained_block_rule": True,
             "paired_or": "either condition flags same pair x channel x Set in both conditions",
@@ -559,6 +618,10 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
 
     protected = protected_inventory()
     archive = archive_prior_records()
+    archived_v2_table = HISTORY_ROOT / "Sub/tables/TopographySensitivity/excluded_cells.csv"
+    if digest(archived_v2_table) != retention_check["v2_table_sha256"]:
+        raise RuntimeError("Archived v2 mask differs from the pre-execution retention audit")
+    retention_check["v2_table_path"] = str(archived_v2_table)
     generated = []
     for product in PRODUCTS:
         after = output_path(product)
@@ -603,18 +666,26 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
         "group_audit": group_audit,
         "all_condition_metrics": flattened_metrics(metric_rows),
         "large_scale_individual_benchmark": benchmark,
+        "v2_exclusion_comparison": comparison_rows,
     }
     table_paths = {}
     for name, rows in tables.items():
         path = TABLE_ROOT / f"{name}.csv"
         write_csv(path, rows)
         table_paths[name] = {"path": str(path), "sha256": digest(path), "rows": len(rows)}
+    # Relocate only named obsolete records, after hash-verified archiving.
+    for obsolete in (PRIOR_REVIEW_PATH, PRIOR_SOURCE_AUDIT_PATH):
+        if obsolete.is_file():
+            archived_record = HISTORY_ROOT / obsolete.relative_to(SUB_ROOT)
+            if not archived_record.is_file() or digest(archived_record) != digest(obsolete):
+                raise RuntimeError("Prior record must be safely archived before relocation")
+            obsolete.unlink()
     # Own new output paths are excluded from this inventory; everything else is protected.
     current = protected_inventory()
     if current != protected:
         raise RuntimeError("A protected original/cache/other-analysis file changed")
     if verify_archive() != archive:
-        raise RuntimeError("Archived v1 evidence changed during execution")
+        raise RuntimeError("Archived prior evidence changed during execution")
     protection_path = TABLE_ROOT / "ProtectedInputOutputInventory.json"
     write_json(protection_path, protected)
     summary.update(
@@ -623,7 +694,7 @@ def run(*, execute: bool, source_audit: Path | None = None) -> dict:
             "completed_at": datetime.now().astimezone().isoformat(),
             "outputs": [{"path": str(path), "sha256": digest(path)} for path in generated],
             "tables": table_paths,
-            "v1_history": archive,
+            "prior_history": archive,
             "removed_legacy_pngs": removed_legacy,
             "protection": {
                 "no10_original_files_hash_checked": len(protected["existing_no10_files"]),
@@ -673,13 +744,19 @@ def record_review(path: Path) -> dict:
     for name, checksum in expected.items():
         if digest(Path(name)) != checksum:
             raise ValueError(f"An output changed after generation: {name}")
+    for entry in summary["tables"].values():
+        if digest(Path(entry["path"])) != entry["sha256"]:
+            raise ValueError(f"An audit table changed after generation: {entry['path']}")
+    source_review = summary["source_review"]
+    if digest(Path(source_review["path"])) != source_review["sha256"]:
+        raise ValueError("The source audit changed after execution")
     protection = json.loads(
         Path(summary["protection"]["inventory_path"]).read_text(encoding="utf-8")
     )
     if protection != protected_inventory():
         raise ValueError("Protected original files differ since execution")
-    if verify_archive() != summary["v1_history"]:
-        raise ValueError("Archived v1 evidence changed since execution")
+    if verify_archive() != summary["prior_history"]:
+        raise ValueError("Archived prior evidence changed since execution")
     summary.update(
         {
             "status": "delivery_verified",
