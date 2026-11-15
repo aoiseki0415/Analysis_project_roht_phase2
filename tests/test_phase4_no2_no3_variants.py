@@ -75,13 +75,13 @@ def test_no2_sub_and_add_configuration() -> None:
     assert sub["star_factor_override"] == 1.08
     assert sub["star_fontsize_override"] == 42.0
     assert sub["include_topography"] is True
-    assert sub["alternate_group_exclusions"] == {"VRohtoPremium": ["125-225"]}
-    assert sub["alternate_group_suffix"] == "ExcludePair125-225"
+    assert sub["alternate_group_exclusions"] == {}
+    assert sub["alternate_group_suffix"] is None
     assert pz["analysis_stem"] == "No2-2_sub_OccipitalAlphaChange_Pz"
     assert pz["focus_channel"] == "Pz"
     assert pz["include_topography"] is False
-    assert pz["alternate_group_exclusions"] == {"VRohtoPremium": ["125-225"]}
-    assert pz["alternate_group_suffix"] == "ExcludePair125-225"
+    assert pz["alternate_group_exclusions"] == {}
+    assert pz["alternate_group_suffix"] is None
     assert pz["cache_root"] == sub["cache_root"]
     assert add["analysis_stem"] == "No2_add_OzTimeFrequencyMap"
     assert add["focus_channel"] == "Oz"

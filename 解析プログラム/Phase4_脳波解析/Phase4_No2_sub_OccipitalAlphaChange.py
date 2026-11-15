@@ -16,9 +16,7 @@ def configure_oz() -> None:
         parent_engine,
         analysis_stem="No2_sub_OccipitalAlphaChange",
         focus_channel="Oz",
-        script_version="phase4-no2-sub-occipital-alpha-change-2026-10-25.1",
-        alternate_group_exclusions={"VRohtoPremium": {"125-225"}},
-        alternate_group_suffix="ExcludePair125-225",
+        script_version="phase4-no2-sub-occipital-alpha-change-2026-11-16.1",
     )
 
 
@@ -28,10 +26,8 @@ def configure_pz() -> None:
         parent_engine,
         analysis_stem="No2-2_sub_OccipitalAlphaChange_Pz",
         focus_channel="Pz",
-        script_version="phase4-no2-2-sub-occipital-alpha-change-pz-2026-10-25.1",
+        script_version="phase4-no2-2-sub-occipital-alpha-change-pz-2026-11-16.1",
         include_topography=False,
-        alternate_group_exclusions={"VRohtoPremium": {"125-225"}},
-        alternate_group_suffix="ExcludePair125-225",
     )
 
 
