@@ -4,6 +4,8 @@
 
 本書は、Phase 4 No3の3解析（No3：前頭delta絶対PSD、No3_sub：Set 1基準PSD Change、No3_add：Fz Time-Frequency Map）を、同じ入力から同じ計算・同じfigureとして再現し、結果を正しく読めるようにまとめた唯一の現行仕様書です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。
 
+**2026-11-16の更新範囲：No3_subの被験者除外追加版の方法を確定。実装・再集計・figure更新は未実施です。** 主要版とtopography v3の実行済み結果は保持します。共通の判断スタンス・除外単位は[除外あり追加解析の共通方針](Phase4_除外あり追加解析の共通方針.md)、今回の判断経緯は[更新履歴](history/Phase4_sub被験者除外方針更新_20261116.md)へ分離します。
+
 Phase 4は、使用した目薬で被験者をCキューブ群とVロートプレミアム群に分け、製品群ごとにEye DropとControlを被験者内比較します。
 
 | No | 指標 | 代表ch | 周波数帯 | 主な解釈 | 状態 |
@@ -583,7 +585,7 @@ Phase 4の被験者別結果表と日次解析記録はNotionへ作成しませ�
 - 入力：ローカルデスクトップに保存済みのNo3 PSD HDF5 cache
 - ローカルへの派生データ保存：行わない
 - OneDrive：`Phase4_脳波解析/No3_sub_FrontalDeltaChange/`
-- 状態：2026-10-04に本番実行・検証を完了し、現行確定版として固定
+- 状態：主要版は2026-10-04に本番実行・検証済み。2026-11-16確定の被験者除外追加版は方法のみ確定し、実装・実行は未実施
 
 No3_subはWelch PSDを再計算しません。No3のPhase 1区間maskと、セッションID・ch別の全Set一括log10上側3SD maskを適用した未平滑PSDを読み込みます。
 
@@ -639,6 +641,15 @@ PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
 - y軸：`PSD Change, %`。0より上：下の表示範囲を約2：1とし、全有限値が入るようにする
 - 統計線は最大データ点 `M` に対して `1.15M`、n.s.は下端 `1.20M`・26 pt、アスタリスクは下端 `1.08M`・42 ptに置く。Set名は `1.42M`、y上限は `1.54M` とし、Set名を統計表示より明確に上へ離す。すべてArialを用いる
 
+### 6.1 信号品質に基づく被験者除外追加版（2026-11-16確定・未実行）
+
+- 対象集合の正本は[解析上の注意事項の現行指定](解析上の注意事項.md#phase-4-sub被験者除外の現行指定2026-11-16)。No3_subではVロートプレミアム1ペアを指定し、Cキューブの追加除外はなしとする。No5など他Noの集合を流用しない。
+- 判断は、解析に使う信号が記録不良・ノイズの影響を大きく受けていそうかという**定性的な信号品質評価**。他者と異なる傾向、大きな変化率、期待に反する効果方向だけでは除外しない。変化率だけでなく絶対PSDも確認し、品質への懸念と記録障害の確定を区別する。判断の一般則は[共通方針](Phase4_除外あり追加解析の共通方針.md)による。
+- 指定ペアを追加版のEye Drop／Control両条件・全Setから除外し、Grand-average、Set別定量化、**全Set統合定量化**を再集計する。元の全利用可能データ版、個人図、元cache、manifest、topographyは変更しない。
+- baseline欠測・既知Set欠測の規定は別に維持する。全Set統合には利用可能なSet 1を含め、定量化は未平滑値、Grand-averageは60秒平滑化後を使う。残存ペアから平均・SEM・有効N・対応ありt検定・補正値・縦軸を既存規則で再計算する。
+- No3_subでは被験者除外版を**新規追加**する。保存識別子は `SpecifiedPairsExcluded`。topographyのペア×ch×Set maskはこの被験者集合へ変換・流用しない。
+- この節は方法の確定であり、新しい人数・統計・figureの結果はまだない。実装と実行後に第12節へ検証済み結果を追記する。
+
 ## 7. Topography
 
 全32chについて、平滑化前のSet別PSD Change平均を計算し、被験者内条件差を作ります。
@@ -656,6 +667,7 @@ Difference in PSD Change(ch, Set) = Eye Drop - Control
 - 上限は有限値の最大絶対値がカラースケールの約85%となる切りのよい値にする
 - 10-20 system、全32電極点、No3本体と同じ頭部輪郭・補間・文字サイズを用いる
 - 2026-11-15確定のGrand-average追加感度解析は、No10_subの空間・時間v3と同じ4経路・パラメータを、このNoの帯域cacheから独立適用する。各条件のChange／絶対PSDの局所孤立と時間的集中を判定し、Set 1異常の同ch後続Setへの伝播、paired OR、ch別の残存ペア平均を行う。参照分布は帯域別の元適格poolで固定し、旧No1–3の60秒block持続方式のmaskや他Noの指定除外は引き継がない。原図・線図・定量化・個人・元cacheを保持し、各Topography/GrandAverageの最新追加図 `ExploratorySpatialTemporalExcluded` と補足比較のAfterだけを更新する。実適用率・N・群値・全6図の定性所見は方法と別節へ記録する。完全規則・実行状態は[現行補足仕様](Phase4_PSDChange_Topography外れ値除外感度解析.md)、旧方式・実績はそのhistory参照先を正本とする
+- 第6.1節とは独立した**ペア×ch×Set単位**の追加解析であり、被験者全体の除外ではない。条件別判定の片側該当をpaired ORで両条件へ反映する。2026-11-16の文書更新では方法・適用集合・出力を変更しない。
 
 ## 8. 欠測SetとSet 1欠測
 
@@ -705,6 +717,20 @@ Phase4_脳波解析/
 
 `Individual/`、`GrandAverage/`、`Topography/`にはPNGだけを置きます。`SetQuantification/`にはSet別PNG、全Set統合PNG、およびSet別統計CSVを置きます。基準値、Grand-average数値、有効N、被験者別定量値、全Set統合統計、topography数値、除外ペア、成果物一覧は`Sub/tables/`と`Sub/logs/`へ保存します。
 
+被験者除外版はNo10_subと同じ次の配置を追加する**計画**です。今回はフォルダ・成果物を作成しません。Cキューブは追加除外がないため主要版を維持します。
+
+```text
+VRohtoPremium/
+  GrandAverage/*_SpecifiedPairsExcluded.png
+  SetQuantification/SpecifiedPairsExcluded/
+    *_SetQuantification_*_SpecifiedPairsExcluded.png
+    *_AllSetsQuantification_*_SpecifiedPairsExcluded.png
+    <Set別統計CSV：未補正・Bonferroni・Holm・BH-FDR>
+    # 全Set統合統計（1検定・補正なし）はSub/tables/SetQuantification/へ
+Sub/tables/{GrandAverage,SetQuantification}/<SpecifiedPairsExcluded識別付き監査表>
+Sub/logs/<方法版・除外集合・検証・保存先を記録>
+```
+
 ## 11. 実行モード
 
 - `--preflight-only`：cacheとSet 1 baselineを検証するだけ
@@ -714,7 +740,15 @@ Phase4_脳波解析/
 
 No3_subにPSD再計算モードは設けません。figure調整時にもローカルのNo3 cacheを読み直し、Welch PSDは再計算しません。
 
+上記は既存主要解析のモードです。第6.1節の新規除外版は未実装のため、既存コマンドだけで新仕様の結果が生成済みとは扱いません。
+
 ## 12. 実装状態
+
+### 12.1 最新の被験者除外追加版：方法確定・未実装／未実行
+
+2026-11-16は文書だけを更新しました。第6.1節の追加版は未実装・未実行で、結果・有効N・p値・検証済み成果物は未記入です。後続の実行時に、指定集合との一致、両条件・全Set適用、既知欠測との区別、数値・図・統計CSV・保護対象の確認を記録します。
+
+### 12.2 実行済み主要版：2026-10-04の結果
 
 2026-10-04に本番manifestの40ペアを事前検査し、Set 1 baselineを定義できない既知の109–209を規定どおり除外しました。残る39ペア（78セッション）を同一スクリプトで実行し、個人時間変化、個人topography、製品群別Grand-average、Set別・全Set統合定量化、統計、Grand-average topographyをOneDriveへ保存しました。
 
@@ -726,7 +760,11 @@ No3_subにPSD再計算モードは設けません。figure調整時にもロー�
 - 成果物：PNG 86件、CSV 11件、実行要約JSON 1件
 - No3_sub用のローカル派生cache：作成なし
 - 統計の確定検証：保存済み被験者別定量値からSet 2–6の両側対応ありt検定を独立再計算し、t値と未補正p値が統計CSVに一致することを確認した。Benjamini–Hochberg FDRも独立再計算し、保存値との差が0であることを確認した。今回の未補正p値の順位関係では、単調性を保つ調整によって5 SetのFDR補正p値が同値になるが、これは実装不具合ではない
-- 確定状態：No3本体とNo3_subは現行コード、現行パラメータ、現行出力構造を確定版とし、以後は明示された仕様変更または成果物不具合がない限り再計算・個別調整を行わない
+- この実績は主要版のもの。2026-11-16確定の被験者除外追加版の実績へ流用しない
+
+### 12.3 実行済みtopography v3追加版（今回変更なし）
+
+2026-11-15の現行v3結果は、Cキューブ238／3,168セル（7.512626%、Set 2–6のch別N=14–20）、Vプレ197／2,976セル（6.619624%、N=15–19）の実適用です。これは被験者除外人数ではなく、元有限なペア×ch×Setに対する数です。除外対象の条件側理由・ch・Setは各Noの `Sub` 内監査CSVを正本とし、図・検証・残存リスクは[補足仕様の本番結果](Phase4_PSDChange_Topography外れ値除外感度解析.md#62-本番実行検証)を参照します。第12.1節の新規被験者除外とは分離し、今回は更新しません。
 
 # Part C：代表ch Time-Frequency Map
 
