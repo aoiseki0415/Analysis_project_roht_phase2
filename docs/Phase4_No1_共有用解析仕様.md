@@ -657,7 +657,7 @@ Difference in PSD Change(ch, Set) = Eye Drop - Control
 - 各figure内の6 Setは共通、0中心・左右対称スケールとする
 - 上限は有限値の最大絶対値がカラースケールの約85%となる切りのよい値にする
 - 10-20 system、全32電極点、No1本体と同じ頭部輪郭・補間・文字サイズを用いる
-- Grand-averageの追加感度解析では、保存済みcacheを用い、Eye Drop／Controlを別々にSet 1絶対PSD高値、60秒blockの持続的上昇、絶対PSD低値を伴う持続的低下の3経路で判定する。片条件の該当はpaired ORで同一ペア×ch×Setの両条件へ適用し、条件差作成後の空間MADや固定500%基準は使用しない。実適用除外率、N、監査CSV・JSONに加え、6図の単一ch孤立色・隣接ch急反転・全頭偏りを定性的に確認する。完全規則は `docs/Phase4_PSDChange_Topography外れ値除外感度解析.md` を正本とする
+- 2026-11-15確定のGrand-average追加感度解析は、No10_subの空間・時間v3と同じ4経路・パラメータを、このNoの帯域cacheから独立適用する。各条件のChange／絶対PSDの局所孤立と時間的集中を判定し、Set 1異常の同ch後続Setへの伝播、paired OR、ch別の残存ペア平均を行う。参照分布は帯域別の元適格poolで固定し、旧No1–3の60秒block持続方式のmaskや他Noの指定除外は引き継がない。原図・線図・定量化・個人・元cacheを保持し、各Topography/GrandAverageの最新追加図 `ExploratorySpatialTemporalExcluded` と補足比較のAfterだけを更新する。実適用率・N・群値・全6図の定性所見は方法と別節へ記録する。完全規則・実行状態は[現行補足仕様](Phase4_PSDChange_Topography外れ値除外感度解析.md)、旧方式・実績はそのhistory参照先を正本とする
 
 ## 8. 欠測SetとSet 1欠測
 

@@ -116,6 +116,10 @@ No1のlog10 PSD上側3SD除外は現行スクリプトへ実装済みです。20
 
 No1_subはNo1の検証済みPSD cacheをローカルデスクトップから読み、各セッションID・各chのSet 1有限値平均を基準に `PSD Change = (PSD / Set 1平均 − 1) × 100` を計算する独立解析です。変化率への変換後にFz時間変化だけをSet内60秒平滑化し、定量化とtopographyは未平滑変化率を使用します。全Set統合定量値はSet 1を含むSet 1–6の全有限時間窓から作ります。Grand-averageのy軸は平均線の最大絶対値を約70%の位置に置き、定量化は0より上：下を約2：1としてSet名を統計表示より十分上に離して配置します。No1_subの派生データはローカルへ保存せず、OneDrive成果物だけを専用ルートへ出力します。ID109はSet 1欠測のため、対応ID209を含むペア109–209をNo1_sub全体から除外します。2026-10-04に本番40ペアを事前検査し、規定どおり109–209を除く39ペアの全成果物を同一スクリプトで出力・検証済みです。Set 2–6は両側対応ありt検定で比較し、5比較に対するBonferroni・Holm・Benjamini–Hochberg FDRをCSVへ併記します。保存済み被験者値から独立再計算してt値・未補正p値・FDR補正値が完全一致することまで確認し、No1およびNo1_subを現行確定版とします。
 
+### No1_sub–No3_subのtopography追加感度分析（2026-11-15更新）
+
+No10_subで確定した空間・時間v3と同一の4経路・パラメータを、No1（4–7 Hz）・No2（8–15 Hz）・No3（1–3 Hz）の元cacheへ独立適用します。参照poolは帯域別に固定し、条件側判定→Set 1異常の同ch後続Setへの伝播→paired OR→ch別残存ペア平均の順です。旧No1–3の60秒block持続方式maskは引き継ぎません。各No_subと補足比較フォルダの最新追加Grand-averageだけを置換し、原図／Before・個人・線図・定量化・cache・No10／No11は保持します。完全方法、承認済み試算、本番状態は[現行補足仕様](docs/Phase4_PSDChange_Topography外れ値除外感度解析.md)の別節、旧方法・旧実績・意思決定過程は同書からリンクしたhistoryへ分離します。
+
 ### Phase 4 No4・No5（Fz序盤PSD Change・実行済み探索）
 
 No4はFzの4–7 Hzシータ、No5はFzの1–3 Hzデルタについて、既存No1／No3の検証済み帯域PSD cacheからSet 1基準のPSD Changeを求め、各Setの全時間・前半0–50%・最初の4分の1 0–25%を比較する追加探索です。Cキューブ群とVロートプレミアム群で同じ共通Pythonエンジンを使い、個人とGrand-averageの全時間変化、Set別定量化を既存No1_sub／No3_subとは別ルートへ出力します。さらに、隣接Setの「前Set終盤→次Set序盤」を50%・25%で比較するセット境界定量化を追加します。2026-11-08にSet 1欠測の109–209を除く39ペアを両Noで実行しました。主結果は追加の個人除外なしで維持し、Vロートプレミアム群だけにNo4では135–235、No5では101–201を両条件から除いた感度分析図を各5枚追加しました。推測統計は実施していません。詳細と結果の読み方は[Phase 4 No4・No5解析仕様](docs/Phase4_No4_No5_Fz序盤PSDChange_解析仕様.md)を参照します。
@@ -188,7 +192,7 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 改番前仕様の保存版](docs/history/Phase4_No8-11_改番前仕様_20261110.md)：旧4解析・旧採用集合・旧図設定・過去検証の全文。履歴専用で実行や現行対象選定には使わない
 - [Phase 4 No8–11 旧方式と再設計記録](docs/history/Phase4_No8-11_旧方式と再設計記録.md)：廃止した方式と再設計の理由・整理記録。履歴専用で現行手順には使用しない
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
-- [Phase 4 PSD Change topography 条件別・双方向外れ値除外感度解析](docs/Phase4_PSDChange_Topography外れ値除外感度解析.md)：No1_sub～No3_subを横断し、条件別のSet 1絶対PSD高値、持続的上昇、絶対PSD低値を伴う持続的低下、paired OR、除外率・N、6図の定性評価、監査記録を定義
+- [Phase 4 No1–3 PSD Change topography空間・時間外れ値除外感度解析](docs/Phase4_PSDChange_Topography外れ値除外感度解析.md)：No10_sub v3と同じ4経路をNo1_sub～No3_subの各帯域へ独立適用する現行正本。条件別判定、帯域別固定pool、paired OR、Set 1伝播、原図保持・最新追加図置換、方法と試算・本番結果・履歴の分離
 - [Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)：DEQS得点化、Phase 2 RT照合、Eye Drop Effect、製品別相関、Figure、OneDrive構造、検証条件をまとめた現行仕様
 - [Phase 1 区間・チャンネル除去パラメータ比較報告書](docs/Phase1_区間・チャンネル除去パラメータ比較報告書.md)：確定前のID101比較を残す歴史資料。現行仕様の判断には使用しない
 - [MacBook AirへのVS Code導入引き継ぎ](docs/引き継ぎ_VSCode導入_MacBookAir.md)：別デバイスでVS Codeだけを導入するための限定手順

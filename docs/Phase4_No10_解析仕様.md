@@ -147,7 +147,7 @@ Changeの空間指標と描画値はいずれも**同条件・同chのSet 1算�
 
 Set 1の既存絶対PSD／時間経路の異常は同じchのSet 2–6へ展開し、新経路はSet 1には適用しない。追加群topographyはch別の有限被験者差を平均し、Nもch別に保存する。元の主要topography（全32ch有限ペア方式）は変更しない。±800という個人図の表示範囲は確認の目安だけで直接の足切りではない。
 
-専用 `Phase4_No10_sub_TopographySensitivity.py` で保存済み現行cacheを検証・再利用し、2製品の追加群topographyとBefore/After比較コピー、監査表・ログだけを更新する。最新追加図名は`ExploratorySpatialTemporalExcluded`。v2追加PNGと比較Afterを同名のv3へ置換し、原図・Beforeは保持する。旧非PNG監査はSub/historyへ隔離する。旧v2の方法・実績は[旧版保存](history/Phase4_No10_sub_Topography感度分析_旧v2仕様結果_20261115.md)、新しい議論は[v3決定記録](history/Phase4_No10_sub_Topography感度分析_20261115.md)へ分離し、No1–3の既存規則は変更しない。主スクリプトの `--all`／`--sensitivity-only` にこのtopography感度分析を黙って混ぜない。完全な閾値、試算、本番結果、検証、限界は補足文書の各別節を正本とする。
+専用 `Phase4_No10_sub_TopographySensitivity.py` で保存済み現行cacheを検証・再利用し、2製品の追加群topographyとBefore/After比較コピー、監査表・ログだけを更新する。最新追加図名は`ExploratorySpatialTemporalExcluded`。v2追加PNGと比較Afterを同名のv3へ置換し、原図・Beforeは保持する。旧非PNG監査はSub/historyへ隔離する。旧v2の方法・実績は[旧版保存](history/Phase4_No10_sub_Topography感度分析_旧v2仕様結果_20261115.md)、新しい議論は[v3決定記録](history/Phase4_No10_sub_Topography感度分析_20261115.md)へ分離する。このNo10更新ではNo1–3を変更しなかった。後続の明示依頼による[No1–3への同一規則の独立適用](Phase4_PSDChange_Topography外れ値除外感度解析.md)は別仕様で、No10の結果を変更しない。主スクリプトの `--all`／`--sensitivity-only` にこのtopography感度分析を黙って混ぜない。完全な閾値、試算、本番結果、検証、限界は補足文書の各別節を正本とする。
 
 ## 7. 配色（No10・No10_sub共通）
 
