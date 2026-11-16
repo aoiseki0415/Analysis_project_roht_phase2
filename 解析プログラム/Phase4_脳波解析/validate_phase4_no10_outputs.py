@@ -27,10 +27,6 @@ SUB_STEM = "No10_sub_FzLowAlphaChange"
 CHANNELS = engine.EXPECTED_CHANNEL_NAMES
 FZ = CHANNELS.index("Fz")
 SENSITIVITY_SUFFIX = "SpecifiedPairsExcluded"
-SENSITIVITY_EXCLUSIONS = {
-    "CCube": {"120-220"},
-    "VRohtoPremium": {"131-231", "133-233"},
-}
 
 
 def equal(actual, expected, label: str) -> None:
@@ -219,15 +215,12 @@ def audit_group(
     product: str,
     change: bool,
     report: dict,
-    *,
-    sensitivity: bool = False,
 ) -> None:
     stem, unit = root.name, "PSDChange_pct" if change else "PSD_uV2_per_Hz"
     selected = [
         (spec, sessions)
         for spec, sessions in items
         if engine.normalize_product(spec.product)[0] == product
-        and (not sensitivity or spec.pair_id not in SENSITIVITY_EXCLUSIONS[product])
     ]
     rows, topographies, grand = [], [], [[], []]
     for spec, sessions in selected:
@@ -267,10 +260,8 @@ def audit_group(
         for i in range(2):
             grand[i].append(curves[i].ravel())
     tables = root / "Sub" / "tables"
-    suffix = f"_{SENSITIVITY_SUFFIX}" if sensitivity else ""
+    suffix = ""
     quant_directory = root / product / "SetQuantification"
-    if sensitivity:
-        quant_directory /= SENSITIVITY_SUFFIX
     quant = pd.DataFrame(rows)
     tag = "Quantification" if change else "SetQuantification"
     compare_csv(
@@ -334,20 +325,6 @@ def audit_group(
         ["Set", "SetProgressPercent"],
         report,
     )
-    if sensitivity:
-        report["groups"].append(
-            {
-                "analysis": stem,
-                "product": product,
-                "cohort": SENSITIVITY_SUFFIX,
-                "pairs": len(selected),
-                "set_paired_n": [int(item["Paired_N"]) for item in tested[:-1]],
-                "all_sets_paired_n": int(overall.iloc[0].Paired_N),
-                "all_sets_p_raw": float(overall.iloc[0].P_value_raw),
-                "topography": "not generated; full-cohort topography retained",
-            }
-        )
-        return
     topographies = np.stack(topographies)
     paired_valid = np.isfinite(topographies).all(axis=2)
     channel_n = np.isfinite(topographies).sum(axis=0)
@@ -441,19 +418,6 @@ def run(args, report: dict) -> None:
         expected_png = set()
         for product in sorted({engine.normalize_product(spec.product)[0] for spec, _ in cohort}):
             audit_group(cohort, root, product, change, report)
-            if change:
-                audit_group(cohort, root, product, True, report, sensitivity=True)
-                for folder, name in (
-                    ("GrandAverage", "GrandAverage"),
-                    (f"SetQuantification/{SENSITIVITY_SUFFIX}", "SetQuantification"),
-                    (f"SetQuantification/{SENSITIVITY_SUFFIX}", "AllSetsQuantification"),
-                ):
-                    expected_png.add(
-                        root
-                        / product
-                        / folder
-                        / f"{stem}_{name}_{product}_{SENSITIVITY_SUFFIX}.png"
-                    )
             for folder, name in (
                 ("GrandAverage", "GrandAverage"),
                 ("SetQuantification", "SetQuantification"),
@@ -479,60 +443,42 @@ def run(args, report: dict) -> None:
                             f"{stage}ThresholdExclusion.png"
                         )
                     )
-        if set(root.rglob("*.png")) != expected_png:
+        # The independent, current topography sensitivity is neither regenerated
+        # nor numerically audited here, but its two named figures may coexist.
+        topography_additions = {
+            root / product / "Topography/GrandAverage"
+            / f"{stem}_Topography_GrandAverage_{product}_ExploratorySpatialTemporalExcluded.png"
+            for product in ("CCube", "VRohtoPremium")
+        } if change else set()
+        current_png = {path for path in root.rglob("*.png")
+                       if "history" not in path.relative_to(root).parts}
+        if current_png - topography_additions != expected_png:
             raise ValueError(f"{stem}: missing or unexpected PNG filenames")
         for path in sorted(expected_png):
             with Image.open(path) as image:
                 image.verify()
         report["png_counts"][stem] = len(expected_png)
-    selection_path = (
-        subroot
-        / "Sub/tables/SetQuantification"
-        / f"{SUB_STEM}_CohortSelection_{SENSITIVITY_SUFFIX}.csv"
-    )
-    selection = pd.read_csv(selection_path, dtype={"PairID": str})
-    expected_selection = pd.DataFrame(
-        [
-            {
-                "PairID": spec.pair_id,
-                "Product": engine.normalize_product(spec.product)[0],
-                "Included": spec.pair_id
-                not in SENSITIVITY_EXCLUSIONS[engine.normalize_product(spec.product)[0]],
-            }
-            for spec, _ in changed
-        ]
-    )
-    pd.testing.assert_frame_equal(
-        selection[["PairID", "Product", "Included"]].sort_values("PairID").reset_index(drop=True),
-        expected_selection.sort_values("PairID").reset_index(drop=True),
-    )
-    report["sensitivity_selection"] = {"rows": len(selection), "status": "passed"}
+    remaining_legacy = [str(path) for path in subroot.rglob(f"*{SENSITIVITY_SUFFIX}*")
+                        if path.is_file() and "history" not in path.relative_to(subroot).parts
+                        and "Retirement" not in path.name]
+    if remaining_legacy:
+        raise ValueError(f"Retired specified-pair results remain current: {remaining_legacy}")
+    report["specified_pair_exclusion"] = {
+        "status": "retired_after_signal_quality_review",
+        "primary_results": "all baseline-eligible pairs retained",
+        "topography_sensitivity": "independent and unchanged; not audited here",
+    }
     report["main_pairs"], report["sub_pairs"] = len(items), len(changed)
     report["cache_count"] = len(report["caches"])
     report["available_sets"] = sum(len(item["sets"]) for item in report["caches"])
     report["arial_font"] = font_manager.findfont(
         font_manager.FontProperties(family="Arial"), fallback_to_default=False
     )
-    phase_root = args.output_root / "Phase4_脳波解析"
-    console = phase_root / engine.ANALYSIS_STEM / "Sub/logs/ProductionConsole_20261112_8to10Hz.log"
-    started = console.stat().st_birthtime
-    siblings = [
-        path
-        for folder in phase_root.iterdir()
-        if folder.is_dir() and folder.name not in (engine.ANALYSIS_STEM, SUB_STEM)
-        for path in folder.rglob("*")
-        if path.suffix.lower() in (".png", ".csv", ".json")
-    ]
-    modified = [str(path) for path in siblings if path.stat().st_mtime > started]
     report["existing_result_write_check"] = {
-        "files_checked": len(siblings),
-        "modified_since_console_creation": modified,
-        "scope": "mtime check only; not a pre-run content-hash comparison",
-        "reference_console": str(console),
-        "reference_birthtime": started,
+        "scope": "This validator is read-only apart from its explicit JSON report. "
+        "Execution-specific before/after protection belongs to the scoped runner; "
+        "the historical 2026-11-12 console time is not a current protection baseline.",
     }
-    if modified:
-        raise ValueError("Existing sibling result files were modified during this run")
     report["status"] = "passed"
 
 

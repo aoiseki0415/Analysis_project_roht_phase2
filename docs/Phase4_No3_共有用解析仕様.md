@@ -717,7 +717,7 @@ Phase4_脳波解析/
 
 `Individual/`、`GrandAverage/`、`Topography/`にはPNGだけを置きます。`SetQuantification/`にはSet別PNG、全Set統合PNG、およびSet別統計CSVを置きます。基準値、Grand-average数値、有効N、被験者別定量値、全Set統合統計、topography数値、除外ペア、成果物一覧は`Sub/tables/`と`Sub/logs/`へ保存します。
 
-被験者除外版はNo10_subと同じ次の配置に保存・検証済みです。Cキューブは追加除外がないため主要版を維持します。
+被験者除外版はNo11_sub等と共通の次の配置（旧No10_subの型）に保存・検証済みです。Cキューブは追加除外がないため主要版を維持します。
 
 ```text
 VRohtoPremium/

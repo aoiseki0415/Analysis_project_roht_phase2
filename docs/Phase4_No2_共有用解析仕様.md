@@ -658,7 +658,7 @@ PSD Change(t, ID, ch) = (PSD(t, ID, ch) / baseline(ID, ch) - 1) × 100
 - 指定ペアを追加版のEye Drop／Control両条件・全Setから除外し、**Grand-average、Set別定量化、全Set統合定量化**を再集計する。旧版と異なりCキューブも対象で、追加版の全Set統合figureも出力する。
 - 元の全利用可能データ版、個人図、元cache、manifest、topographyは変更しない。既知Set欠測・baseline欠測の規定は別に維持する。Setだけの欠測を被験者全体の除外理由へ自動拡大しない。
 - 定量化は未平滑変化率、Grand-averageは60秒平滑化後を使用する。全Set統合には利用可能なSet 1を含める。残存ペアから平均・SEM・有効N・対応ありt検定・補正値・縦軸を既存規則で再計算する。
-- 保存識別子・配置はNo10_subと同じ `SpecifiedPairsExcluded` に揃える。独立検証・全画像確認後に旧除外版を置換した。旧PNGは撤去し、旧非PNG監査をSub/historyへ分離済み。元の主要版は保持する。
+- 保存識別子・配置はNo11_sub等と共通の `SpecifiedPairsExcluded`（旧No10_subの型）に揃える。独立検証・全画像確認後に旧除外版を置換した。旧PNGは撤去し、旧非PNG監査をSub/historyへ分離済み。元の主要版は保持する。
 - topographyのペア×ch×Set maskはこの被験者集合へ流用しない。旧結果と新集合の結果を区別し、最新の検証済み結果を第12.1節に記す。
 - 今回の採否変更は上表の2群だけ。追加版の既存ファイル名・フォルダを維持し、該当PNG・表を上書きする。GAの両製品共通軸は両群の現行値から再計算し、共通上限が変わる場合だけ他製品群のGA PNGも表示を更新する。他製品群の個人値・群値・統計・定量化PNGは変えない。
 - Pzで解析対象へ戻すペアは、既知Set 4欠測の両条件対応を維持する。復帰を欠測値補完と取り違えない。
@@ -746,7 +746,7 @@ Phase4_脳波解析/
 
 `Individual/`、`GrandAverage/`、`Topography/`にはPNGだけを置きます。`SetQuantification/`直下には主要版のSet別PNG、全Set統合PNG、およびSet別統計CSVを置きます。基準値、Grand-average数値、有効N、被験者別定量値、全Set統合統計、topography数値、除外ペア、成果物一覧は`Sub/tables/`と`Sub/logs/`へ保存します。Pz補助版には`Topography/`を作りません。
 
-被験者除外版はOz・Pzの各ルート、両製品でNo10_subと同じ次の配置へ更新・検証済みです。
+被験者除外版はOz・Pzの各ルート、両製品でNo11_sub等と共通の次の配置（旧No10_subの型）へ更新・検証済みです。
 
 ```text
 <CCube | VRohtoPremium>/

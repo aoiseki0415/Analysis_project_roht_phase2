@@ -204,6 +204,15 @@ def complete_verification(review_path: Path) -> None:
 
 
 def main() -> int:
+    raise RuntimeError(
+        "The one-time 2026-11-12 band migration is historical and cannot be rerun. "
+        "No10_sub specified-pair outputs were retired after the 2026-11-16 review. "
+        "Use current No10/main and sub entry points; no files were written."
+    )
+
+
+def _historical_main_not_executable() -> int:
+    """Preserved migration audit logic only; never a current execution path."""
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--execute", action="store_true")
