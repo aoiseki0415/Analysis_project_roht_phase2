@@ -1,6 +1,6 @@
 # Phase 4：除外あり追加解析の共通方針
 
-確定・実行日：2026-11-16。**No1_sub・No2_sub・No2-2_sub・No3_subの指定被験者除外追加版を実装・実行し、独立数値検証と全18 PNGの目視確認を完了。** No10_sub・No11_subの既存指定集合とtopography v3の方法・結果は変更しない。
+確定・追加改訂実行日：2026-11-16。**No2_subのCキューブとNo2-2_subのVプレの採否を追加改訂し、再実行・独立数値検証・対象2解析の全12追加PNGの目視確認を完了。** No1_sub・No3_sub、No2系の他製品群の採否・数値、No10_sub・No11_sub、topography v3は保持。Pz追加版の両製品共通GA軸を揃えるため、CキューブGAは表示だけ更新した。初回実績と今回の検証を分けて管理する。
 
 ## 1. 目的と共通の判断姿勢
 
@@ -37,8 +37,8 @@ topographyは単なる「Set除外」でも「被験者除外」でもない。S
 | 解析 | 代表ch・帯域 | 被験者除外版の今回確定方法 | 被験者除外版の現状 | topography追加版 |
 |---|---|---|---|---|
 | No1_sub | Fz・4–7 Hz | Vプレ1ペア、Cキューブなし | 新規追加・実行／検証済み | v3実行済み・変更なし |
-| No2_sub | Oz・8–15 Hz | Vプレ2ペア、Cキューブ4ペア | 新集合を実行／検証済み・旧追加版置換済み | v3実行済み・変更なし |
-| No2-2_sub | Pz・8–15 Hz | Vプレ2ペア、Cキューブ3ペア | 新集合を実行／検証済み・旧追加版置換済み | 重複生成しない。No2_sub参照 |
+| No2_sub | Oz・8–15 Hz | Vプレ2ペア、Cキューブ5ペア | Cキューブの追加改訂を再実行・検証済み。Vプレ数値・図は保持 | v3実行済み・変更なし |
+| No2-2_sub | Pz・8–15 Hz | Vプレ2ペアを再指定、Cキューブ3ペア | Vプレの追加改訂を再実行・検証済み。CキューブはGA軸表示だけ更新 | 重複生成しない。No2_sub参照 |
 | No3_sub | Fz・1–3 Hz | Vプレ1ペア、Cキューブなし | 新規追加・実行／検証済み | v3実行済み・変更なし |
 | No10_sub | Fz・8–10 Hz | 既存Vプレ2ペア、Cキューブ1ペアを変更しない | 既存指定版実行済み。新方針で再判定済みとは扱わない | v3実行済み・変更なし |
 | No11_sub | Pz・8–10 Hz | 既存Vプレ1ペア、Cキューブ3ペアを変更しない | 既存指定版実行済み。今回の再実行なし | 生成しない。No10_sub参照 |
@@ -54,6 +54,8 @@ No10_subの旧選定が「大きな変化率を契機とした」事実を、今
 5. 既存の両側対応ありt検定・未補正PNG・補正CSVを維持。Set 1はBaselineで検定せず、Set 2–6の5比較にBonferroni・Holm・BH-FDR、全Set統合は1検定・補正なし。
 6. y軸、統計表示、Set名は除外後の値へ既存の比率・丸め規則を適用。配色、Arial、文字サイズ等は変えない。Grand-averageの共通y軸は、同じ追加版で実際に生成する製品群を範囲とする。両製品を生成するNo2_sub・No2-2_subは両製品共通、Vプレだけ生成するNo1_sub・No3_subは残存Vプレの値から決める。未更新のCキューブ主結果と軸を共通化したとは扱わない。定量化の軸は各図の残存個人値から再計算する。
 7. No1_sub・No3_subは除外のあるVプレだけ追加し、Cキューブに同一内容の重複版は作らない。No2_sub・No2-2_subは両製品で作る。
+
+今回の部分更新では、No2_sub CキューブとNo2-2_sub Vプレの数値表・定量化・Grand-averageを上書きする。同じNoの他製品群は採否・数値・定量化を変えない。ただしGrand-averageの両製品共通y軸を守るため、両群の現行値から共通上限を再計算し、上限が変わる場合だけ他製品群のGA PNGも表示更新する。製品ごとの独立軸へ変更しない。
 
 既知欠測Setの両条件対応、Set 1欠測によるbaseline不能、今回の指定除外を別理由で記録する。指定cohortが固定でも欠測によりSet別Nは異なる。実数N・結果・検証は第7節に分離して記録する。
 
@@ -91,28 +93,26 @@ No2_sub・No2-2_subは新版の独立数値検証と全PNG目視後、旧追加P
 
 ## 7. 最新の実行結果・検証（2026-11-16）
 
-本節は新しい指定集合による追加版の結果。主結果・旧追加版の数値とは区別する。40ペア／80セッションのID・製品・点眼条件をNotion対応表と照合し、不一致0を確認。baseline不能1ペアを従来どおり分離したうえで、各指定集合を適用した。
+追加改訂対象2群を再実行・検証済み。未変更4群の値は初回確認済み結果を保持し、今回No1_sub・No3_subを再実行・再監査したとは扱わない。変更前2群の値と初回実績は[履歴第7節](history/Phase4_sub被験者除外方針更新_20261116.md#7-同日の追加改訂前の結果履歴専用)へ分離する。
 
 | 解析 | 製品 | Set 1–6の対応N | AllSets N | AllSets Eye Drop 平均±SEM (%) | AllSets Control 平均±SEM (%) | AllSets未補正p |
 |---|---|---|---|---|---|---|
 | No1_sub | Vプレ | 18/18/18/17/18/18 | 18 | 16.84 ± 4.25 | 11.66 ± 6.38 | 0.4882 |
 | No2_sub（Oz） | Vプレ | 17/16/17/17/17/17 | 17 | 11.01 ± 5.73 | 13.52 ± 6.87 | 0.7078 |
-| No2_sub（Oz） | Cキューブ | 16/16/16/16/16/16 | 16 | 9.17 ± 8.01 | 15.77 ± 6.43 | 0.5132 |
-| No2-2_sub（Pz） | Vプレ | 17/16/17/17/17/17 | 17 | 44.89 ± 24.61 | 29.22 ± 8.08 | 0.4513 |
+| No2_sub（Oz） | Cキューブ | 15/15/15/15/15/15 | 15 | 4.83 ± 7.20 | 15.95 ± 6.87 | 0.2554 |
+| No2-2_sub（Pz） | Vプレ | 17/16/17/16/17/17 | 17 | 20.41 ± 5.65 | 23.38 ± 6.83 | 0.6198 |
 | No2-2_sub（Pz） | Cキューブ | 17/17/17/17/17/16 | 17 | 12.67 ± 6.37 | 28.18 ± 8.97 | 0.1053 |
 | No3_sub | Vプレ | 18/17/18/17/18/18 | 18 | 5.58 ± 7.89 | -5.76 ± 3.50 | 0.1473 |
 
-- 全6解析・製品組のSet 2–6（計30検定）とAllSets（6検定）は未補正p ≥ .05。最小のSet別pはNo3_sub・VプレのSet 5で0.063552。非有意は無効果・条件同等の証明ではない。
-- AllSetsの群平均差（Eye Drop − Control、percentage points）は、主結果→追加版で、No1 V：3.83→5.18、No2 Oz V：−30.62→−2.51／C：−11.95→−6.60、No2-2 Pz V：12.05→15.68／C：−17.59→−15.51、No3 V：15.46→11.34。
-- No2-2のVプレには除外後も大きな個人値とSEMが残る。指定集合を勝手に広げず、信号不良や製品効果とは断定しない。
-- 出力：追加18 PNG、24数値CSV＋4採否CSV、4実行JSON。No1・No3は各3 PNG／5 CSV、No2 Oz・Pzは各6 PNG／9 CSV。
-- GAの実軸：No1・No2 Oz・No3は±80%、No2-2 Pzは両製品共通±200%。全6図でmean±SEMの軸外点0。全18枚を開いて、色・Arial・軸・凡例・Set名／統計表示・点の収まりを確認。
-- 独立検証：元cacheから別実装でbaseline、Change、60点平滑化、progress、平均・SEM、N、対応ありt検定、3補正を再計算。主結果16＋追加24 CSV、計40 CSV・10,255行と照合。18 PNGと4実行記録も検査した。
-- 更新・旧版整理前に、Phase 4既存出力2,055件＋PSD cache240件（重複除外）の内容不変をハッシュで確認。旧版整理で変更したのは前述の旧追加14件だけで、主結果・個人・topography・cacheは保持。
-- 検査：関連43テスト成功、Ruff通過。合成全欠測ケース由来のNumPy警告4件はNaNを維持する想定内で、実データ計算の失敗ではない。
-- OneDriveは承認済みローカル同期領域への保存・読戻しを確認。クラウドサーバー側の同期完了は未検証。
+- 変更2群のSet 2–6・AllSetsはいずれも未補正p ≥ .05。未変更群の初回結果も同様だが、非有意は無効果・条件同等の証明ではない。
+- AllSets群平均差（Eye Drop − Control）はOz Cキューブ−11.11 pp、Pz Vプレ−2.98 pp。主結果は変更せず、追加版だけの再集計結果である。
+- 更新：変更2群の6 PNG、Pz Cキューブの共通GA軸表示1 PNG、計7 PNGを上書き。数値8 CSVと解析別採否2 CSVを更新。全体の追加版総数18 PNG・24数値CSV＋4採否CSVは変えない。
+- GAの共通軸：Oz両製品±80%を保持。Pz両製品は±90%、目盛−80／−40／0／40／80%。CキューブPzの群値・SEM・定量化は不変で、軸変更だけである。
+- 対象2解析の全12追加PNGを開き、Arial、軸・凡例・Set名・n.s.・点の収まりを確認。元cacheからの独立計算で24 CSV・5,836行を照合し、保護対象2,164ファイル（元cacheを含む）の内容hash一致を確認した。
+- 関連36テストと既存帯域4テストが成功。元PSD再計算なし。無変更製品群の数値・定量化PNG、主結果・個人・topography・他Noの成果物は保持。
+- OneDriveは指定ローカル同期領域への保存・読戻しを確認。クラウドサーバー側の同期完了は未検証。
 
-監査の正本：各Noの `Sub/logs/*_SpecifiedPairsExcluded_RunSummary.json` と `*_SpecifiedPairsExcluded_Verification_20261116.json`、統合独立検証はNo1_subの `Sub/logs/SpecifiedPairsExcluded_IndependentValidation_20261116.json`。各数値表・採否は第6節の保存先。意思決定と実装過程は[履歴](history/Phase4_sub被験者除外方針更新_20261116.md)へ分ける。
+今回の独立監査はNo2_subの `Sub/logs/SpecifiedPairsExcluded_IndependentValidation_20261116_Revision2.json`（passed）。各数値表・採否は第6節の保存先、実行記録は各Noの `Sub/logs/*_SpecifiedPairsExcluded_RunSummary.json`。初回の統合検証は当時の集合の証跡として保持し、追加改訂後の検証記録と混同しない。試行時の監査制約を含む過程は[履歴第8節](history/Phase4_sub被験者除外方針更新_20261116.md#8-同日の採否追加改訂意思決定実装過程)へ分ける。
 
 ## 8. 実装と再実行
 
@@ -120,6 +120,7 @@ No2_sub・No2-2_subは新版の独立数値検証と全PNG目視後、旧追加P
 - 独立検証：`解析プログラム/Phase4_脳波解析/validate_phase4_sub_specified_pairs.py`。production計算関数をimportせず保存cacheから再現する。
 - 対象は注意事項の現行指定表を読み、当日照合済みsource auditの集合と一致させる。40ペアmanifestのハッシュ、80セッションの対応、帯域・ch・cache設定ハッシュを検査し、不一致なら停止する。PSDは再計算・保存しない。
 - source auditは同日のタイムゾーン付き確認日時、`matched_pairs=40`、`matched_sessions=80`、`mismatches=0`、manifest SHA256、4解析の明示除外集合を持つ。ID一覧をコードへ重複埋込みしない。
+- 同日の追加改訂はNo2_subの `Sub/logs/SpecifiedPairsExcluded_SourceAudit_20261116_Revision2.json` を使う。No1_subに残る初回source auditは当時の証跡で、新集合の実行へ使用しない。
 - 既存No2 Oz/Pzの主要解析entrypointから旧単独ペア版の自動生成設定を撤去。主要計算は不変。最新追加版は下記runnerから独立して実行する。
 
 ```bash
@@ -128,7 +129,12 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python 解析プログラム/Phase4_�
 # 生成：同じ引数の --preflight-only を --execute に置換
 # 追加版が既にある場合だけ --replace-existing を併記
 .venv/bin/python 解析プログラム/Phase4_脳波解析/validate_phase4_sub_specified_pairs.py \
-  --manifest <40ペアmanifest> --report <No1_sub/Sub/logs/独立検証JSON>
+  --manifest <40ペアmanifest> --analysis no2 --analysis no2-pz \
+  --report <No2_sub/Sub/logs/独立検証JSON>
 ```
 
 `--analysis no1|no2|no2-pz|no3` で追加版を限定できる。旧No2版の整理は `--retire-legacy --analysis no2|no2-pz --review <全画像hash付き合格レビューJSON>` に限定し、数値・画像検証の前には実行しない。最新成果物は新版だけ、旧CSVはhistoryへ分ける。
+
+今回の部分更新は `--analysis no2 --product CCube` と `--analysis no2-pz --product VRohtoPremium` をそれぞれpreflight後、`--execute --replace-existing` で実行する。`--product` は単一analysisとだけ併用する。相手製品の現行群値・採否を照合し、共通GA軸変更時の表示更新以外は保護する。置換対象の旧数値表・採否・run summaryを各Sub/historyへ保存し、旧PNGの複製は残さない。
+
+独立検証も上例の対象2解析に限定する。初回No1のrun記録には正式撤去済みの旧No2ファイルが保護対象として残るため、今回のNo2更新を検証する目的で既定の全4解析監査を使わない。旧記録を改変して整合したように見せず、履歴と今回の監査範囲を区別する。

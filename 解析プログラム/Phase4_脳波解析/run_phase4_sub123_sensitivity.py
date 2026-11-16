@@ -9,6 +9,7 @@ Main, individual, topography and source-cache artifacts are protected by hashes.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import importlib.util
 import json
@@ -34,7 +35,8 @@ REPO = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
 ATTENTION = REPO / "docs/解析上の注意事項.md"
 ORIGIN = "https://github.com/aoiseki0415/Analysis_project_roht_phase2.git"
-VERSION = "20261116_sub123_specified_pairs_v1"
+VERSION = "20261116_sub123_specified_pairs_v2"
+REVISION_ARCHIVE = "SpecifiedPairsExcluded_BeforeRevision2_20261116"
 SUFFIX = "SpecifiedPairsExcluded"
 TOKYO = ZoneInfo("Asia/Tokyo")
 PRODUCTS = ("CCube", "VRohtoPremium")
@@ -200,6 +202,11 @@ def support_paths(root: Path, stem: str) -> dict[str, Path]:
     }
 
 
+def verification_path(root: Path, stem: str) -> Path:
+    return (root / "Phase4_脳波解析" / stem / "Sub/logs"
+            / f"{stem}_{SUFFIX}_Verification_20261116.json")
+
+
 def inventory(root: Path, ignored: set[Path] | None = None) -> dict[str, dict]:
     ignored = {p.resolve() for p in ignored or set()}
     return {str(p): {"sha256": digest(p), "size": p.stat().st_size}
@@ -213,6 +220,114 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(content, encoding="utf-8")
     if path.read_text(encoding="utf-8") != content:
         raise RuntimeError("JSON readback mismatch")
+
+
+def product_update_plan(root: Path, stem: str, selected: dict, exclusions: dict,
+                        product: str | None, limit: float, ticks: np.ndarray) -> dict:
+    """Scope writes without changing the two-product common-axis calculation.
+
+    A scoped refresh must have a verified existing additional result for every
+    other product. Numerical files and quantification figures of those products
+    stay byte-identical. Only their GA PNG may need a shared-axis-only refresh.
+    """
+    plan = {"regenerated_products": list(selected), "axis_only_refreshed_products": [],
+            "retained_outputs": {}, "retained_plots": [], "preserved_product_artifacts": {},
+            "preserved_product_provenance": {}, "previous_run_summary_sha256": None}
+    if product is None:
+        return plan
+    if product not in selected:
+        raise ValueError("Requested product has no specified-exclusion additional cohort")
+    plan["regenerated_products"] = [product]
+    prior_path = support_paths(root, stem)["record"]
+    prior = json.loads(prior_path.read_text(encoding="utf-8"))
+    if prior.get("analysis_stem") != stem or not prior.get("protected_unchanged"):
+        raise ValueError("Scoped refresh requires a valid previous analysis record")
+    plan["previous_run_summary_sha256"] = digest(prior_path)
+    hashes = {row["path"]: row["sha256"] for row in prior["output_files"]}
+    plots = {row["path"]: row for row in prior["plots"]}
+    for other, cohort in selected.items():
+        if other == product:
+            continue
+        group = copy.deepcopy(prior["outputs"][other])
+        if (set(group["excluded_pair_ids"]) != exclusions[other]
+                or set(group["retained_pair_ids"])
+                != {item["spec"].pair_id for item in cohort}):
+            raise ValueError("Unrequested product cohort changed; regenerate it explicitly")
+        paths = output_paths(root, stem, other)
+        if group["paths"] != {name: str(path) for name, path in paths.items()}:
+            raise ValueError("Previous unrequested product output paths differ")
+        axis_changed = (float(group["grand_y_limit"]) != float(limit)
+                        or not np.array_equal(group["grand_y_ticks"], ticks))
+        if axis_changed:
+            plan["axis_only_refreshed_products"].append(other)
+        for name, path in paths.items():
+            filename = str(path)
+            if not path.is_file() or digest(path) != hashes.get(filename):
+                raise ValueError(f"Previous unrequested product artifact changed: {path}")
+            if not (name == "grand_png" and axis_changed):
+                plan["preserved_product_artifacts"][filename] = {
+                    "sha256": hashes[filename], "size": path.stat().st_size}
+            if path.suffix == ".png":
+                if filename not in plots or plots[filename]["sha256"] != hashes[filename]:
+                    raise ValueError("Previous figure metadata is incomplete or stale")
+                if not (name == "grand_png" and axis_changed):
+                    plan["retained_plots"].append(copy.deepcopy(plots[filename]))
+        plan["retained_outputs"][other] = group
+        # Keep old numerical implementation provenance rather than implying the
+        # current code regenerated an untouched product's files.
+        plan["preserved_product_provenance"][other] = copy.deepcopy(
+            prior.get("preserved_product_provenance", {}).get(other) or {
+                "version": prior["version"], "code_hashes": prior["code_hashes"],
+                "completed_at": prior["completed_at"],
+                "previous_run_summary_sha256": digest(prior_path),
+                "implementation_base_commit": prior["implementation_base_commit"],
+            })
+    return plan
+
+
+def archive_scoped_previous(root: Path, stem: str, products: list[str]) -> dict:
+    """Keep only replaced non-PNG evidence, once, with verified immutable hashes."""
+    base = root / "Phase4_脳波解析" / stem
+    archive = base / "Sub/history" / REVISION_ARCHIVE
+    manifest_path = archive / "ArchiveManifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("analysis_stem") != stem or manifest.get("products") != products:
+            raise ValueError("Existing revision archive belongs to another update scope")
+        for row in manifest["files"]:
+            archived = Path(row["archived_to"])
+            if (not archived.resolve().is_relative_to(archive.resolve())
+                    or archived.suffix == ".png" or digest(archived) != row["sha256"]):
+                raise ValueError("Existing revision archive failed hash/scope verification")
+        return {"manifest": str(manifest_path), "sha256": digest(manifest_path),
+                "file_count": len(manifest["files"]), "reused": True}
+    files = set(support_paths(root, stem).values())
+    previous_verification = verification_path(root, stem)
+    if previous_verification.exists():
+        files.add(previous_verification)
+    for product in products:
+        files.update(path for path in output_paths(root, stem, product).values()
+                     if path.suffix != ".png")
+    manifest = {"analysis_stem": stem, "products": products, "version": VERSION,
+                "created_at": datetime.now(TOKYO).isoformat(), "files": []}
+    for path in sorted(files):
+        if not path.is_file() or path.suffix == ".png":
+            raise ValueError("Prior non-PNG evidence must exist before scoped replacement")
+        destination = archive / path.relative_to(base)
+        fingerprint = digest(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            if digest(destination) != fingerprint:
+                raise ValueError("Different historical content already exists")
+        else:
+            shutil.copy2(path, destination)
+        if digest(destination) != fingerprint:
+            raise RuntimeError("Archived content failed readback")
+        manifest["files"].append({"old": str(path), "archived_to": str(destination),
+                                  "sha256": fingerprint})
+    write_json(manifest_path, manifest)
+    return {"manifest": str(manifest_path), "sha256": digest(manifest_path),
+            "file_count": len(manifest["files"]), "reused": False}
 
 
 def cache_provenance(engine: ModuleType, specs: list) -> list[dict]:
@@ -282,7 +397,8 @@ def capture_plots(records: list, allowed: set[Path]):
 
 
 def execute_analysis(key: str, manifest: Path, audit: dict, exclusions: dict,
-                     *, preflight_only: bool, replace: bool) -> dict:
+                     *, preflight_only: bool, replace: bool,
+                     product: str | None = None) -> dict:
     engine = build_engine(key)
     root, stem = engine.DEFAULT_OUTPUT_ROOT, engine.ANALYSIS_STEM
     specs = engine.no1.load_manifest(manifest)
@@ -291,15 +407,25 @@ def execute_analysis(key: str, manifest: Path, audit: dict, exclusions: dict,
     # Normalize audit identities without modifying the source manifest.
     selected, selection = select_items(items, specs, exclusions,
                                        normalize=engine.no1.normalize_product)
+    grands = {p: engine.build_grand_average(v, p)[0] for p, v in selected.items()}
+    limit, ticks = engine.grand_average_axis(list(grands.values()))
+    plan = product_update_plan(root, stem, selected, exclusions, product, limit, ticks)
     if preflight_only:
         return {"status": "preflight_passed", "analysis_stem": stem,
-                "retained": {p: len(v) for p, v in selected.items()}, "baseline": baseline}
+                "retained": {p: len(v) for p, v in selected.items()}, "baseline": baseline,
+                "regenerated_products": plan["regenerated_products"],
+                "axis_only_refreshed_products": plan["axis_only_refreshed_products"],
+                "grand_y_limit": float(limit), "grand_y_ticks": ticks.tolist()}
     paths_by_product = {p: output_paths(root, stem, p) for p in selected}
     support = support_paths(root, stem)
-    allowed = set(support.values()) | {p for paths in paths_by_product.values()
-                                       for p in paths.values()}
+    allowed = set(support.values()) | {
+        path for p in plan["regenerated_products"] for path in paths_by_product[p].values()}
+    allowed.update(paths_by_product[p]["grand_png"]
+                   for p in plan["axis_only_refreshed_products"])
     if not replace and any(p.exists() for p in allowed):
         raise RuntimeError("Additional outputs exist; --replace-existing required")
+    archive = (archive_scoped_previous(root, stem, plan["regenerated_products"])
+               if product is not None else None)
     phase = root / "Phase4_脳波解析"
     # All analyses can be regenerated sequentially without treating a sibling's
     # authorized new sensitivity files as changes to protected primary results.
@@ -307,10 +433,13 @@ def execute_analysis(key: str, manifest: Path, audit: dict, exclusions: dict,
     for batch_key, groups in documented_exclusions().items():
         batch_stem = ANALYSES[batch_key][0]
         batch_allowed.update(support_paths(root, batch_stem).values())
-        for product, pairs in groups.items():
+        # The human/independent verification record is refreshed after generation.
+        batch_allowed.add(verification_path(root, batch_stem))
+        for batch_product, pairs in groups.items():
             if pairs:
-                batch_allowed.update(output_paths(root, batch_stem, product).values())
+                batch_allowed.update(output_paths(root, batch_stem, batch_product).values())
     before = inventory(phase, batch_allowed)
+    strict_before = inventory(phase, allowed)
     record = {"status": "running", "version": VERSION, "analysis_stem": stem,
               "focus_channel": engine.FOCUS_CHANNEL,
               "frequencies_hz": engine.no1.INCLUDED_FREQUENCIES_HZ.tolist(),
@@ -319,9 +448,20 @@ def execute_analysis(key: str, manifest: Path, audit: dict, exclusions: dict,
               "selection_csv": str(support["selection"]), "protected_before": before,
               "protected_exceptions": sorted(str(p) for p in batch_allowed),
               "reason": REASON, "scope": "Grand-average/Set/AllSets; both conditions/all Sets",
-              "topography_modified": False, "plots": [], "outputs": {},
+              "topography_modified": False, "plots": plan["retained_plots"],
+              "outputs": plan["retained_outputs"],
               "canonical_selection_sha256": digest(ATTENTION),
-              "axis_scope": "Shared among products generated in this additional analysis only",
+              "axis_scope": (
+                  "Shared among all current additional cohorts, including preserved product"),
+              "requested_product": product,
+              "regenerated_products": plan["regenerated_products"],
+              "axis_only_refreshed_products": plan["axis_only_refreshed_products"],
+              "shared_axis_products": list(selected),
+              "preserved_product_artifacts": plan["preserved_product_artifacts"],
+              "preserved_product_provenance": plan["preserved_product_provenance"],
+              "previous_run_summary_sha256": plan["previous_run_summary_sha256"],
+              "previous_nonpng_archive": archive,
+              "allowed_write_paths": sorted(str(path) for path in allowed),
               "cloud_sync": "Local authorized OneDrive save/readback; server sync not verified"}
     record["implementation_base_commit"] = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
@@ -336,30 +476,31 @@ def execute_analysis(key: str, manifest: Path, audit: dict, exclusions: dict,
     }
     write_json(support["record"], record)
     try:
-        grands = {p: engine.build_grand_average(v, p)[0] for p, v in selected.items()}
-        limit, ticks = engine.grand_average_axis(list(grands.values()))
         pngs = {p for p in allowed if p.suffix == ".png"}
-        with capture_plots(record["plots"], pngs):
-            for product, cohort in selected.items():
-                paths = paths_by_product[product]
+        newly_captured = []
+        with capture_plots(newly_captured, pngs):
+            for product_name in plan["regenerated_products"]:
+                cohort = selected[product_name]
+                paths = paths_by_product[product_name]
                 for path in paths.values():
                     path.parent.mkdir(parents=True, exist_ok=True)
-                grand = grands[product]
-                engine.plot_grand_average(grand, product, paths["grand_png"],
+                grand = grands[product_name]
+                engine.plot_grand_average(grand, product_name, paths["grand_png"],
                                           common_limit=limit, common_ticks=ticks)
-                values = engine.build_quantification(cohort, product)
+                values = engine.build_quantification(cohort, product_name)
                 set_stats, all_stats = engine.quantification_statistics(values)
-                engine.plot_quantification(values, set_stats, product, paths["set_png"])
-                engine.plot_overall_quantification(values, all_stats, product, paths["all_png"])
+                engine.plot_quantification(values, set_stats, product_name, paths["set_png"])
+                engine.plot_overall_quantification(
+                    values, all_stats, product_name, paths["all_png"])
                 for name, table in (("grand_csv", grand), ("values", values),
                                     ("set_stats", set_stats), ("all_stats", all_stats)):
                     table.to_csv(paths[name], index=False)
                     if len(pd.read_csv(paths[name])) != len(table):
                         raise RuntimeError(f"CSV readback mismatch: {paths[name]}")
                 cols = ["EyeDrop_PSDChange_pct", "Control_PSDChange_pct"]
-                record["outputs"][product] = {
+                record["outputs"][product_name] = {
                     "paths": {k: str(p) for k, p in paths.items()},
-                    "excluded_pair_ids": sorted(exclusions[product]),
+                    "excluded_pair_ids": sorted(exclusions[product_name]),
                     "retained_pair_ids": [i["spec"].pair_id for i in cohort],
                     "paired_n": {str(n): int(np.isfinite(
                         values.loc[values["Set"] == n, cols].to_numpy(float)
@@ -374,17 +515,39 @@ def execute_analysis(key: str, manifest: Path, audit: dict, exclusions: dict,
                         ).sum()) for condition in ("EyeDrop", "Control")
                     },
                 }
+            for product_name in plan["axis_only_refreshed_products"]:
+                grand = grands[product_name]
+                engine.plot_grand_average(
+                    grand, product_name, paths_by_product[product_name]["grand_png"],
+                    common_limit=limit, common_ticks=ticks)
+                group = record["outputs"][product_name]
+                group.update(grand_y_limit=float(limit), grand_y_ticks=ticks.tolist())
+                group["shade_points_outside_axes"] = {
+                    condition: int((
+                        (grand[f"{condition}_Mean_PSDChange_pct"]
+                         + grand[f"{condition}_SEM_PSDChange_pct"] > limit)
+                        | (grand[f"{condition}_Mean_PSDChange_pct"]
+                           - grand[f"{condition}_SEM_PSDChange_pct"] < -limit)
+                    ).sum()) for condition in ("EyeDrop", "Control")}
+        record["plots"].extend(newly_captured)
         selection.to_csv(support["selection"], index=False)
+        if inventory(phase, allowed) != strict_before:
+            raise RuntimeError("Out-of-scope outputs changed during scoped execution")
         if inventory(phase, batch_allowed) != before:
             raise RuntimeError("Protected outputs changed")
         if any(digest(Path(row["path"])) != row["sha256"] for row in source):
             raise RuntimeError("Source cache changed")
-        if {Path(row["path"]) for row in record["plots"]} != pngs:
+        if {Path(row["path"]) for row in newly_captured} != pngs:
             raise RuntimeError("Expected PNGs missing")
+        all_outputs = set(support.values()) | {
+            path for paths in paths_by_product.values() for path in paths.values()}
         record.update(status="generated_pending_independent_and_visual_verification",
-                      protected_unchanged=True, completed_at=datetime.now(TOKYO).isoformat(),
+                      protected_unchanged=True, strict_run_scope_unchanged=True,
+                      completed_at=datetime.now(TOKYO).isoformat(),
                       output_files=[{"path": str(p), "sha256": digest(p)}
-                                    for p in sorted(allowed - {support["record"]})])
+                                    for p in sorted(all_outputs - {support["record"]})],
+                      generated_output_files=[{"path": str(p), "sha256": digest(p)}
+                                              for p in sorted(allowed - {support["record"]})])
     except Exception as error:
         record.update(status="failed", error=repr(error))
         write_json(support["record"], record)
@@ -451,6 +614,8 @@ def main() -> int:
     parser.add_argument("--analysis", choices=[*ANALYSES, "all"], default="all")
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--source-audit", type=Path)
+    parser.add_argument("--product", choices=PRODUCTS,
+                        help="Refresh one product; preserve the other except a shared-axis GA PNG")
     parser.add_argument("--review", type=Path)
     parser.add_argument("--replace-existing", action="store_true")
     modes = parser.add_mutually_exclusive_group(required=True)
@@ -467,19 +632,24 @@ def main() -> int:
     if actual_root != str(REPO) or origin != ORIGIN:
         raise RuntimeError("Repository boundary mismatch")
     if args.retire_legacy:
-        if args.analysis == "all" or not args.review:
+        if args.analysis == "all" or not args.review or args.product:
             parser.error("Legacy retirement needs one --analysis and --review")
         results = [retire_legacy(args.analysis, args.review)]
     else:
         if not args.manifest or not args.source_audit:
             parser.error("--manifest and --source-audit are required")
+        if args.product and args.analysis == "all":
+            parser.error("--product requires one explicit --analysis")
         exclusions = documented_exclusions()
         audit = verify_source_audit(args.source_audit, args.manifest, exclusions)
         keys = list(ANALYSES) if args.analysis == "all" else [args.analysis]
         results = [execute_analysis(key, args.manifest, audit, exclusions[key],
                                     preflight_only=args.preflight_only,
-                                    replace=args.replace_existing) for key in keys]
-    print(json.dumps([{k: row[k] for k in ("analysis_stem", "status")}
+                                    replace=args.replace_existing, product=args.product)
+                   for key in keys]
+    print(json.dumps([{k: row[k] for k in (
+        "analysis_stem", "status", "regenerated_products", "axis_only_refreshed_products",
+        "grand_y_limit", "grand_y_ticks", "retained") if k in row}
                       for row in results], ensure_ascii=False))
     return 0
 

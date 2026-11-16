@@ -300,6 +300,72 @@ def grand_axis(frames: list[pd.DataFrame]) -> tuple[float, np.ndarray]:
     return limit, ticks
 
 
+def audit_scoped_record(root: Path, record: dict, products: set[str],
+                        verified_hashes: dict[str, str]) -> None:
+    """Independently check the limited-write contract and unchanged-product bytes."""
+    requested = record.get("requested_product")
+    if requested is None:
+        return
+    if requested not in products or record.get("regenerated_products") != [requested]:
+        raise ValueError("Scoped regeneration product differs")
+    others = products - {requested}
+    axis_only = set(record["axis_only_refreshed_products"])
+    if not axis_only.issubset(others) or set(record["shared_axis_products"]) != products:
+        raise ValueError("Scoped shared-axis products differ")
+    if not record.get("strict_run_scope_unchanged"):
+        raise ValueError("Strict within-run scope protection is missing")
+    record_path = root / "Sub/logs" / f"{root.name}_{SUFFIX}_RunSummary.json"
+    selection = (root / "Sub/tables/SetQuantification"
+                 / f"{root.name}_CohortSelection_{SUFFIX}.csv")
+    allowed = {str(record_path), str(selection)}
+    allowed.update(str(path) for path in output_paths(root, requested).values())
+    allowed.update(str(output_paths(root, p)["grand_png"]) for p in axis_only)
+    if set(record["allowed_write_paths"]) != allowed:
+        raise ValueError("Scoped allowed paths differ from the exact output contract")
+    generated = {row["path"]: row["sha256"] for row in record["generated_output_files"]}
+    if set(generated) != allowed - {str(record_path)}:
+        raise ValueError("Scoped generated-file list differs")
+    for filename, fingerprint in generated.items():
+        if sha256(Path(filename)) != fingerprint:
+            raise ValueError("Scoped generated artifact changed")
+    preserved = {str(path) for p in others for name, path in output_paths(root, p).items()
+                 if not (p in axis_only and name == "grand_png")}
+    if set(record["preserved_product_artifacts"]) != preserved:
+        raise ValueError("Unrequested-product preservation list is incomplete")
+    for filename, before in record["preserved_product_artifacts"].items():
+        path = Path(filename)
+        if not path.is_file() or path.stat().st_size != before["size"]:
+            raise ValueError("Unrequested-product file missing or size changed")
+        verified_hashes[filename] = sha256(path)
+        if verified_hashes[filename] != before["sha256"]:
+            raise ValueError("Unrequested-product bytes changed")
+    provenance = record["preserved_product_provenance"]
+    if set(provenance) != others or any(
+        not entry.get("version") or not entry.get("code_hashes")
+        or not entry.get("previous_run_summary_sha256") for entry in provenance.values()
+    ):
+        raise ValueError("Preserved-product numerical provenance is missing")
+    archive = record["previous_nonpng_archive"]
+    archive_path = Path(archive["manifest"])
+    if (not archive_path.resolve().is_relative_to((root / "Sub/history").resolve())
+            or sha256(archive_path) != archive["sha256"]):
+        raise ValueError("Previous-run archive manifest mismatch")
+    archived = json.loads(archive_path.read_text())
+    if archived["analysis_stem"] != root.name or archived["products"] != [requested]:
+        raise ValueError("Previous-run archive scope differs")
+    if len(archived["files"]) != archive["file_count"]:
+        raise ValueError("Previous-run archive count differs")
+    for row in archived["files"]:
+        path = Path(row["archived_to"])
+        if (not path.resolve().is_relative_to(archive_path.parent.resolve())
+                or path.suffix == ".png" or sha256(path) != row["sha256"]):
+            raise ValueError("Previous-run archive bytes/scope differ")
+    if not archive["reused"]:
+        original_record = next(row for row in archived["files"] if row["old"] == str(record_path))
+        if original_record["sha256"] != record["previous_run_summary_sha256"]:
+            raise ValueError("Previous execution record archive differs")
+
+
 def audit_execution(
     root: Path,
     expected_groups: dict,
@@ -312,6 +378,7 @@ def audit_execution(
     record = json.loads(record_path.read_text())
     if record.get("topography_modified") is not False or not record.get("protected_unchanged"):
         raise ValueError("Production preservation checks are not confirmed")
+    audit_scoped_record(root, record, set(expected_groups), verified_hashes)
     # Independently re-read preserved output and cache bytes, not just the runner flag.
     for filename, before in record["protected_before"].items():
         path = Path(filename)

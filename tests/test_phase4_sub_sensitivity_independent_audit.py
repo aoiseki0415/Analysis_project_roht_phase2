@@ -69,7 +69,7 @@ def test_documented_selection_counts_are_independent_per_analysis():
     result = audit.canonical_exclusions(audit.REPO / "docs/解析上の注意事項.md")
     assert {name: {p: len(v) for p, v in groups.items()} for name, groups in result.items()} == {
         "No1_sub": {"CCube": 0, "VRohtoPremium": 1},
-        "No2_sub": {"CCube": 4, "VRohtoPremium": 2},
+        "No2_sub": {"CCube": 5, "VRohtoPremium": 2},
         "No2-2_sub": {"CCube": 3, "VRohtoPremium": 2},
         "No3_sub": {"CCube": 0, "VRohtoPremium": 1},
     }

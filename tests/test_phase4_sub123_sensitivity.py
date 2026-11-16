@@ -16,6 +16,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "解析プログラム/Phase4_�
 sys.path.insert(0, str(SCRIPTS))
 
 import run_phase4_sub123_sensitivity as runner  # noqa: E402
+import validate_phase4_sub_specified_pairs as independent  # noqa: E402
 
 
 def test_isolated_variants_preserve_band_channel_hash_configuration_and_colors():
@@ -44,7 +45,7 @@ def test_current_document_selection_counts_without_embedding_participant_ids():
     actual = runner.documented_exclusions()
     assert {key: {p: len(v) for p, v in groups.items()} for key, groups in actual.items()} == {
         "no1": {"CCube": 0, "VRohtoPremium": 1},
-        "no2": {"CCube": 4, "VRohtoPremium": 2},
+        "no2": {"CCube": 5, "VRohtoPremium": 2},
         "no2-pz": {"CCube": 3, "VRohtoPremium": 2},
         "no3": {"CCube": 0, "VRohtoPremium": 1},
     }
@@ -186,3 +187,238 @@ def test_legacy_discovery_cannot_target_other_analysis_or_main(tmp_path):
     main.write_text("main")
     assert runner.legacy_paths("no2", tmp_path) == [old]
     assert runner.legacy_paths("no1", tmp_path) == []
+
+
+@pytest.fixture
+def previous_product_run(tmp_path):
+    stem = runner.ANALYSES["no2"][0]
+    selected = {p: [{"spec": participant(801 + index, p)}]
+                for index, p in enumerate(runner.PRODUCTS)}
+    excluded = {p: {f"{811 + index}-{911 + index}"}
+                for index, p in enumerate(runner.PRODUCTS)}
+    record = {"analysis_stem": stem, "protected_unchanged": True, "version": "old-version",
+              "code_hashes": {"synthetic.py": "old-code-hash"},
+              "completed_at": "2026-01-01T00:00:00+09:00",
+              "implementation_base_commit": "old-commit", "output_files": [],
+              "plots": [], "outputs": {}}
+    for product in selected:
+        paths = runner.output_paths(tmp_path, stem, product)
+        for path in paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("synthetic artifact")
+            row = {"path": str(path), "sha256": runner.digest(path)}
+            record["output_files"].append(row)
+            if path.suffix == ".png":
+                record["plots"].append(row)
+        record["outputs"][product] = {
+            "paths": {name: str(path) for name, path in paths.items()},
+            "retained_pair_ids": [selected[product][0]["spec"].pair_id],
+            "excluded_pair_ids": sorted(excluded[product]), "grand_y_limit": 80,
+            "grand_y_ticks": [-80, -40, 0, 40, 80]}
+    support = runner.support_paths(tmp_path, stem)
+    runner.write_json(support["record"], record)
+    support["selection"].parent.mkdir(parents=True, exist_ok=True)
+    support["selection"].write_text("synthetic old selection")
+    runner.write_json(runner.verification_path(tmp_path, stem), {"status": "passed"})
+    return tmp_path, stem, selected, excluded, record
+
+
+def test_scoped_plan_keeps_other_product_when_common_axis_unchanged(previous_product_run):
+    root, stem, selected, excluded, previous = previous_product_run
+    plan = runner.product_update_plan(
+        root, stem, selected, excluded, "CCube", 80, np.array([-80, -40, 0, 40, 80]))
+    assert plan["regenerated_products"] == ["CCube"]
+    assert plan["axis_only_refreshed_products"] == []
+    assert len(plan["preserved_product_artifacts"]) == 7
+    assert len(plan["retained_plots"]) == 3
+    assert plan["retained_outputs"] == {"VRohtoPremium": previous["outputs"]["VRohtoPremium"]}
+    assert plan["preserved_product_provenance"]["VRohtoPremium"]["version"] == "old-version"
+
+
+def test_scoped_plan_refreshes_only_other_ga_when_common_axis_changes(previous_product_run):
+    root, stem, selected, excluded, _ = previous_product_run
+    plan = runner.product_update_plan(
+        root, stem, selected, excluded, "VRohtoPremium", 40, np.array([-40, -20, 0, 20, 40]))
+    assert plan["regenerated_products"] == ["VRohtoPremium"]
+    assert plan["axis_only_refreshed_products"] == ["CCube"]
+    assert len(plan["preserved_product_artifacts"]) == 6
+    assert len(plan["retained_plots"]) == 2
+    ga = runner.output_paths(root, stem, "CCube")["grand_png"]
+    assert str(ga) not in plan["preserved_product_artifacts"]
+
+
+@pytest.mark.parametrize("case", ["cohort", "bytes", "paths", "metadata", "unknown"])
+def test_scoped_plan_refuses_unverified_other_product(previous_product_run, case):
+    root, stem, selected, excluded, prior = previous_product_run
+    requested = "CCube"
+    if case == "cohort":
+        excluded["VRohtoPremium"].add("899-999")
+    elif case == "bytes":
+        runner.output_paths(root, stem, "VRohtoPremium")["values"].write_text("modified")
+    elif case == "paths":
+        prior["outputs"]["VRohtoPremium"]["paths"]["grand_png"] = "wrong"
+    elif case == "metadata":
+        prior["plots"] = []
+    else:
+        requested = "unavailable"
+    runner.write_json(runner.support_paths(root, stem)["record"], prior)
+    with pytest.raises(ValueError):
+        runner.product_update_plan(root, stem, selected, excluded, requested, 80,
+                                   np.array([-80, -40, 0, 40, 80]))
+
+
+def test_revision_archive_keeps_only_replaced_nonpng_evidence(previous_product_run):
+    root, stem, _, _, _ = previous_product_run
+    before = runner.inventory(root)
+    result = runner.archive_scoped_previous(root, stem, ["CCube"])
+    manifest = json.loads(Path(result["manifest"]).read_text())
+    assert len(manifest["files"]) == 7  # four numbers + selection + execution + verification
+    assert all(Path(row["archived_to"]).suffix != ".png" for row in manifest["files"])
+    assert all("VRohtoPremium" not in row["old"] for row in manifest["files"])
+    assert all(runner.digest(Path(row["archived_to"])) == row["sha256"]
+               for row in manifest["files"])
+    assert all(runner.digest(Path(path)) == row["sha256"] for path, row in before.items())
+    again = runner.archive_scoped_previous(root, stem, ["CCube"])
+    assert again["reused"]
+    assert again["sha256"] == result["sha256"]
+
+
+def test_revision_archive_rejects_conflicting_history(previous_product_run):
+    root, stem, _, _, _ = previous_product_run
+    result = runner.archive_scoped_previous(root, stem, ["CCube"])
+    manifest = json.loads(Path(result["manifest"]).read_text())
+    Path(manifest["files"][0]["archived_to"]).write_text("history modified")
+    with pytest.raises(ValueError, match="hash/scope"):
+        runner.archive_scoped_previous(root, stem, ["CCube"])
+
+
+@pytest.fixture
+def scoped_record(previous_product_run):
+    root, stem, selected, excluded, _ = previous_product_run
+    plan = runner.product_update_plan(root, stem, selected, excluded, "CCube", 80,
+                                      np.array([-80, -40, 0, 40, 80]))
+    archive = runner.archive_scoped_previous(root, stem, ["CCube"])
+    support = runner.support_paths(root, stem)
+    allowed = set(support.values()) | set(runner.output_paths(root, stem, "CCube").values())
+    record = {**plan, "requested_product": "CCube", "shared_axis_products": list(selected),
+              "strict_run_scope_unchanged": True,
+              "allowed_write_paths": [str(path) for path in allowed],
+              "generated_output_files": [{"path": str(path), "sha256": runner.digest(path)}
+                                         for path in allowed if path != support["record"]],
+              "previous_nonpng_archive": archive}
+    return root / "Phase4_脳波解析" / stem, record
+
+
+def test_independent_scoped_audit_accepts_exact_contract(scoped_record):
+    root, record = scoped_record
+    hashes = {}
+    independent.audit_scoped_record(root, record, set(runner.PRODUCTS), hashes)
+    assert len(hashes) == 7
+
+
+@pytest.mark.parametrize("case", ["unexpected_write", "changed_preserved", "lost_provenance",
+                                  "lost_scope_check", "archive_changed"])
+def test_independent_scoped_audit_rejects_scope_or_provenance_failures(scoped_record, case):
+    root, record = scoped_record
+    if case == "unexpected_write":
+        record["allowed_write_paths"].append(str(root / "Individual/unexpected.png"))
+    elif case == "changed_preserved":
+        Path(next(iter(record["preserved_product_artifacts"]))).write_text("changed")
+    elif case == "lost_provenance":
+        record["preserved_product_provenance"] = {}
+    elif case == "lost_scope_check":
+        record["strict_run_scope_unchanged"] = False
+    else:
+        Path(record["previous_nonpng_archive"]["manifest"]).write_text("modified")
+    with pytest.raises(ValueError):
+        independent.audit_scoped_record(root, record, set(runner.PRODUCTS), {})
+
+
+@pytest.mark.parametrize("key,target,axis_change", [
+    ("no2", "CCube", False), ("no2-pz", "VRohtoPremium", True)])
+def test_scoped_execution_preserves_other_results_and_refreshes_shared_axis(
+    tmp_path, monkeypatch, key, target, axis_change
+):
+    """Exercise the actual writer only with synthetic cohorts and a fake engine."""
+    import matplotlib.pyplot as plt
+
+    stem = runner.ANALYSES[key][0]
+    other = next(p for p in runner.PRODUCTS if p != target)
+    specs = [participant(801 + i, p) for i, p in enumerate([target] * 3 + [other] * 3)]
+    for spec, number in zip(specs, [0, 10, 30, 0, 5, 5], strict=True):
+        spec.value = number
+    if not axis_change:
+        specs[-2].value = specs[-1].value = 50
+    items = [{"spec": spec, "product_dir": spec.product} for spec in specs]
+    excluded = {target: {specs[0].pair_id}, other: {specs[3].pair_id}}
+
+    def grand(cohort, product):
+        mean = np.mean([item["spec"].value for item in cohort])
+        return pd.DataFrame({"EyeDrop_Mean_PSDChange_pct": [mean],
+                             "Control_Mean_PSDChange_pct": [mean / 2],
+                             "EyeDrop_SEM_PSDChange_pct": [1],
+                             "Control_SEM_PSDChange_pct": [1]}), {}
+
+    def axis(frames):
+        limit = 2 * max(frame.EyeDrop_Mean_PSDChange_pct.max() for frame in frames)
+        return limit, np.array([-limit, 0, limit])
+
+    def quantification(cohort, product):
+        return pd.DataFrame([{"Set": number, "PairID": item["spec"].pair_id,
+                              "EyeDrop_PSDChange_pct": item["spec"].value,
+                              "Control_PSDChange_pct": item["spec"].value / 2}
+                             for item in cohort for number in [1, 2, 3, 4, 5, 6, "All Sets"]])
+
+    def draw(path, limit=100):
+        with plt.rc_context({"font.family": "Arial"}):
+            figure, axes = plt.subplots(figsize=(3, 2))
+            axes.plot([0, 1], [0, 1])
+            axes.set_ylim(-limit, limit)
+            figure.savefig(path)
+            plt.close(figure)
+
+    engine = SimpleNamespace(
+        DEFAULT_OUTPUT_ROOT=tmp_path, ANALYSIS_STEM=stem, DEFAULT_CACHE_ROOT=tmp_path,
+        FOCUS_CHANNEL=runner.ANALYSES[key][3],
+        no1=SimpleNamespace(load_manifest=lambda _: specs, normalize_product=lambda x: (x,),
+                            INCLUDED_FREQUENCIES_HZ=np.arange(8, 16)),
+        preflight=lambda *_: (items, {}), build_grand_average=grand, grand_average_axis=axis,
+        build_quantification=quantification,
+        quantification_statistics=lambda _: (pd.DataFrame({"p": [.5]}), pd.DataFrame({"p": [.5]})),
+        plot_grand_average=lambda frame, p, path, **kw: draw(path, kw["common_limit"]),
+        plot_quantification=lambda frame, stats, p, path: draw(path),
+        plot_overall_quantification=lambda frame, stats, p, path: draw(path),
+    )
+    monkeypatch.setattr(runner, "build_engine", lambda _: engine)
+    monkeypatch.setattr(runner, "cache_provenance", lambda *_: [])
+    monkeypatch.setattr(runner, "documented_exclusions", lambda: {key: excluded})
+    manifest = tmp_path / "manifest.csv"
+    manifest.write_text("synthetic only")
+    initial = runner.execute_analysis(key, manifest, {}, excluded,
+                                      preflight_only=False, replace=False)
+    runner.write_json(runner.verification_path(tmp_path, stem), {"status": "passed"})
+    old_other = {name: runner.digest(path)
+                 for name, path in runner.output_paths(tmp_path, stem, other).items()}
+    excluded[target].add(specs[2].pair_id)
+    before_preflight = runner.inventory(tmp_path)
+    preflight = runner.execute_analysis(key, manifest, {}, excluded, preflight_only=True,
+                                       replace=True, product=target)
+    assert runner.inventory(tmp_path) == before_preflight  # no preflight archive/write
+    assert preflight["regenerated_products"] == [target]
+    assert preflight["axis_only_refreshed_products"] == ([other] if axis_change else [])
+    result = runner.execute_analysis(key, manifest, {}, excluded, preflight_only=False,
+                                    replace=True, product=target)
+    assert result["requested_product"] == target
+    assert result["regenerated_products"] == [target]
+    assert result["strict_run_scope_unchanged"]
+    assert result["previous_nonpng_archive"]["file_count"] == 7
+    assert len(result["plots"]) == 6
+    for name, path in runner.output_paths(tmp_path, stem, other).items():
+        if axis_change and name == "grand_png":
+            assert runner.digest(path) != old_other[name]
+        else:
+            assert runner.digest(path) == old_other[name]
+    assert result["outputs"][other]["retained_pair_ids"] == initial["outputs"][other][
+        "retained_pair_ids"]
+    independent.audit_scoped_record(tmp_path / "Phase4_脳波解析" / stem, result,
+                                    set(runner.PRODUCTS), {})
