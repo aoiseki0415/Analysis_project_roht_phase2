@@ -129,11 +129,11 @@ MPLCONFIGDIR=/tmp/mplconfig-roht .venv/bin/python 解析プログラム/Phase4_�
 # 生成：同じ引数の --preflight-only を --execute に置換
 # 追加版が既にある場合だけ --replace-existing を併記
 .venv/bin/python 解析プログラム/Phase4_脳波解析/validate_phase4_sub_specified_pairs.py \
-  --manifest <40ペアmanifest> --analysis no2 --analysis no2-pz \
+  --manifest <40ペアmanifest> --analysis No2_sub --analysis No2-2_sub \
   --report <No2_sub/Sub/logs/独立検証JSON>
 ```
 
-`--analysis no1|no2|no2-pz|no3` で追加版を限定できる。旧No2版の整理は `--retire-legacy --analysis no2|no2-pz --review <全画像hash付き合格レビューJSON>` に限定し、数値・画像検証の前には実行しない。最新成果物は新版だけ、旧CSVはhistoryへ分ける。
+生成runnerは `--analysis no1|no2|no2-pz|no3`、独立検証は `--analysis No1_sub|No2_sub|No2-2_sub|No3_sub` で対象を限定する。両スクリプトのCLI名を混同しない。旧No2版の整理は生成runnerの `--retire-legacy --analysis no2|no2-pz --review <全画像hash付き合格レビューJSON>` に限定し、数値・画像検証の前には実行しない。最新成果物は新版だけ、旧CSVはhistoryへ分ける。
 
 今回の部分更新は `--analysis no2 --product CCube` と `--analysis no2-pz --product VRohtoPremium` をそれぞれpreflight後、`--execute --replace-existing` で実行する。`--product` は単一analysisとだけ併用する。相手製品の現行群値・採否を照合し、共通GA軸変更時の表示更新以外は保護する。置換対象の旧数値表・採否・run summaryを各Sub/historyへ保存し、旧PNGの複製は残さない。
 
