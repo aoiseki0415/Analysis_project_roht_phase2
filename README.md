@@ -172,6 +172,12 @@ No11は**Pz・8–10 Hz（8・9・10 Hz）**の絶対PSD、No11_subは各条件�
 
 2026-11-16、**No11_subは信号品質の観点で再検討した上で、Vプレ1ペア・Cキューブ3ペアの既存指定を維持すると再確認**しました。対象・計算法・数値・図が変わらないため再生成しません。No11絶対PSDは今回の再判断対象外です。以前の検証と今回の判断・保護確認は同仕様第11.5節で区別します。
 
+### Phase 4 No12・No12_sub（前頭ROI low-alpha）
+
+No12は**F3・Fz・F4・FC1・FC2の8–10 Hz（8・9・10 Hz）**の絶対PSD、No12_subは各条件自身のROI Set 1平均からの変化率。No10の全32ch cacheを読み取り専用で検証・再利用し、Phase 1不良窓mask→各ID・chの既存log3SD mask→時点別の有効ch平均→subはROI baseline変換→描画用60点平滑化、の順とする。NaNを除いた1–5ch等重み平均、全ch欠測時だけROIをNaNとし、新たなch数足切りは設けない。定量化は未平滑ROI値、群図は平滑化後100 progress点の平均±SEMを使う。
+
+初回は追加の定性的被験者除外なし。既知Set欠測とsubのbaseline要件は維持する。他Noの被験者除外・topography maskを継承しない。後日除外版を検討できるが、今回は生成しない。Topography・TFMは重複生成せず、No11の主要版構造・Figure固定値を継承し、専用チャコール／グレー色と共通Control深紫を使う。OneDriveは`No12_FrontalROILowAlpha/`と`No12_sub_FrontalROILowAlphaChange/`、ローカル派生cacheは作らず有効ch構成・baseline・実行監査をSubへ保存する。**2026-11-16にNo12 40ペア／sub 39ペア、計171 PNGを実行・出力確認済み。** 全80 cacheと24 CSVの独立照合、全501テスト、全PNG機械検査、全群12＋代表個人6図の目視、既存保護2,763ファイルのhash不変を確認した。観察された未補正p<.05はsub CキューブSet 4のみで、3種補正後は非有意。手法と実数N・結果・検証範囲は[No12統合仕様](docs/Phase4_No12_解析仕様.md)、議論・過程は[意思決定履歴](docs/history/Phase4_No12_意思決定.md)へ分離する。Git公開とクラウド同期は数値実行と別に確認する。
+
 ## Phase 5相関解析の確定方針
 
 Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解析です。DEQSは問1〜15の程度得点を0〜100点へ換算し、問16は使用しません。RTはPhase 2 No1の主解析 `AllTrials` のSet 1・Set 6平均値を使用し、Phase 2保存値とのID・条件・Set・有効試行数・数値一致を全件確認してから解析します。`Eye Drop Effect = (Control Set6 / Control Set1) − (Eye Drop Set6 / Eye Drop Set1)` とし、正値を点眼によってRT増加率が抑えられた方向と定義します。比率同士の差であるため単位はなく、Figureでは `[a.u.]` と表示します。Cキューブ群とVロートプレミアム群を分け、製品別にPearsonの積率相関係数を算出します。検定は両側、p値は未補正です。ID109–209はSet 1、ID120–220はSet 6欠測のため本指標を算出しません。Figureは点と `r; p` の注記を基本とし、信頼帯と0の水平線は表示せず、回帰線は未補正両側 `p < 0.05` の場合だけ表示します。横軸は `DEQS Score [a.u.]` の0〜85、縦軸は `Eye Drop Effect [a.u.]` とします。Figure、表、照合記録、出力構造、完了条件は[Phase 5 No1 DEQS・RT点眼効果相関解析仕様](docs/Phase5_No1_DEQS_RT点眼効果相関解析仕様.md)を正本とします。2026年10月5日に比率差の確定式で40被験者ペアを再実行し、Phase 2保存済み240行との完全一致、製品別有効人数19名、指定OneDrive成果物の読戻しを確認済みです。
@@ -203,6 +209,8 @@ Phase 5 No1は、DEQSスコアとRTに基づく点眼効果の製品別相関解
 - [Phase 4 No10旧帯域実行結果](docs/history/Phase4_No10_旧帯域実行結果_20261112.md)：帯域変更前の実績・統計・検証の保存版。現行結果へ流用しない
 - [Phase 4 No11・No11_sub解析仕様](docs/Phase4_No11_解析仕様.md)：Pz low-alpha 8–10 Hzの絶対PSD・Set 1変化率。No10 cache再利用、主要全員解析・指定除外追加版、Figure・保存・検証の現行正本
 - [Phase 4 No11意思決定](docs/history/Phase4_No11_意思決定.md)：対象ch変更、配色・cache再利用・topography省略の判断履歴
+- [Phase 4 No12・No12_sub解析仕様](docs/Phase4_No12_解析仕様.md)：前頭5ch ROI low-alphaの品質mask、ch平均順序、ROI baseline、Figure・保存・検証の現行正本
+- [Phase 4 No12意思決定](docs/history/Phase4_No12_意思決定.md)：電極選択、NaN平均、平滑化順序、実装過程の履歴
 - [Phase 4 改番前仕様の保存版](docs/history/Phase4_No8-11_改番前仕様_20261110.md)：旧4解析・旧採用集合・旧図設定・過去検証の全文。履歴専用で実行や現行対象選定には使わない
 - [Phase 4 No8–11 旧方式と再設計記録](docs/history/Phase4_No8-11_旧方式と再設計記録.md)：廃止した方式と再設計の理由・整理記録。履歴専用で現行手順には使用しない
 - [Phase 4 解析対象チャンネル文献調査](docs/Phase4_解析対象チャンネル文献調査.md)：Fmθ、後頭alpha、前頭deltaの単一代表chを英語の一次論文から選定した根拠資料
