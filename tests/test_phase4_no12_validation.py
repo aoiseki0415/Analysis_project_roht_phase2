@@ -63,7 +63,7 @@ def _items():
     return result
 
 
-def test_group_audit_uses_pz_and_paired_set_mask(monkeypatch):
+def test_group_audit_uses_roi_and_paired_set_mask(monkeypatch):
     frames = {}
 
     def capture(path, expected, keys, report):
@@ -129,6 +129,28 @@ def test_finite_channel_mean_no_quorum_zero_fill_or_global_average():
     np.testing.assert_allclose(means, [6, 4, np.nan, 20 / 3], equal_nan=True)
     np.testing.assert_array_equal(counts, [5, 1, 0, 3])
     np.testing.assert_array_equal(bits, [31, 2, 0, 25])
+
+
+def test_independent_roi_contract_and_ten_bit_masks():
+    assert audit.ROI_CHANNELS == (
+        "F3", "Fz", "F4", "FC5", "FC1", "FC2", "FC6", "C3", "Cz", "C4"
+    )
+    assert list(audit.ROI_INDICES) == [
+        audit.SOURCE_CHANNELS.index(channel) for channel in audit.ROI_CHANNELS
+    ]
+    values = np.tile(np.arange(1, 11, dtype=float), (11, 1))
+    for count in range(11):
+        values[count, count:] = np.nan
+    mean, count, bits = audit.roi_values(values)
+    np.testing.assert_array_equal(count, np.arange(11))
+    np.testing.assert_array_equal(bits, 2 ** np.arange(11) - 1)
+    np.testing.assert_allclose(mean, [np.nan] + [(k + 1) / 2 for k in range(1, 11)], equal_nan=True)
+    values = np.full((2, 10), np.nan)
+    values[0, 8], values[1, 9] = 3.0, 7.0
+    mean, count, bits = audit.roi_values(values)
+    np.testing.assert_array_equal(count, [1, 1])
+    np.testing.assert_array_equal(bits, [256, 512])
+    np.testing.assert_array_equal(mean, [3, 7])
 
 
 def test_roi_then_baseline_is_not_mean_of_channel_percentages():
@@ -259,8 +281,8 @@ def test_raw_cache_reconstruction_applies_phase1_then_ch_log3sd_then_roi(tmp_pat
     assert np.isnan(values[20])
     assert values[50] == 1.0
     quality = report["_audit_sessions"]["synthetic"]["sets"][1]
-    assert quality["before_bits"][50] == 31
-    assert quality["after_bits"][50] == 29
-    assert quality["after_n"][50] == 4
+    assert quality["before_bits"][50] == 1023
+    assert quality["after_bits"][50] == 1021
+    assert quality["after_n"][50] == 9
     assert quality["after_n"][20] == 0
     assert report["caches"][0]["sha256"]

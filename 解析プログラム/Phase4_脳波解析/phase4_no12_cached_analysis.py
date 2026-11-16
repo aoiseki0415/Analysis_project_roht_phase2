@@ -1,6 +1,6 @@
-"""Frontal ROI low-alpha views of immutable, provenance-checked No10 caches.
+"""Frontocentral ROI low-alpha views of immutable, provenance-checked No10 caches.
 
-Mask each source channel first, average the finite F3/Fz/F4/FC1/FC2 values,
+Mask each source channel first, average the finite values of the ten-channel ROI,
 then (for sub) normalise that ROI by its own unsmoothed Set-1 mean. Existing
 No1/No11 rendering, smoothing, paired missingness and statistics are reused
 in isolated module namespaces. No PSD cache is computed or written here.
@@ -26,9 +26,9 @@ from phase4_no11_cached_analysis import _isolated_engine, _sha256
 
 MAIN_STEM = "No12_FrontalROILowAlpha"
 CHANGE_STEM = "No12_sub_FrontalROILowAlphaChange"
-MAIN_VERSION = "20261116_frontal_roi_lowalpha_cached_v1"
-CHANGE_VERSION = "20261116_frontal_roi_lowalpha_change_cached_v1"
-ROI_CHANNELS = ("F3", "Fz", "F4", "FC1", "FC2")
+MAIN_VERSION = "20261116_frontocentral_roi10_lowalpha_cached_v2"
+CHANGE_VERSION = "20261116_frontocentral_roi10_lowalpha_change_cached_v2"
+ROI_CHANNELS = ("F3", "Fz", "F4", "FC5", "FC1", "FC2", "FC6", "C3", "Cz", "C4")
 ROI_LABEL = "FrontalROI"
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -65,7 +65,7 @@ def finite_channel_mean(values: np.ndarray) -> np.ndarray:
     """Equal weights among finite channels; one is sufficient, zero gives NaN."""
     values = np.asarray(values, dtype=float)
     if values.ndim != 2 or values.shape[1] != len(ROI_CHANNELS):
-        raise ValueError("ROI input must be a time-by-five-channel array")
+        raise ValueError("ROI input must be a time-by-ten-channel array")
     finite = np.isfinite(values)
     count = finite.sum(axis=1)
     total = np.where(finite, values, 0.0).sum(axis=1)
@@ -158,7 +158,8 @@ def _source_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def roi_quality_tables(items: list[dict[str, Any]]) -> dict[str, pd.DataFrame]:
     windows, summaries, coverage = [], [], []
-    weights = (1 << np.arange(len(ROI_CHANNELS))).astype(np.uint8)
+    # Ten channels require bits 0..9; uint8 would silently lose Cz/C4.
+    weights = (1 << np.arange(len(ROI_CHANNELS))).astype(np.uint16)
     for item in _source_items(items):
         for condition in ("eye_drop", "control"):
             session = item[condition]
@@ -190,15 +191,17 @@ def roi_quality_tables(items: list[dict[str, Any]]) -> dict[str, pd.DataFrame]:
                             "SourceCenterSample": values.source_center_sample,
                             "Phase1Excluded": phase1,
                             "ValidChannelCountBeforeLog3SD": count_before,
-                            "ValidChannelBitsBeforeLog3SD": (before * weights).sum(axis=1),
+                            "ValidChannelBitsBeforeLog3SD": (before * weights).sum(
+                                axis=1, dtype=np.uint16
+                            ),
                             "ValidChannelCount": count_after,
-                            "ValidChannelBits": (after * weights).sum(axis=1),
+                            "ValidChannelBits": (after * weights).sum(axis=1, dtype=np.uint16),
                         }
                     )
                 )
                 summary = identity | {"WindowCount": n, "Phase1ExcludedCount": int(phase1.sum())}
                 for label, counts in (("BeforeLog3SD", count_before), ("AfterLog3SD", count_after)):
-                    for k in range(6):
+                    for k in range(len(ROI_CHANNELS) + 1):
                         nk = int(np.count_nonzero(counts == k))
                         summary[f"{label}_Valid{k}_Count"] = nk
                         summary[f"{label}_Valid{k}_Proportion"] = nk / n if n else np.nan
@@ -280,6 +283,7 @@ def target_configuration(engine: ModuleType, *, change: bool = False) -> dict[st
         "roi_valid_channel_bitweights": {
             channel: 1 << index for index, channel in enumerate(ROI_CHANNELS)
         },
+        "roi_valid_channel_bitmask_dtype": "uint16",
         "computational_channel": ROI_LABEL,
         "roi_policy": "equal_finite_channel_mean_minimum_one_all_missing_is_nan",
         "processing_order": ["Phase1_per_window_mask", "per_ID_channel_log3SD", "ROI_mean"]

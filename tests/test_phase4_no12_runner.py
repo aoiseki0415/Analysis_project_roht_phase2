@@ -352,3 +352,113 @@ def test_execute_archives_after_both_pilots_before_production(tmp_path, monkeypa
         "IndependentValidation",
     ]
     assert saved[-1]["pilot_table_archive"]["count"] == 7
+
+
+@pytest.fixture
+def old_generation(tmp_path, monkeypatch):
+    phase = tmp_path / "Phase4"
+    roots = tuple(phase / stem for stem in runner.STEMS)
+    logs = roots[0] / "Sub/logs"
+    logs.mkdir(parents=True)
+    record = logs / "No12_ExecutionAndVerification.json"
+    record.write_text(json.dumps({"status": "completed", "roi_channels": runner.OLD_ROI_CHANNELS}))
+    audit = logs / "ROI10SourceAudit.json"
+    audit.write_text('{"status":"passed"}')
+    items = [record]
+    images = []
+    for root in roots:
+        for relative in (
+            "Sub/tables/current.csv",
+            "Sub/history/Pilot/table.csv",
+            "CCube/SetQuantification/stats.csv",
+        ):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("synthetic,old\n")
+            items.append(path)
+        image = root / "CCube/GrandAverage/old.png"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"old PNG to be overwritten during production only")
+        images.append(image)
+    monkeypatch.setattr(runner, "PHASE", phase)
+    monkeypatch.setattr(runner, "ROOTS", roots)
+    monkeypatch.setattr(runner, "LOGS", logs)
+    monkeypatch.setattr(runner, "RECORD", record)
+    return SimpleNamespace(roots=roots, record=record, audit=audit, items=items, images=images)
+
+
+def test_replace_five_channel_generation_archives_only_non_png(old_generation):
+    before = {path: runner.digest(path) for path in old_generation.items}
+    image_hashes = {str(path): runner.digest(path) for path in old_generation.images}
+    report = runner.archive_five_channel_outputs(old_generation.audit)
+    assert report["archived_count"] == 7
+    assert report["old_png_sha256"] == image_hashes
+    assert old_generation.audit.is_file()
+    for path, value in before.items():
+        root = next(root for root in old_generation.roots if path.is_relative_to(root))
+        archived = root / runner.REPLACEMENT_HISTORY / path.relative_to(root)
+        assert not path.exists()
+        assert runner.digest(archived) == value
+    assert {str(path): runner.digest(path) for path in old_generation.images} == image_hashes
+    assert all(
+        not list((root / runner.REPLACEMENT_HISTORY).rglob("*.png"))
+        for root in old_generation.roots
+    )
+
+
+@pytest.mark.parametrize("kind", ["different_roi", "not_completed", "archive_conflict", "symlink"])
+def test_generation_replacement_rejects_before_any_move(old_generation, tmp_path, kind):
+    if kind in ("different_roi", "not_completed"):
+        record = json.loads(old_generation.record.read_text())
+        record["roi_channels" if kind == "different_roi" else "status"] = (
+            ["Fz"] if kind == "different_roi" else "running"
+        )
+        old_generation.record.write_text(json.dumps(record))
+    elif kind == "archive_conflict":
+        dest = old_generation.roots[1] / runner.REPLACEMENT_HISTORY / "Sub/tables/current.csv"
+        dest.parent.mkdir(parents=True)
+        dest.write_text("different old data")
+    else:
+        outside = tmp_path / "outside.csv"
+        outside.write_text("protected")
+        (old_generation.roots[1] / "Sub/tables/link.csv").symlink_to(outside)
+    with pytest.raises((ValueError, RuntimeError)):
+        runner.archive_five_channel_outputs(old_generation.audit)
+    assert all(path.exists() for path in old_generation.items)
+
+
+def test_completed_generation_is_not_replaced_without_explicit_flag(old_generation, monkeypatch):
+    monkeypatch.setattr(runner, "git_check", lambda: "synthetic-head")
+    with pytest.raises(RuntimeError, match="no implicit replacement"):
+        runner.execute(old_generation.audit)
+    assert all(path.exists() for path in old_generation.items)
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_stage_publishes_console_once_and_records_exit(tmp_path, monkeypatch, exit_code):
+    monkeypatch.setattr(runner, "LOGS", tmp_path)
+    saved, writes = [], []
+    output = "audit line\n" * 2000
+    monkeypatch.setattr(runner, "save", lambda path, value: saved.append(dict(value)))
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(stdout=output, returncode=exit_code),
+    )
+    original = Path.write_text
+
+    def write_once(path, data, **kwargs):
+        writes.append(path)
+        return original(path, data, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", write_once)
+    record = {"stages": []}
+    if exit_code:
+        with pytest.raises(RuntimeError, match="failed"):
+            runner.stage("IndependentValidation", "synthetic.py", [], record)
+    else:
+        runner.stage("IndependentValidation", "synthetic.py", [], record)
+    assert writes == [tmp_path / "IndependentValidation.log"]
+    assert writes[0].read_text() == output
+    assert record["stages"][0]["returncode"] == exit_code
+    assert record["stages"][0]["console_sha256"] == runner.digest(writes[0])

@@ -28,7 +28,7 @@ MAIN_STEM = "No12_FrontalROILowAlpha"
 SUB_STEM = "No12_sub_FrontalROILowAlphaChange"
 SOURCE_CHANNELS = source_engine.EXPECTED_CHANNEL_NAMES
 CHANNELS = ("FrontalROI",)
-ROI_CHANNELS = ("F3", "Fz", "F4", "FC1", "FC2")
+ROI_CHANNELS = ("F3", "Fz", "F4", "FC5", "FC1", "FC2", "FC6", "C3", "Cz", "C4")
 ROI_INDICES = np.array([SOURCE_CHANNELS.index(ch) for ch in ROI_CHANNELS])
 ROI = 0
 PRODUCTS = ("CCube", "VRohtoPremium")
@@ -238,7 +238,7 @@ def audit_quality_outputs(specs: list, output_root: Path, report: dict) -> None:
                         ("BeforeLog3SD", data["before_n"]),
                         ("AfterLog3SD", data["after_n"]),
                     ):
-                        for count in range(6):
+                        for count in range(len(ROI_CHANNELS) + 1):
                             selected = int(np.sum(counts == count))
                             summary[f"{label}_Valid{count}_Count"] = selected
                             summary[f"{label}_Valid{count}_Proportion"] = selected / n
@@ -304,7 +304,7 @@ def audit_quality_outputs(specs: list, output_root: Path, report: dict) -> None:
                 [data["after_n"] for item in stored.values() for data in item["sets"].values()]
             )
             report["roi_valid_channel_window_counts"] = {
-                str(k): int(np.sum(counts == k)) for k in range(6)
+                str(k): int(np.sum(counts == k)) for k in range(len(ROI_CHANNELS) + 1)
             }
 
 
@@ -498,6 +498,9 @@ def audit_pngs(root: Path, cohort: list, change: bool, report: dict) -> None:
 
 
 def run(args, report: dict) -> None:
+    report["roi_channels"] = list(ROI_CHANNELS)
+    report["roi_channel_count"] = len(ROI_CHANNELS)
+    report["roi_all_valid_bitmask"] = (1 << len(ROI_CHANNELS)) - 1
     specs = source_engine.load_manifest(args.manifest)
     source_engine.validate_participant_specs(specs, production_batch=True)
     items, changed, baseline_rows = [], [], []

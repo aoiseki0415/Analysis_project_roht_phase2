@@ -20,6 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from Phase4_No10_FzLowAlpha import engine as source
+from phase4_no12_cached_analysis import ROI_CHANNELS
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
@@ -31,6 +32,8 @@ LOGS = ROOTS[0] / "Sub/logs"
 RECORD = LOGS / "No12_ExecutionAndVerification.json"
 SOURCE_MANIFEST = PHASE / "No10_FzLowAlpha/Sub/tables/ParticipantManifest.csv"
 ENTRIES = ("Phase4_No12_FrontalROILowAlpha.py", "Phase4_No12_sub_FrontalROILowAlphaChange.py")
+OLD_ROI_CHANNELS = ["F3", "Fz", "F4", "FC1", "FC2"]
+REPLACEMENT_HISTORY = Path("Sub/history/BeforeROI10_20261116")
 PILOT_TABLE_RELATIVE_PATHS = (
     (0, "Log3SDThresholdExclusion/No12_FrontalROILowAlpha_Log3SDThresholdExclusion_ID101-201.csv"),
     (0, "ROIQuality/No12_FrontalROILowAlpha_ROIWindowQuality_ID101-201.csv"),
@@ -186,7 +189,7 @@ def archive_pilot_tables() -> dict:
     }
 
 
-def prepare(audit_path: Path) -> dict:
+def read_audit(audit_path: Path) -> dict:
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     if (audit.get("matched_pairs"), audit.get("matched_sessions"), audit.get("mismatches")) != (
         40,
@@ -197,6 +200,11 @@ def prepare(audit_path: Path) -> dict:
     if digest(SOURCE_MANIFEST) != audit.get("manifest_sha256"):
         raise RuntimeError("Source manifest changed after mapping audit")
     source.validate_participant_specs(source.load_manifest(SOURCE_MANIFEST), production_batch=True)
+    return audit
+
+
+def prepare(audit_path: Path) -> dict:
+    audit = read_audit(audit_path)
     for root in ROOTS:
         folders = [
             "Sub/logs",
@@ -226,6 +234,91 @@ def prepare(audit_path: Path) -> dict:
     return audit
 
 
+def archive_five_channel_outputs(audit_path: Path) -> dict:
+    """Explicit, recoverable replacement of completed five-channel audit records.
+
+    All old non-PNG tables/logs, including the old pilot tables, are moved into
+    one clearly named generation. PNGs are not archived or deleted: the same
+    validated production filenames are subsequently overwritten by ten-channel
+    rendering. The fresh live-source audit is retained as the new run input.
+    """
+    audit_path = audit_path.resolve()
+    if ROOTS != tuple(PHASE / stem for stem in STEMS):
+        raise ValueError("Unexpected No12 roots for ROI replacement")
+    old_record = ROOTS[0] / REPLACEMENT_HISTORY / RECORD.relative_to(ROOTS[0])
+    previous_path = RECORD if RECORD.exists() else old_record
+    previous = json.loads(previous_path.read_text(encoding="utf-8"))
+    if previous.get("status") != "completed" or previous.get("roi_channels") != OLD_ROI_CHANNELS:
+        raise RuntimeError("Replacement requires the completed five-channel generation")
+    plans, old_pngs = [], {}
+    for root in ROOTS:
+        if not root.is_dir() or root.is_symlink():
+            raise ValueError(f"Invalid replacement root: {root}")
+        for path in sorted(root.rglob("*")):
+            relative = path.relative_to(root)
+            if relative.is_relative_to(REPLACEMENT_HISTORY):
+                continue
+            if relative.is_relative_to("Sub/history") and not relative.is_relative_to(
+                "Sub/history/Pilot"
+            ):
+                continue
+            if path.name == ".DS_Store" or path == audit_path:
+                continue
+            if path.is_symlink():
+                raise ValueError(f"Symlink in replacement source: {path}")
+            if not path.is_file():
+                continue
+            _checked_pilot_path(path, root)
+            if path.suffix == ".png":
+                old_pngs[str(path)] = digest(path)
+                continue
+            allowed = (
+                relative.is_relative_to("Sub/logs")
+                or relative.is_relative_to("Sub/tables")
+                or relative.is_relative_to("Sub/history/Pilot")
+            )
+            allowed |= relative.is_relative_to(
+                "CCube/SetQuantification"
+            ) or relative.is_relative_to("VRohtoPremium/SetQuantification")
+            if not allowed or path.suffix not in {".csv", ".json", ".log", ".xml"}:
+                raise ValueError(f"Unexpected file in replacement scope: {path}")
+            destination = root / REPLACEMENT_HISTORY / relative
+            _checked_pilot_path(destination, root)
+            expected = digest(path)
+            if destination.exists() and digest(destination) != expected:
+                raise RuntimeError(f"Different previous-generation archive: {destination}")
+            plans.append((root, path, destination, expected))
+    records = []
+    for root, path, destination, expected in plans:
+        _checked_pilot_path(path, root)
+        _checked_pilot_path(destination, root)
+        if digest(path) != expected:
+            raise RuntimeError("Previous-generation source changed during archive")
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("rb") as original, destination.open("xb") as archived:
+                shutil.copyfileobj(original, archived)
+        if digest(destination) != expected or digest(path) != expected:
+            raise RuntimeError("Previous-generation archive verification failed")
+        path.unlink()
+        records.append({"source": str(path), "destination": str(destination), "sha256": expected})
+    if any(digest(Path(path)) != value for path, value in old_pngs.items()):
+        raise RuntimeError("PNG changed during non-PNG archive")
+    report = {
+        "status": "passed",
+        "policy": "old_five_channel_non_png_to_history_png_overwrite_by_production",
+        "archived_count": len(records),
+        "records": records,
+        "old_png_sha256": old_pngs,
+        "old_roi_channels": OLD_ROI_CHANNELS,
+        "new_roi_channels": list(ROI_CHANNELS),
+        "source_psd_recomputed": False,
+        "timestamp": datetime.now().astimezone().isoformat(),
+    }
+    save(LOGS / "No12_ROI10Replacement.json", report)
+    return report
+
+
 def stage(name: str, script: str, arguments: list[str], record: dict) -> None:
     command = [str(REPO / ".venv/bin/python"), str(SCRIPTS / script), *arguments]
     console = LOGS / f"{name}.log"
@@ -236,21 +329,26 @@ def stage(name: str, script: str, arguments: list[str], record: dict) -> None:
     }
     record["stages"].append(current)
     save(RECORD, record)
-    with console.open("w", encoding="utf-8") as stream:
-        process = subprocess.Popen(
-            command,
-            cwd=REPO,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            env={**os.environ, "MPLBACKEND": "Agg"},
-        )
-        assert process.stdout is not None
-        for line in process.stdout:
-            stream.write(line)
-            stream.flush()
-            print(line, end="", flush=True)
-        code = process.wait()
+    # Cloud-file providers can time out on thousands of per-line flushes. Keep
+    # this short stage's console in memory, then publish once in the same
+    # authorized log directory. No local fallback result/log file is created.
+    process = subprocess.run(
+        command,
+        cwd=REPO,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env={**os.environ, "MPLBACKEND": "Agg"},
+        check=False,
+    )
+    console.write_text(process.stdout, encoding="utf-8")
+    if console.read_text(encoding="utf-8") != process.stdout:
+        raise RuntimeError(f"{name}: console readback mismatch")
+    code = process.returncode
+    if name == "IndependentValidation" and code == 0:
+        print(f"{name} passed; full report saved at {console}", flush=True)
+    else:
+        print(process.stdout, end="", flush=True)
     current.update(
         returncode=code,
         completed_at=datetime.now().astimezone().isoformat(),
@@ -262,27 +360,45 @@ def stage(name: str, script: str, arguments: list[str], record: dict) -> None:
         raise RuntimeError(f"{name} failed ({code}); see {console}")
 
 
-def execute(audit_path: Path) -> None:
+def execute(audit_path: Path, *, replace_five_channel_version: bool = False) -> None:
     head = git_check()
+    replacement = None
+    if replace_five_channel_version:
+        # Validate the new live-source audit before moving any previous records.
+        read_audit(audit_path)
+        replacement = archive_five_channel_outputs(audit_path)
     if RECORD.exists():
         previous = json.loads(RECORD.read_text(encoding="utf-8"))
         if previous.get("status") == "completed":
             raise RuntimeError("Completed run already exists; no implicit replacement")
+        if "protected_before" in previous and protected_inventory() != previous["protected_before"]:
+            raise RuntimeError("Protected inputs/results changed since the previous attempt")
+        if (
+            "source_cache_before" in previous
+            and inventory(source.DEFAULT_CACHE_ROOT, hashes=True) != previous["source_cache_before"]
+        ):
+            raise RuntimeError("Source cache changed since the previous attempt")
+        replacement = previous.get("previous_generation_archive")
         attempt = datetime.now().strftime("%Y%m%dT%H%M%S")
         save(LOGS / "attempts" / attempt / RECORD.name, previous)
         for old_stage in previous.get("stages", []):
-            if "console" in old_stage:
-                console = Path(old_stage["console"])
-                archived = LOGS / "attempts" / attempt / console.name
-                if console.is_file():
-                    archived.write_bytes(console.read_bytes())
+            console = Path(old_stage.get("console", LOGS / f"{old_stage['name']}.log"))
+            archived = LOGS / "attempts" / attempt / console.name
+            if console.is_file():
+                archived.write_bytes(console.read_bytes())
+        previous_validation = LOGS / "No12_IndependentValidation.json"
+        if previous_validation.is_file():
+            (LOGS / "attempts" / attempt / previous_validation.name).write_bytes(
+                previous_validation.read_bytes()
+            )
     audit = prepare(audit_path)
     record = {
         "status": "running",
         "started_at": datetime.now().astimezone().isoformat(),
         "implementation_base_commit": head,
         "focus_channel": "FrontalROI",
-        "roi_channels": ["F3", "Fz", "F4", "FC1", "FC2"],
+        "roi_channels": list(ROI_CHANNELS),
+        "previous_generation_archive": replacement,
         "frequencies_hz": [8, 9, 10],
         "source_manifest_audit": audit,
         "stages": [],
@@ -459,7 +575,10 @@ def main() -> int:
     modes.add_argument("--complete-verification", action="store_true")
     parser.add_argument("--manifest-source-audit", type=Path)
     parser.add_argument("--review-manifest", type=Path)
+    parser.add_argument("--replace-five-channel-version", action="store_true")
     args = parser.parse_args()
+    if args.replace_five_channel_version and not args.execute:
+        parser.error("--replace-five-channel-version is only valid with --execute")
     git_check()
     if args.complete_verification:
         if not args.review_manifest:
@@ -471,7 +590,10 @@ def main() -> int:
         if args.prepare_only:
             prepare(args.manifest_source_audit)
         else:
-            execute(args.manifest_source_audit)
+            execute(
+                args.manifest_source_audit,
+                replace_five_channel_version=args.replace_five_channel_version,
+            )
     return 0
 
 

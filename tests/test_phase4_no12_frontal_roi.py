@@ -92,6 +92,12 @@ def test_identity_colors_paths_and_source_engines_remain_unchanged() -> None:
             except RuntimeError: pass
             else: raise AssertionError('cache or topography generation allowed')
         config=helper.target_configuration(a)
+        assert config['roi_channels']==['F3','Fz','F4','FC5','FC1','FC2','FC6','C3','Cz','C4']
+        assert config['roi_valid_channel_bitmask_dtype']=='uint16'
+        assert config['roi_valid_channel_bitweights']['Cz']==256
+        assert config['roi_valid_channel_bitweights']['C4']==512
+        assert a.SCRIPT_VERSION=='20261116_frontocentral_roi10_lowalpha_cached_v2'
+        assert b.SCRIPT_VERSION=='20261116_frontocentral_roi10_lowalpha_change_cached_v2'
         assert helper.configuration_hash(config)==helper.configuration_hash(config)
         assert len(config['source_script_sha256'])==4
         print(json.dumps({'ok':True}))
@@ -109,7 +115,7 @@ def test_roi_finite_mean_and_masks_preserve_every_source_value() -> None:
         values.ica_training_mask_fraction[0]=.01
         values.psd_band_mean[0,:]=np.nan
         values.psd_before_log3sd_exclusion[0,:]=np.nan
-        for k in range(1,6):
+        for k in range(1,11):
             values.psd_band_mean[k,idx[k:]]=np.nan
             values.log3sd_outlier_mask[k,idx[k:]]=True
         snapshot=values.psd_band_mean.copy()
@@ -128,14 +134,18 @@ def test_roi_finite_mean_and_masks_preserve_every_source_value() -> None:
         item=dict(spec=spec,product_dir='VRohtoPremium',eye_drop=roi,control=control)
         tables=helper.roi_quality_tables([item])
         rows=tables['ROIWindowQuality'].query('SessionID=="101" and Set==1')
-        assert rows.ValidChannelCount.iloc[:6].tolist()==[0,1,2,3,4,5]
-        assert rows.ValidChannelBits.iloc[:6].tolist()==[0,1,3,7,15,31]
-        assert rows.ValidChannelCountBeforeLog3SD.iloc[:6].tolist()==[0,5,5,5,5,5]
+        assert rows.ValidChannelCount.iloc[:11].tolist()==list(range(11))
+        assert rows.ValidChannelBits.iloc[:11].tolist()==[2**k-1 for k in range(11)]
+        assert rows.ValidChannelCountBeforeLog3SD.iloc[:11].tolist()==[0]+[10]*10
+        assert rows.ValidChannelBits.dtype==np.dtype('uint16')
+        assert rows.ValidChannelBitsBeforeLog3SD.dtype==np.dtype('uint16')
+        assert rows.ValidChannelBitsBeforeLog3SD.iloc[1]==1023
         summary=tables['ROISetQuality'].query('SessionID=="101" and Set==1').iloc[0]
-        assert sum(summary[f'AfterLog3SD_Valid{k}_Count'] for k in range(6))==121
+        assert sum(summary[f'AfterLog3SD_Valid{k}_Count'] for k in range(11))==121
+        assert summary.AfterLog3SD_Valid10_Count==111
         coverage=tables['ROIChannelCoverage']
-        assert len(coverage)==2*6*5
-        assert coverage.Log3SDExcludedCount.sum()==10
+        assert len(coverage)==2*6*10
+        assert coverage.Log3SDExcludedCount.sum()==45
         print(json.dumps({'ok':True}))
     """
     )
@@ -148,8 +158,10 @@ def test_roi_baseline_and_smoothing_order_not_average_of_channel_changes() -> No
         + """
         original=source()
         idx=helper.roi_indices(original)
-        original.sets[1].psd_band_mean[:,idx]=[1,10,100,10,1]
-        original.sets[2].psd_band_mean[:,idx]=[10,10,100,10,1]
+        baseline_channels=np.array([1,10,100,10,1,2,20,200,20,2])
+        later_channels=np.array([10,10,100,10,1,2,20,200,20,2])
+        original.sets[1].psd_band_mean[:,idx]=baseline_channels
+        original.sets[2].psd_band_mean[:,idx]=later_channels
         # Missing a different contributor over part of the interval.
         original.sets[2].psd_band_mean[30:45,idx[2]]=np.nan
         original.sets[2].log3sd_outlier_mask[30:45,idx[2]]=True
@@ -157,17 +169,16 @@ def test_roi_baseline_and_smoothing_order_not_average_of_channel_changes() -> No
             original.sets[number].psd_before_log3sd_exclusion[:]=original.sets[number].psd_band_mean
         roi=helper.aggregate_roi_session(original)
         change=b.make_change_session(roi)
-        baseline=np.mean([1,10,100,10,1])
-        assert change.baseline_by_channel.tolist()==[baseline]
+        baseline=baseline_channels.mean()
+        np.testing.assert_allclose(change.baseline_by_channel,[baseline],rtol=1e-14)
         expected=(roi.sets[2].psd_band_mean[:,0]/baseline-1)*100
         np.testing.assert_allclose(b.set_change_values(change,2,0),expected)
-        assert not np.isclose(expected[0],np.mean((np.array([10,10,100,10,1])/
-                                                np.array([1,10,100,10,1])-1)*100))
+        assert not np.isclose(expected[0],np.mean((later_channels/baseline_channels-1)*100))
         plotted=b.set_change_values(change,2,0,smoothing_seconds=60)
         np.testing.assert_allclose(plotted,a.centered_nanmean(expected,60))
         raw=original.sets[2].psd_band_mean[:,idx]
         smooth_before_roi=np.mean(np.stack([a.centered_nanmean(raw[:,i],60)
-                                            for i in range(5)],axis=1),axis=1)
+                                            for i in range(10)],axis=1),axis=1)
         assert not np.allclose(a.centered_nanmean(roi.sets[2].psd_band_mean[:,0],60),
                                smooth_before_roi)
         assert abs(b.set_change_values(change,1,0).mean())<1e-10
@@ -177,6 +188,54 @@ def test_roi_baseline_and_smoothing_order_not_average_of_channel_changes() -> No
         baseline_table=b.baseline_table([item])
         assert set(baseline_table.Channel)=={'FrontalROI'}
         assert set(baseline_table.Set1FiniteROIWindowCount)=={121}
+        print(json.dumps({'ok':True}))
+    """
+    )
+    assert result["ok"] is True
+
+
+def test_roi_names_not_column_positions_and_upper_bits_remain_independent() -> None:
+    result = _run(
+        FIXTURE
+        + """
+        original=source()
+        indices=helper.roi_indices(original)
+        piece=original.sets[1]
+        piece.psd_band_mean[0,indices[:8]]=np.nan
+        piece.log3sd_outlier_mask[0,indices[:8]]=True
+        expected=helper.aggregate_roi_session(original)
+        assert expected.sets[1].psd_band_mean[0,0]==19
+        permutation=np.roll(np.arange(32),7)
+        original.channel_names=[original.channel_names[j] for j in permutation]
+        original.channel_excluded_mask=original.channel_excluded_mask[permutation]
+        for piece in original.sets.values():
+            for name in ('psd_band_mean','psd_before_log3sd_exclusion','log3sd_outlier_mask'):
+                setattr(piece,name,getattr(piece,name)[:,permutation].copy())
+            # Excluded ROI candidates must not leak into the ten-channel mean.
+            for ch in ('F7','F8'):
+                column=original.channel_names.index(ch)
+                piece.psd_band_mean[:,column]=1e12
+                piece.psd_before_log3sd_exclusion[:,column]=1e12
+        actual=helper.aggregate_roi_session(original)
+        for number in range(1,7):
+            np.testing.assert_array_equal(actual.sets[number].psd_band_mean,
+                                          expected.sets[number].psd_band_mean)
+        item=dict(spec=a.ParticipantSpec('101','201','101','VRohtoPremium'),
+                  product_dir='VRohtoPremium',eye_drop=actual,
+                  control=helper.aggregate_roi_session(source('201','Control')))
+        table=helper.roi_quality_tables([item])['ROIWindowQuality']
+        row=table.query('SessionID=="101" and Set==1 and WindowIndex==0').iloc[0]
+        assert row.ValidChannelCount==2 and row.ValidChannelBits==768
+        for ch in ('FC5','FC6','C3','Cz','C4'):
+            malformed=source()
+            malformed.channel_names[malformed.channel_names.index(ch)]='unknown'
+            try: helper.aggregate_roi_session(malformed)
+            except ValueError as error: assert 'missing ROI channels' in str(error)
+            else: raise AssertionError('accepted missing '+ch)
+        for malformed in (np.zeros((3,5)),np.zeros(10),np.zeros((3,32))):
+            try: helper.finite_channel_mean(malformed)
+            except ValueError as error: assert 'ten-channel' in str(error)
+            else: raise AssertionError('accepted stale ROI shape')
         print(json.dumps({'ok':True}))
     """
     )
