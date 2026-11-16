@@ -423,6 +423,8 @@ subのSet 1はbaseline確認用で、t検定は行わない。被験者除外追
 
 ## 13. 2026-11-16：再検討後の実装・整理・検証
 
+**同日後続の整合確認**：下記は撤去時点の実績である。後続監査で旧版履歴CSV1件の不在を検出し、履歴の個人定量値から当時の1,189 bytes・SHA-256と完全一致する内容を復元した。原因は未確定。復元後の`--verify`は成功し、現行図・主数値・元cacheは不変。元の撤去記録を遡及編集せず、後続確認は[共通方針第10節](Phase4_除外あり追加解析の共通方針.md)とPhase 4共通`Sub/logs/No1_No3_No10_No11_CompletionAudit_20261116.json`へ分離した。
+
 2026-11-16 11:50:17–11:50:19 JST、同一の退役runnerで旧指定版の整理を実行し、実行記録は`status=completed`。**被験者除外を検討した上で追加版不要と決定した状態**へ、コード・現行表示・記録を揃えた。既存主結果には旧指定対象が既に含まれるため、PSD・群数値・主figureは再計算／再描画していない。
 
 実行は `run_phase4_no10_sub_exclusion_retirement.py --plan` → `--execute`。旧6 PNGを撤去し、旧9 CSV・1 JSONを `Sub/history/RetiredSpecifiedPairsExcluded_20261116/` へ相対パス・hashを保持して移管する。PNGは履歴へ複製しない。実行記録は `Sub/logs/No10_sub_SpecifiedPairsRetirement_20261116.json`。主結果の採用集合、旧版の不在、No11・topographyを含む保護対象の不変を確認する。

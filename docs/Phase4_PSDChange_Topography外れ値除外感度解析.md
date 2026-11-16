@@ -239,6 +239,8 @@ No1は311/6,144、No2は245/6,144、No3は435/6,144。同じ閾値でも帯域�
 
 ### 6.3 監査の正本
 
+**完了状態の参照先**：各NoのRunSummaryは生成・数値検証時点の`generated_and_numerically_verified_visual_review_pending`を保持する。後続の画像確認・独立監査・公開確認を含む最終状態は、Phase 4共通`Sub/logs/No123_sub_TopographySensitivity_RunSummary.json`の`delivery_verified`と対応Reviewを参照する。各Noの過去時点だけを読んで未完了と判定しない。2026-11-16の[共通方針第10節・完了時整合確認](Phase4_除外あり追加解析の共通方針.md)でも、現行の図・表のhash一致とこの完了記録を読み戻した。
+
 各No_subの `Sub/tables/TopographySensitivity/` に条件側指標、該当理由、paired OR後の候補と元欠測識別、群差・Nを保存する。各Noの`Sub/logs/`へ帯域別の実行要約、Phase 4共通`Sub/tables/No123TopographySensitivity/`へlive照合証跡・保護inventory、共通`Sub/logs/`へ3帯域横断のrun/reviewを保存する。設定version/hash、入力hash、保護検証、読戻し、数値監査、実画像確認、公開確認を分離して追跡する。行数は人数とは区別する。実ファイル名・件数は本番結果節に記録する。
 
 ## 7. 解釈上の限界
