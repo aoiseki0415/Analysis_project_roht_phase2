@@ -6,6 +6,8 @@
 
 ## 1. 目的・今回の範囲
 
+**No11・No11_subは、研究メインのNo1–3（sub・add等）とは分けた、Vプレ効果候補の追加探索。** No10のFz low-alphaと同じ定義をPzへ適用し、領域を変えたときの様相を確認する。Cキューブにも同じ解析を適用し、各製品内でEye Drop対Controlを比較する。FzとPzの図の違いだけを領域特異性の証明とはしない。[解析全体ガイド](Phase4_解析全体ガイド.md)と[Vプレ効果探索まとめ](Phase4_Vプレ効果探索まとめ.md)も参照する。
+
 | 項目 | No11 | No11_sub |
 |---|---|---|
 | 正式stem | `No11_PzLowAlpha` | `No11_sub_PzLowAlphaChange` |

@@ -6,6 +6,8 @@
 
 ## 1. 目的・対象・範囲
 
+**No12・No12_subは、研究メインのNo1–3（sub・add等）とは分けた、Vプレ効果候補の追加探索。** No10_subのtopographyを参考に、Fz単極から前頭〜中央ROIへ範囲を広げてlow-alphaの条件差を確認する。Cキューブにも同じ解析を適用し、各製品内でEye Drop対Controlを比較する。ROIは同じデータを参考に選んだため、独立した追試ではない。全体の位置付けは[解析全体ガイド](Phase4_解析全体ガイド.md)、経緯・現時点の示唆は[Vプレ効果探索まとめ](Phase4_Vプレ効果探索まとめ.md)を参照する。
+
 | 項目 | No12 | No12_sub |
 |---|---|---|
 | 正式stem | `No12_FrontalROILowAlpha` | `No12_sub_FrontalROILowAlphaChange` |

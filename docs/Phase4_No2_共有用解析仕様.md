@@ -4,6 +4,12 @@
 
 本書は、Phase 4 No2の4解析（No2：後頭alpha絶対PSD、No2_sub：OzのSet 1基準PSD Change、No2-2_sub：PzのSet 1基準PSD Change、No2_add：Oz Time-Frequency Map）を、同じ入力から同じ計算・同じfigureとして再現し、結果を正しく読めるようにまとめた唯一の現行仕様書です。会話や過去メモではなく、本書とNotionのPhase 4詳細ページを実装前に確認します。
 
+**Phase 4のメイン解析群はNo1–3（sub・addを含む）、No4–12はVプレの効果候補を探る追加・探索的解析です。** 本書はメイン解析群のNo2と、そのPz補助版No2-2_subを担当します。ただし、この構成上の「メイン」は、事後に追加した代表ch比較・TFM・除外感度分析まで事前登録済み／確認的検証であることを意味しません。全体の対応は[Phase 4解析全体ガイド](Phase4_解析全体ガイド.md)を参照してください。
+
+- 本文第2–20節：No2の絶対PSD。Part B：No2_sub・No2-2_subの変化率と除外追加版。Part C：No2_addのTFM。
+- 現行の除外方法と結果はPart B第6.1・7・12節、具体的対象の正本は[解析上の注意事項](解析上の注意事項.md)。旧条件・議論はリンク先のhistoryに分離します。
+- 文献に基づく機能的解釈は検討の根拠であり、本データだけで不注意・マインドワンダリング等を直接測定、原因特定したという意味ではありません。
+
 **2026-11-16の追加改訂：No2_sub CキューブとNo2-2_sub Vプレの指定被験者集合を再指定し、再実行・独立数値検証・全12追加PNG確認を完了。** 他製品群の採否・数値・定量化、主要版・個人・cache・topography v3は保持。Pz CキューブGAは共通軸を揃える表示更新だけ行いました。共通の判断スタンス・方法は[共通方針](Phase4_除外あり追加解析の共通方針.md)、旧条件・過程は[履歴](history/Phase4_sub被験者除外方針更新_20261116.md)、最新結果はPart B第12.1節です。
 
 Phase 4は、使用した目薬で被験者をCキューブ群とVロートプレミアム群に分け、製品群ごとにEye DropとControlを被験者内比較します。
@@ -536,7 +542,7 @@ Vロートプレミアム群は `VRohtoPremium` を使い、探索用の `Patter
 
 ## 18. 記録先
 
-Phase 4親ページにはNo1、No2、No3それぞれの本体／sub／addの概要だけを独立見出しで置きます。各解析は専用詳細ページ、専用スクリプト、専用cache、専用OneDriveルートで管理し、相互に混在させません。
+Phase 4親ページにはメイン解析No1–3とVプレ効果探索No4–12を分けて概要を置き、各解析の詳細は子ページへ分離します。本体／sub／addは専用スクリプトとOneDriveルートで管理します。本体とaddは別cacheを持ち、sub・Pz補助版No2-2_subは本体のcacheを再利用して独自cacheを作りません。
 
 Phase 4の被験者別結果表と日次解析記録はNotionへ作成しません。解析実行時は、対象範囲、製品群、利用可能Set、欠測Set、cache作成・検証、個人figure、topography、警告、失敗理由、集団結果の有効N、統計、成果物名をOneDriveの `Sub/logs/` と `Sub/tables/` のCSVへ保存します。観察結果と解釈を分け、コード・文書の変更履歴はGitで管理します。
 
@@ -683,6 +689,8 @@ Difference in PSD Change(ch, Set) = Eye Drop - Control
 - Pz補助版はNo2_subと同じ全32ch変化率を使うため、同一内容になるtopographyを重複生成しない。topographyの正本はOz主要版とする
 - 第6.1節とは独立した**ペア×ch×Set単位**の追加解析であり、被験者全体の除外ではない。条件別判定の片側該当をpaired ORで両条件へ反映する。2026-11-16の文書更新では方法・適用集合・出力を変更しない。
 
+**読み方：** 青はEye DropのSet 1基準変化率がControlより小さい方向、赤は大きい方向です。図の単位表記は `%` ですが、条件間の変化率差の実数単位はpercentage pointsです。青だけでは「Set 1よりパワーが低下した」「製品効果が有意」とは言えません。色面は電極値の描画補間で、有意差mapではありません。除外後はch・Setごとに人数が異なるため、Oz／Pzの被験者除外版の線図・定量化と同じ母集団とは限りません。
+
 ## 8. 欠測SetとSet 1欠測
 
 - 個人時間変化：通常は欠測側だけを非表示にし、対応条件側は表示する
@@ -762,6 +770,22 @@ Sub/logs/<方法版・除外集合・検証・保存先を記録>
 
 旧除外版の対象・出力範囲は[更新履歴](history/Phase4_sub被験者除外方針更新_20261116.md)へ分離します。旧追加4 PNGは撤去、旧10 CSVは各Sub/historyへ移管済みで、無印主要版とtopographyは上書きしていません。
 
+topography追加版は上記の被験者除外版とは別の場所・単位で管理します。Pz版には重複生成せず、次のNo2_subにある全32chの図を参照します。
+
+```text
+Phase4_脳波解析/
+  No2_sub_OccipitalAlphaChange/<CCube | VRohtoPremium>/Topography/GrandAverage/
+    No2_sub_OccipitalAlphaChange_Topography_GrandAverage_<製品>.png
+    No2_sub_OccipitalAlphaChange_Topography_GrandAverage_<製品>_ExploratorySpatialTemporalExcluded.png
+  補足分析（被験者除外あり）/No2_sub_OccipitalAlphaChange/<製品>/GrandAverage/
+    No2_sub_OccipitalAlphaChange_Topography_GrandAverage_<製品>_BeforeOutlierExclusion.png
+    No2_sub_OccipitalAlphaChange_Topography_GrandAverage_<製品>_AfterOutlierExclusion.png
+```
+
+- 無印／Beforeは追加セル除外なしの原図、`ExploratorySpatialTemporalExcluded`／Afterは最新v3です。前者にもPhase 1区間mask・log3SD・既知欠測は適用済みです。同じ2図を比較用フォルダにも複製しており、別解析ではありません。
+- `補足分析（被験者除外あり）`は既存フォルダ名ですが、実際の除外単位は**ペア×ch×Set**です。代表chの `SpecifiedPairsExcluded` とは異なります。
+- 除外前後で色軸は再設定されます。色の濃さだけを比較せず、colorbarと `Sub/tables/TopographySensitivity/group_audit.csv` の群値・Nを併読します。対象・理由は同フォルダの `excluded_cells.csv`／`session_flags.csv`、旧版監査は `Sub/history/` です。
+
 ## 11. 実行モード
 
 - `--preflight-only`：cacheとSet 1 baselineを検証するだけ
@@ -792,7 +816,7 @@ No2_subとNo2-2_subにPSD再計算モードは設けません。figure調整時�
 - GA軸はOz両製品±80%を保持、Pz両製品±90%（目盛−80／−40／0／40／80%）へ再設定。Pz Cキューブの数値・SEM・定量化は不変で、表示上限だけの変更です。
 - 独立計算で24 CSV・5,836行を照合し、対象2解析の全12追加PNGを開いてArial・ラベル・Set名／n.s.・点の収まりを確認。既存出力と元cacheの保護対象2,164ファイルはhash一致。関連36テスト＋既存帯域4テストが成功し、Ruff・compile確認も通過しました。
 - 主結果・個人・topography・元cache・他Noは保持。No1_sub／No3_subを今回再実行・再監査したとは扱いません。OneDriveローカル保存・読戻しは確認済み、クラウド同期完了は未検証です。
-- 群値・個人値・統計・採否は本NoのSub/tables、実行・画像検証はSub/logs。独立検証はNo2_subの `Sub/logs/SpecifiedPairsExcluded_IndependentValidation_20261116_Revision2.json`、実行時の注意は `SpecifiedPairsExcluded_Revision2_ExecutionNotes_20261116.json`。共通結果は[共通方針第7節](Phase4_除外あり追加解析の共通方針.md#7-最新の実行結果検証2026-11-16)を参照。
+- 群値・個人値・統計・採否は本NoのSub/tables、実行・画像検証はSub/logs。独立検証はNo2_subの `Sub/logs/SpecifiedPairsExcluded_IndependentValidation_20261116_Revision2.json`、実行時の注意は `SpecifiedPairsExcluded_Revision2_ExecutionNotes_20261116.json`。共通結果は[共通方針](Phase4_除外あり追加解析の共通方針.md)第7節を参照。
 
 ### 12.2 旧指定による実行記録：2026-10-25（新集合の結果ではない）
 
@@ -1001,4 +1025,4 @@ No2_addはGrand-averageだけを作るため、該当Setでは欠測セッショ
 
 2026-10-04に全40ペア・80セッションへ同一スクリプトを実行し、80件のcache、476件の利用可能Set、既知欠測4 Set、2製品の3段TFM、各18,000行の値・有効N表、mask監査表、共通カラースケール表、実行ログを読み戻して上記条件を満たすことを確認しました。
 
-最終更新：2026年11月16日（No2_sub／No2-2_sub指定集合の追加改訂。No2本体・TFM・topographyは変更なし）
+最終更新：2026年11月16日（メイン解析群の位置付けと共有用案内を整理。現行の方法・結果・除外指定・Figureは変更なし）
