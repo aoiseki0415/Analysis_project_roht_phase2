@@ -21,7 +21,7 @@
 - FCz・F1・F2は今回の記録32chに存在しないため含めず、欠けた電極を補間・推定してROIへ加えない。
 - [No10仕様](Phase4_No10_解析仕様.md)・[No11仕様](Phase4_No11_解析仕様.md)の最新計算・図・保存方式を継承する。新規部分は**品質処理後・平滑化前のch間平均**と、そのROI平均を基準にするsub変換である。
 - **Topography・TFMは生成しない。** 同じ全32ch low-alphaのmapはNo10と重複し、ROI値自体は1系列である。既存map、個人図、他Noの成果物は変更しない。
-- 初回は追加の定性的被験者除外なし。他Noの被験者除外、topographyのペア×ch×Set除外、IAF選別を持ち込まない。将来のROIの信号品質確認後に追加版を検討できるが、今回はその対象・結果を先回りして作らない。
+- **No12_subのGrand-average・定量化は、個人データの信号品質を検討した上で、Cキューブ・Vプレとも被験者除外の追加解析を不要と確定した（2026-11-16）。未検討・判断保留ではない。** 利用者の定性的評価では被験者単位の除外を必要とする信号品質上の問題は認められないと判断した。No10_subと同じ判断姿勢・結論だが、除外集合の転用や数値結果の同一性を意味しない。No12絶対PSDの扱いは変更しない。他Noの被験者除外、topographyのペア×ch×Set除外、IAF選別を持ち込まない。
 
 ## 2. 対象・条件対応・欠測
 
@@ -218,8 +218,8 @@ No12の実アスタリスク中心は`1.17M−.018×(y上限−y下限)`。n.s.�
 - 実装版は本体`20261116_frontocentral_roi10_lowalpha_cached_v2`、sub `20261116_frontocentral_roi10_lowalpha_change_cached_v2`。仮想1系列の内部名は`FrontalROI`。出力設定hashにはROI・演算順序・配色と、実装helper／継承するNo1本体・sub／No11描画helperのsource SHAを記録し、元No10 cacheの設定hashとは分ける。
 - 全対象へ同じ版・同じ固定パラメータを適用する。少人数試行の後も個人専用の変更を残さず、全員を同じentrypointから処理する。
 - runtimeはrepositoryの`.venv/bin/python`。実装・実行前に[Python環境](Python環境.md)を確認する。コマンド・版・source hash・出力hash・警告・失敗・再実行理由はSubへ記録する。
-- 初回は追加除外なし。既存No10／No11／topographyの指定集合を読んで自動適用しない。後日、ROIの信号品質に基づく新しい指定が確定した場合だけ、主結果・個人図を保持して追加版を実装する。
-- 将来の指定版はGrandAverage直下に識別suffix付きPNG、定量化は`SetQuantification/SpecifiedPairsExcluded/`。追加版の数値・軸・統計は残存ペアから再計算し、採否・理由を分離記録する。**今回このフォルダ・追加図は生成しない。**
+- No12_subは信号品質の検討を完了し、両製品とも追加除外なし・既存主結果を採用する。既存No10／No11／topographyの指定集合を自動適用しない。Phase 1窓mask、ch別log3SD、既知欠測のpaired処理、subのSet 1 baseline要件は維持する。
+- **GrandAverageへの除外追加PNG、`SetQuantification/SpecifiedPairsExcluded/`、除外追加統計は生成しない。** 同じ集合の重複版や空フォルダも作らない。将来、新しい信号品質所見と明示的な決定がある場合だけ別途改訂するのであり、現時点で追加版の実行を予定・保留しているわけではない。
 
 ## 9. 保存先・フォルダの読み方
 
@@ -370,3 +370,7 @@ sub Set 1はbaseline有効人数で、t検定を実施したNではない。既�
 - `No12_Pytest.xml`／`No12_ReviewManifest.json`／`No12_DeliveryVerification.json`：最終試験、19画像・文書・Notionの確認、数値再照合・保護hash・Git公開SHAの引渡し証跡。
 - 各Noの`<stem>_RunSummary.json`：実行版・対象・設定・source・出力。数値正本は現行Sub表と製品別SetQuantification統計CSV。
 - 最終テスト・画像・Notion読戻し・Git commit／push／remote一致は引渡し確認へ記録する。**数値実行成功だけをGit公開やクラウド同期完了の根拠としない。**
+
+### 11.7 信号品質確認後の採用判断（2026-11-16）
+
+利用者の個人データ確認を受け、No12_subのGrand-average・定量化は両製品とも被験者除外の追加解析を不要と確定した。第11節の既存39ペア（C20／V19）・45 PNG・数値結果をそのまま採用する。今回の対応は文書上の判断更新のみで、再計算・再描画・新しい品質検査は実施しない。これは信号にノイズが全くないことの証明ではない。現行方法は第1・8節、旧段階と判断理由は専用履歴第5節へ分離する。
